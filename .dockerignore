@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+.histoire
+**/.histoire
+data
+.fermi-work
+.git
+.env
+test-results
+playwright-report
+*~

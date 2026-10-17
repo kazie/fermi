@@ -1,0 +1,13 @@
+node_modules
+dist
+*.local
+.env
+*.tsbuildinfo
+.DS_Store
+coverage
+.histoire
+data/
+.fermi-work/
+test-results/
+playwright-report/
+*~

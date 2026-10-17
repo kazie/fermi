@@ -1,0 +1,20 @@
+{
+  "name": "@fermi/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --watch-path=src --watch-path=../../packages/shared/src src/index.ts",
+    "dev:lan": "node --watch --watch-path=src --watch-path=../../packages/shared/src src/index.ts",
+    "start": "node src/index.ts"
+  },
+  "dependencies": {
+    "@fermi/shared": "workspace:*",
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.13",
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@fermi/client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:lan": "vite --host",
+    "build": "vue-tsc -b && vite build",
+    "type-check": "vue-tsc -b",
+    "preview": "vite preview",
+    "story:dev": "histoire dev",
+    "story:build": "histoire build",
+    "story:preview": "histoire preview --port 6007"
+  },
+  "dependencies": {
+    "@fermi/shared": "workspace:*",
+    "qrcode": "^1.5.4",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {
+    "@histoire/plugin-vue": "1.0.0-beta.1",
+    "@types/qrcode": "^1.5.6",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "@vue/test-utils": "^2.5.1",
+    "@vue/tsconfig": "^0.9.1",
+    "happy-dom": "^20.14.5",
+    "histoire": "1.0.0-beta.1",
+    "vite": "^8.3.1",
+    "vue-tsc": "^3.3.11"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "fermi",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": ">=24.2"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @fermi/server --filter @fermi/client dev",
+    "dev:lan": "pnpm --parallel --filter @fermi/server --filter @fermi/client dev:lan",
+    "build": "pnpm --filter @fermi/client build",
+    "start": "node apps/server/src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc -p packages/shared && tsc -p apps/server && pnpm --filter @fermi/client type-check",
+    "story:dev": "pnpm --filter @fermi/client story:dev",
+    "story:build": "pnpm --filter @fermi/client story:build",
+    "q": "node scripts/questions-cli.ts",
+    "test:e2e": "playwright test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check": "pnpm format:check && pnpm lint && pnpm type-check && pnpm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.55.1",
+    "@types/node": "^26.6.2",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.11.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.0"
+  }
+}

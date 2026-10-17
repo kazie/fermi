@@ -1,0 +1,35 @@
+/* Calculator syntax colours, shared by the editor overlay and read-only working views. */
+.syn-num {
+  color: var(--syn-num);
+}
+.syn-var {
+  color: var(--syn-var);
+}
+.syn-name {
+  color: var(--syn-name);
+  font-weight: 600;
+}
+.syn-const {
+  color: var(--syn-const);
+}
+.syn-fn {
+  color: var(--syn-fn);
+}
+.syn-op {
+  color: var(--syn-op);
+}
+.syn-paren {
+  color: var(--text-dim);
+}
+.syn-comment {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+.syn-unknown {
+  color: var(--syn-unknown);
+}
+.syn-error {
+  text-decoration: underline wavy var(--danger);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 4px;
+}

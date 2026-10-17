@@ -1,0 +1,9 @@
+pnpm-lock.yaml
+**/dist
+**/.histoire
+data
+.fermi-work
+test-results
+playwright-report
+coverage
+content/*.json
