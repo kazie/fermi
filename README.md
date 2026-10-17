@@ -199,19 +199,6 @@ Node version: see `.node-version`. Editor settings: `.editorconfig`.
 - **Stories** (`workflows/stories.yml`) publishes the Histoire stories to GitHub Pages on pushes to
   `master`. They use only fake fixtures, never real questions.
 
-**One-time GitHub setup after the first push:**
-
-```bash
-gh repo edit kazie/fermi --enable-auto-merge --delete-branch-on-merge
-gh api -X PUT repos/kazie/fermi/vulnerability-alerts            # Dependabot alerts
-gh api -X PUT repos/kazie/fermi/automated-security-fixes        # Dependabot security updates
-gh api -X POST repos/kazie/fermi/pages -f build_type=workflow   # Pages from GitHub Actions
-gh api -X PUT repos/kazie/fermi/branches/master/protection --input - <<'JSON'
-{ "required_status_checks": { "strict": true, "contexts": ["ci-ok"] },
-  "enforce_admins": false, "required_pull_request_reviews": null, "restrictions": null }
-JSON
-```
-
 ### Code layout
 
 | Path              |                                                                                                                                         |
