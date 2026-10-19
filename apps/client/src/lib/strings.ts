@@ -1,3 +1,5 @@
+import { MIN_PLAYERS } from '@fermi/shared'
+
 // All user-facing copy in one place, so a translation can slot in later.
 export const S = {
   appName: 'Fermi',
@@ -34,6 +36,7 @@ export const S = {
   start: 'Start game',
   playAgain: 'Play again',
   waitingForHost: 'Waiting for the host…',
+  needPlayers: (missing: number) => `FerMEANie needs at least ${MIN_PLAYERS} test subjects to be the average of. Invite ${missing} more.`,
   rounds: 'Rounds',
   timer: 'Seconds per question',
   connecting: 'Connecting…',

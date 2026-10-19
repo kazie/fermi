@@ -71,6 +71,8 @@ CREATE TABLE games (
 CREATE TABLE fermeanie (
   id           INTEGER PRIMARY KEY CHECK (id = 1),
   wins         INTEGER NOT NULL DEFAULT 0,
-  games_played INTEGER NOT NULL DEFAULT 0
+  games_played INTEGER NOT NULL DEFAULT 0,
+  -- games lost in a row; humble_pie lines after a few
+  loss_streak  INTEGER NOT NULL DEFAULT 0
 );
 INSERT INTO fermeanie (id) VALUES (1);

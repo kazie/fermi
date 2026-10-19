@@ -8,6 +8,7 @@ const host = lobbyRoom(4)
 const guest = { ...lobbyRoom(4), you: 'p2' }
 const empty = lobbyRoom(1, { poolSize: 0 })
 const few = { ...lobbyRoom(3, { poolSize: 6 }) }
+const twoPlayers = lobbyRoom(2)
 const hostState = () => ({ room: JSON.parse(JSON.stringify(host)) as RoomView })
 const setSettings = (state: { room: RoomView }, s: RoomSettings) => (state.room.settings = s)
 const guestHostPaced = { ...guest, settings: { ...guest.settings, pacing: 'host' as const } }
@@ -32,6 +33,9 @@ const guestHostPaced = { ...guest, settings: { ...guest.settings, pacing: 'host'
     ></Variant>
     <Variant title="Guest, host pacing"
       ><div class="page"><Lobby :room="guestHostPaced" join-url="https://fermi.example/r/FRMI" /></div
+    ></Variant>
+    <Variant title="Too few players to start"
+      ><div class="page"><Lobby :room="twoPlayers" join-url="https://fermi.example/r/FRMI" /></div
     ></Variant>
     <Variant title="No questions yet"
       ><div class="page"><Lobby :room="empty" join-url="https://fermi.example/r/FRMI" /></div

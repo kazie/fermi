@@ -19,9 +19,21 @@ describe('line markup', () => {
     const full = text()
     expect(full.find('.s').text()).toBe('Ada will lose.')
     expect(full.find('.b').text()).toBe('you')
-    expect(full.find('.redacted').attributes('tabindex')).toBe('0')
-    expect(text(17).text()).toBe('Ada will lose. I') // the markers don't count
-    expect(mount(FerText, { props: { text: '<b>hi</b>' } }).text()).toBe('<b>hi</b>')
+    expect(text(17).find('.shown').text()).toBe('Ada will lose. I') // the markers don't count
+    expect(
+      mount(FerText, { props: { text: '<b>hi</b>' } })
+        .find('.shown')
+        .text(),
+    ).toBe('<b>hi</b>')
+  })
+
+  it('keeps redactions redacted for screen readers, and peeks on tap', async () => {
+    const full = mount(FerText, { props: { text: line } })
+    expect(full.find('.shown').attributes('aria-hidden')).toBe('true')
+    expect(full.find('.sr-only').text()).toBe(spoken(line))
+    expect(full.find('[tabindex]').exists()).toBe(false) // no focus stops, also inside FermeanieSays' aria-hidden bubble
+    await full.find('.redacted').trigger('click')
+    expect(full.find('.redacted').classes()).toContain('peek')
   })
 })
 

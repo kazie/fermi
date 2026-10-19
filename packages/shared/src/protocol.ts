@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { CrowdStats } from './crowd.ts'
+import { MIN_CROWD, type CrowdStats } from './crowd.ts'
 import type { PublicQuestion, RevealedQuestion } from './question.ts'
 import type { DunceKind } from './scoring.ts'
 import { LIMITS } from './calc/evaluate.ts'
@@ -10,6 +10,12 @@ export const TIMER_OPTIONS = [30, 60, 90] as const
 export const BREAK_OPTIONS = [0, 15, 30, 60] as const
 export const DEFAULT_BREAK_SEC = 30
 /** `timer`: breaks count down on their own. `host`: after each reveal, everyone waits until the host taps Next. */
+/** Players needed to start: FerMEANie sits out any round with fewer answers, and Fermi is a game for friends. */
+export const MIN_PLAYERS = MIN_CROWD
+
+/** How many more connected players the lobby needs before the game can start. */
+export const playersMissing = (players: { connected: boolean }[]) => Math.max(0, MIN_PLAYERS - players.filter((p) => p.connected).length)
+
 export const PACING_OPTIONS = ['timer', 'host'] as const
 export type Pacing = (typeof PACING_OPTIONS)[number]
 /** With a break coming, the reveal's scoreboard step is short: the break shows the scores anyway. */

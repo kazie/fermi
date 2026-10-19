@@ -212,9 +212,7 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
   admin.get('/stats', (c) =>
     c.json({
       byStatus: db.prepare('SELECT status, COUNT(*) AS n FROM questions GROUP BY status').all(),
-      byCategory: db
-        .prepare("SELECT category, COUNT(*) AS n FROM questions WHERE status = 'active' GROUP BY category ORDER BY n DESC")
-        .all(),
+      byCategory: db.prepare("SELECT category, SUM(status = 'active') AS n FROM questions GROUP BY category ORDER BY n DESC").all(),
       rejections: (db.prepare('SELECT COUNT(*) AS n FROM question_rejections').get() as { n: number }).n,
       openDisputes: openDisputes(db).length,
     }),

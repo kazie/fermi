@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import {
   BREAK_OPTIONS,
   estimateGameMinutes,
+  playersMissing,
   PACING_OPTIONS,
   ROUND_OPTIONS,
   TIMER_OPTIONS,
@@ -26,6 +27,7 @@ const isHost = computed(() => props.room.hostId === props.room.you)
 const narrow = useMediaQuery('(max-width: 899px)')
 const showQr = ref(false)
 const hostPaced = computed(() => props.room.settings.pacing === 'host')
+const missingPlayers = computed(() => playersMissing(props.room.players))
 const minutes = computed(() => estimateGameMinutes(props.room.settings, props.room.players.length))
 const pacingLabel = { timer: S.pacingTimer, host: S.pacingHost }
 /** A big screen shows the QR code already, so phones don't need it. */
@@ -169,7 +171,14 @@ function set(change: Partial<RoomSettings>) {
         </p>
         <p v-if="room.poolSize === 0" class="warn">There are no questions in the database yet. Generate some first (see README).</p>
         <p v-else-if="tooFewQuestions" class="warn">Only {{ room.poolSize }} questions available; the game will end early.</p>
-        <button v-if="isHost" class="btn btn-primary btn-block start" type="button" :disabled="room.poolSize === 0" @click="emit('start')">
+        <p v-if="missingPlayers" class="warn">{{ S.needPlayers(missingPlayers) }}</p>
+        <button
+          v-if="isHost"
+          class="btn btn-primary btn-block start"
+          type="button"
+          :disabled="room.poolSize === 0 || missingPlayers > 0"
+          @click="emit('start')"
+        >
           ▶ {{ S.start }}
         </button>
         <p v-else class="muted center">{{ S.waitingForHost }}</p>

@@ -9,6 +9,7 @@ import {
   formatFactor,
   formatNumber,
   isPieRelease,
+  MIN_PLAYERS,
   REVEAL_TIMING,
   SCOREBOARD_BEFORE_BREAK_MS,
   scoreRound,
@@ -119,6 +120,8 @@ export class Room {
   private screens = new Set<Conn>()
   /** `endsAt` and `votes` only with timed breaks; with host pacing the break lasts until the host taps Next. */
   private breakState: { index: number; startedAt: number; line: string; timed?: { endsAt: number; votes: Set<string> } } | null = null
+  /** This break's host_wait line per host, so a host handed back and forth keeps their line. */
+  private hostWaitLines = new Map<string, string>()
   private fermeanieScore = 0
   private game: GameState | null = null
   private round: RoundState | null = null
@@ -220,7 +223,9 @@ export class Room {
     const current = this.hostId ? this.players.get(this.hostId) : undefined
     if (current && current.conns.size) return
     const next = [...this.players.values()].filter((p) => p.name !== null && p.conns.size > 0).sort((a, b) => a.joinedAt - b.joinedAt)[0]
-    this.hostId = next?.id ?? this.hostId
+    if (!next) return
+    this.hostId = next.id
+    // the waiting line names the host
     if (this.phase === 'break' && this.breakState && this.hostPaced) this.breakState.line = this.breakLine()
     this.broadcast()
   }
@@ -265,6 +270,7 @@ export class Room {
         if (!isHost) return fail('Only the host can start the game')
         if (this.phase !== 'lobby') return
         if (countActive(this.deps.db) === 0) return fail('There are no questions in the database yet')
+        if (this.connectedPlayers().length < MIN_PLAYERS) return fail(`Fermi needs at least ${MIN_PLAYERS} players`)
         this.startGame()
         return
       case 'draft':
@@ -392,7 +398,7 @@ export class Room {
     if (index === 0) return game.lines.pick('intro', { count })
     const names = this.standings()
     const previous = game.leader
-    game.leader = names.leader
+    if (names.leader) game.leader = names.leader // a tie keeps the last leader, so Ada → tie → Bob is still a lead change
     if (index === this.settings.rounds - 1) return game.lines.pick('final_round', names)
     if (names.leader && previous && names.leader !== previous) return game.lines.pick('lead_change', { name: names.leader, previous })
     return game.lines.pick('quip', names)
@@ -485,7 +491,9 @@ export class Room {
       verdict = lines.pick('defeated', { name: best ? name(best.playerId) : 'someone' })
     }
     const bull = ranked.find((x) => x.bonusKind === 'bullseye')
-    const lockedEarly = ids.length >= 2 && r.endsAt - start >= (this.settings.timerSec * 1000) / 2
+    // everyone, not just the connected players maybeEndEarly waited for
+    const lockedEarly =
+      ids.length >= 2 && ids.every((id) => r.sheets.get(id)?.locked) && r.endsAt - start >= (this.settings.timerSec * 1000) / 2
     const twins = sameAnswer(entries)
     const outlierIds = (score.crowd?.outliers ?? []).map((i) => entries[i].playerId)
 
@@ -581,6 +589,7 @@ export class Room {
 
   private startBreak(index: number) {
     const startedAt = this.now()
+    this.hostWaitLines.clear()
     const ms = this.settings.breakSec * 1000 * (this.deps.timeScale ?? 1)
     this.breakState = {
       index,
@@ -596,7 +605,12 @@ export class Room {
   private breakLine(): string {
     const { lines } = this.game!
     if (!this.hostPaced) return lines.pick('break_time', { leader: this.standings().leader })
-    return lines.pick('host_wait', { host: (this.hostId && this.players.get(this.hostId)?.name) || 'the host' })
+    const host = (this.hostId && this.players.get(this.hostId)?.name) || 'the host'
+    const kept = this.hostWaitLines.get(host)
+    if (kept !== undefined) return kept
+    const line = lines.pick('host_wait', { host })
+    this.hostWaitLines.set(host, line)
+    return line
   }
 
   /** A majority of connected players; screens and disconnected players don't count. */

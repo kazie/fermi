@@ -57,6 +57,10 @@ describe('quoteExcerpt', () => {
     expect(excerpt).toBe('…s. Intro words. The Tower has 2.5 million rivets, says the operator.…')
   })
 
+  it('accepts a quote that starts or ends mid-word, like the ingest checks', () => {
+    expect(quoteExcerpt(page, 'ower has 2.5 million riv', 5)).toBe('…The Tower has 2.5 million rivets, say…')
+  })
+
   it('returns null when the page lacks the quote', () => {
     expect(quoteExcerpt(page, 'The Tower has 3 million rivets')).toBeNull()
   })

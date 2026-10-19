@@ -83,6 +83,17 @@ function openSocket(code: string, key: string) {
 }
 type Snap = Extract<ServerMessage, { type: 'snapshot' }>
 
+/** Two more players, so a game can start (it needs MIN_PLAYERS). Call `leave` once it has: they never answer. */
+async function benchPlayers(code: string) {
+  const bench = ['x', 'y'].map((k) => openSocket(code, k.repeat(43)))
+  for (const [i, b] of bench.entries()) {
+    await b.opened
+    b.send({ type: 'join', name: `Bench ${i + 1}` })
+    await b.waitFor((m) => m.type === 'snapshot' && m.room.you !== '')
+  }
+  return { leave: () => bench.forEach((b) => b.ws.close()) }
+}
+
 describe('identity and abuse protection', () => {
   it('a public id is not a credential: other players never see keys, and a copied id gets you nowhere', async () => {
     const { code } = (await (await post('/api/rooms', {}, {})).json()) as any
@@ -131,8 +142,10 @@ describe('identity and abuse protection', () => {
     await p.opened
     p.send({ type: 'join', name: 'Cleo' })
     await p.waitFor((m) => m.type === 'snapshot' && m.room.players.length === 1)
+    const bench = await benchPlayers(code)
     p.send({ type: 'start' })
     const snap = (await p.waitFor((m) => m.type === 'snapshot' && m.room.phase === 'question')) as Snap
+    bench.leave()
     expect(snap.room.round!.question.id).toBe('live-q')
     expect((await fetch(`http://${base}/api/questions/live-q`)).status).toBe(404) // no peeking mid-round
     p.send({ type: 'lock', text: '700' })
@@ -237,11 +250,13 @@ describe('websocket game', () => {
     await new Promise((r) => ws.addEventListener('open', r))
     ws.send(JSON.stringify({ type: 'join', name: 'Solo' }))
     await waitFor((m) => m.type === 'snapshot' && m.room.players.length === 1)
+    const bench = await benchPlayers(code)
     ws.send(JSON.stringify({ type: 'start' }))
     const q = (await waitFor((m) => m.type === 'snapshot' && m.room.phase === 'question')) as Extract<ServerMessage, { type: 'snapshot' }>
+    bench.leave()
     ws.send(JSON.stringify({ type: 'lock', text: '2.5M' }))
     const rv = (await waitFor((m) => m.type === 'snapshot' && m.room.phase === 'reveal')) as Extract<ServerMessage, { type: 'snapshot' }>
-    expect(rv.room.reveal!.cards[0].bonusKind).toBe('bullseye')
+    expect(rv.room.reveal!.cards.find((c) => c.name === 'Solo')!.bonusKind).toBe('bullseye')
     expect(rv.room.reveal!.lines.verdict).toMatch(/abstain/)
 
     ws.send(JSON.stringify({ type: 'ping', t: 1 }))

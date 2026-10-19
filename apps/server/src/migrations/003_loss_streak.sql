@@ -1,1 +1,0 @@
-ALTER TABLE fermeanie ADD COLUMN loss_streak INTEGER NOT NULL DEFAULT 0;

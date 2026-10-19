@@ -5,8 +5,6 @@ on why they'd be fun or useful.
 
 ## Gameplay
 
-- **Solo practice against FerMEANie.** For when only one or two people are around. FerMEANie's swarm needs at least
-  3 answers, so it would need a stand-in (past answers to the same question, or a fixed "house" estimate).
 - **Category picker / question packs** in the lobby. Only worth it once the pool is big enough that a pack still
   fills a game.
 - **Reactions:** quick emoji taps on reveal cards, shown briefly on every screen. Cheap fun while the cards flip.
@@ -41,3 +39,6 @@ on why they'd be fun or useful.
   everyone gets), and a changelog-style release note on every win.
 - **Fluent features.** Terms and message references were left out: they only add naming consistency, and plain
   lines are easier to write and check. Selectors on numbers (plurals and exact cases like `[2] twice`) are allowed.
+- **No solo or two-player games.** Fermi is a game for friends, and FerMEANie, the swarm, needs at least 3 answers to
+  play a round. A game needs `MIN_PLAYERS` (3) connected players to start; solo practice against a stand-in swarm was
+  dropped.

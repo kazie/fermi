@@ -40,6 +40,9 @@ One container serves the client, the websocket and the API; the SQLite database 
 
 ### Hosting
 
+Fermi is a game for friends: it needs **at least 3 players**, because FerMEANie, the swarm of all your answers, only
+plays a round with 3 or more answers. There is no solo mode.
+
 - **Host a game:** everyone plays on their own device. The first player to join is the host: they pick the settings
   and press Start.
 - **Host on a big screen:** for a group in one room. Open the site on a TV or laptop and choose **Host on a big

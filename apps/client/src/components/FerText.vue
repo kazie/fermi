@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { MarkupSegment } from '@fermi/shared'
-import { segments } from '@/lib/markup'
+import { segments, spoken } from '@/lib/markup'
 
 const props = withDefaults(
   defineProps<{
@@ -14,6 +14,13 @@ const props = withDefaults(
 )
 
 const parsed = computed(() => segments(props.text))
+/** Redactions peeked at by tapping (hover peeks too). */
+const peeked = ref(new Set<number>())
+const peek = (i: number) => peeked.value.add(i)
+watch(
+  () => props.text,
+  () => peeked.value.clear(),
+)
 // Recomputed on every typewriter tick, so it only slices the parsed segments.
 const visible = computed(() => {
   let left = props.shown
@@ -28,14 +35,17 @@ const visible = computed(() => {
 </script>
 
 <template>
+  <!-- Screen readers get the spoken text, where a redaction stays redacted, instead of the styled pieces. -->
   <span class="fer-text"
-    ><span
-      v-for="(s, i) in visible"
-      :key="i"
-      :class="{ b: s.bold, i: s.italic, s: s.strike, redacted: s.redacted }"
-      :tabindex="s.redacted ? 0 : undefined"
-      >{{ s.text }}</span
-    ></span
+    ><span class="shown" aria-hidden="true"
+      ><span
+        v-for="(s, i) in visible"
+        :key="i"
+        :class="{ b: s.bold, i: s.italic, s: s.strike, redacted: s.redacted, peek: peeked.has(i) }"
+        @click="s.redacted && peek(i)"
+        >{{ s.text }}</span
+      ></span
+    ><span class="sr-only">{{ spoken(text) }}</span></span
   >
 </template>
 
@@ -50,7 +60,7 @@ const visible = computed(() => {
   text-decoration: line-through;
   text-decoration-thickness: 2px;
 }
-/* A black bar; tap, hover or focus to peek. */
+/* A black bar; tap or hover to peek. */
 .redacted {
   background: currentColor;
   border-radius: 2px;
@@ -58,9 +68,7 @@ const visible = computed(() => {
   transition: background-color 0.2s;
 }
 .redacted:hover,
-.redacted:focus-visible,
-.redacted:focus {
+.redacted.peek {
   background: rgba(255, 255, 255, 0.12);
-  outline: none;
 }
 </style>

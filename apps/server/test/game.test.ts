@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { RoomView, ServerMessage } from '@fermi/shared'
+import { MIN_PLAYERS, type RoomView, type ServerMessage } from '@fermi/shared'
 import { Room, DEADLINE_GRACE_MS, HOST_HANDOVER_MS, quipNames } from '../src/game.ts'
 import { getQuestion } from '../src/questions/repo.ts'
 import { makeQuestion, seed, testDb, testLines } from './fixtures.ts'
@@ -64,9 +64,21 @@ describe('Room', () => {
   })
 
   it('refuses to start with an empty question pool', () => {
-    const { room, players } = setup(1, 0)
+    const { room, players } = setup(3, 0)
     room.handle(players[0].id, { type: 'start' }, players[0].conn)
     expect(players[0].conn.errors.at(-1)).toMatchObject({ message: /no questions/ })
+  })
+
+  it(`needs ${MIN_PLAYERS} connected players to start, so FerMEANie can play`, () => {
+    const { room, players } = setup(3)
+    const [a, , c] = players
+    room.disconnect(c.id, c.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    expect(a.conn.errors.at(-1)).toMatchObject({ message: /at least 3 players/ })
+    expect(a.conn.last.phase).toBe('lobby')
+    room.connect(c.id, c.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    expect(a.conn.last.phase).toBe('question')
   })
 
   it('plays a full game: answers hidden until reveal, dunce caps, median switch, steal, final', () => {
@@ -189,7 +201,7 @@ describe('Room', () => {
 
   /** Plays 5 rounds where only Ada answers (exactly), unless `silent`: then nobody answers. FerMEANie has already lost `lossStreak` in a row. */
   function humansWinAGame({ silent = false, lossStreak = 0 } = {}) {
-    const ctx = setup(2)
+    const ctx = setup(3)
     const { db, room, players, answerOf } = ctx
     db.prepare('UPDATE fermeanie SET loss_streak = ?').run(lossStreak)
     const [a] = players
@@ -228,22 +240,26 @@ describe('Room', () => {
     }
     seed(db, 4)
     const room = new Room('TMPL', { db, lines: testLines })
-    const c = new FakeConn()
-    room.connect('only-player-1234', c)
-    room.handle('only-player-1234', { type: 'join', name: 'Solo' }, c)
-    room.handle('only-player-1234', { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0 }, c)
-    room.handle('only-player-1234', { type: 'start' }, c)
+    const players = ['Ada', 'Bob', 'Cyd'].map((name) => {
+      const p = { id: `${name}-player-1234`, conn: new FakeConn() }
+      room.connect(p.id, p.conn)
+      room.handle(p.id, { type: 'join', name }, p.conn)
+      return p
+    })
+    const c = players[0].conn
+    room.handle(players[0].id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0 }, c)
+    room.handle(players[0].id, { type: 'start' }, c)
     const asked: string[] = []
     for (let i = 0; i < 5; i++) {
       asked.push(c.last.round!.question.id)
-      room.handle('only-player-1234', { type: 'lock', text: '1' }, c)
+      for (const p of players) room.handle(p.id, { type: 'lock', text: '1' }, p.conn)
       vi.advanceTimersByTime(c.last.reveal!.timeline.endsAt - Date.now())
     }
     expect(asked.filter((id) => id.startsWith('tmpl-')).length).toBeLessThanOrEqual(1)
   })
 
   it('mid-round joiners spectate until the next round', () => {
-    const { room, players } = setup(2)
+    const { room, players } = setup(3)
     const [a] = players
     room.handle(a.id, { type: 'start' }, a.conn)
     const late = new FakeConn()
@@ -252,8 +268,7 @@ describe('Room', () => {
     expect(late.last.players.find((p) => p.name === 'Late')!.spectating).toBe(true)
     expect(late.last.yourSheet).toBeUndefined()
     room.handle('late-player-123', { type: 'lock', text: '5' }, late) // ignored
-    room.handle(players[0].id, { type: 'lock', text: '5' }, players[0].conn)
-    room.handle(players[1].id, { type: 'lock', text: '6' }, players[1].conn)
+    for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
     expect(late.last.reveal!.cards.map((c) => c.name)).not.toContain('Late')
     vi.advanceTimersByTime(late.last.reveal!.timeline.endsAt - Date.now())
     expect(late.last.players.find((p) => p.name === 'Late')!.spectating).toBe(false)
@@ -261,7 +276,7 @@ describe('Room', () => {
   })
 
   it('restores your sheet on reconnect and hands over host after a timeout', () => {
-    const { room, players } = setup(2)
+    const { room, players } = setup(3)
     const [a, b] = players
     room.handle(a.id, { type: 'start' }, a.conn)
     room.handle(a.id, { type: 'draft', text: 'people = 8 billion' }, a.conn)
@@ -275,17 +290,18 @@ describe('Room', () => {
   })
 
   it('a disconnected player no longer blocks the early end', () => {
-    const { room, players } = setup(2)
-    const [a, b] = players
+    const { room, players } = setup(3)
+    const [a, b, c] = players
     room.handle(a.id, { type: 'start' }, a.conn)
     room.handle(a.id, { type: 'lock', text: '42' }, a.conn)
+    room.handle(b.id, { type: 'lock', text: '43' }, b.conn)
     expect(a.conn.last.phase).toBe('question')
-    room.disconnect(b.id, b.conn)
+    room.disconnect(c.id, c.conn)
     expect(a.conn.last.phase).toBe('reveal')
   })
 
   it('unlock lets you edit again', () => {
-    const { room, players } = setup(2)
+    const { room, players } = setup(3)
     const [a] = players
     room.handle(a.id, { type: 'start' }, a.conn)
     room.handle(a.id, { type: 'lock', text: '1' }, a.conn)
@@ -319,13 +335,12 @@ describe('Room', () => {
   })
 
   it('the break ends by itself when the countdown runs out, and never follows the last round', () => {
-    const { room, players } = setup(2)
-    const [a, b] = players
+    const { room, players } = setup(3)
+    const [a] = players
     room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 15 }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     for (let i = 0; i < 5; i++) {
-      room.handle(a.id, { type: 'lock', text: '5' }, a.conn)
-      room.handle(b.id, { type: 'lock', text: '6' }, b.conn)
+      for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
       vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
       if (i < 4) {
         expect(a.conn.last.phase).toBe('break')
@@ -352,13 +367,12 @@ describe('Room', () => {
   })
 
   it('host pacing: the break lasts until the host taps Next, and never follows the last round', () => {
-    const { room, players } = setup(2)
+    const { room, players } = setup(3)
     const [a, b] = players
     room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0, pacing: 'host' }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     for (let i = 0; i < 5; i++) {
-      room.handle(a.id, { type: 'lock', text: '5' }, a.conn)
-      room.handle(b.id, { type: 'lock', text: '6' }, b.conn)
+      for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
       vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
       if (i === 4) break
       expect(a.conn.last.break).toMatchObject({ line: 'Waiting for Ada.' })
@@ -376,7 +390,7 @@ describe('Room', () => {
   })
 
   it('host pacing: a new host is named while everyone waits', () => {
-    const { room, players } = setup(2)
+    const { room, players } = setup(3)
     const [a, b] = players
     room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, pacing: 'host' }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
@@ -424,14 +438,25 @@ describe('Room', () => {
     expect(a.conn.last.round!.line).toMatch(/^Last one\. Bob leads, \w+ trails\.$/)
   })
 
+  it('does not say everyone locked in when a disconnected player never answered', () => {
+    const { room, players } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'start' }, a.conn)
+    room.disconnect(c.id, c.conn)
+    room.handle(a.id, { type: 'lock', text: '5' }, a.conn)
+    room.handle(b.id, { type: 'lock', text: '7' }, b.conn)
+    expect(a.conn.last.phase).toBe('reveal') // the connected players were done
+    expect(a.conn.last.reveal!.lines.everyone).toBeUndefined()
+  })
+
   it('a big screen watches but never plays or sees any sheet', () => {
-    const { room, players } = setup(2)
+    const { room, players } = setup(3)
     const [a, b] = players
     const tv = new FakeConn()
     room.connectScreen(tv)
     expect(a.conn.last.screens).toBe(1)
     expect(tv.last).toMatchObject({ viewer: 'screen', you: '' })
-    expect(tv.last.players).toHaveLength(2)
+    expect(tv.last.players).toHaveLength(3)
     room.handle(a.id, { type: 'start' }, a.conn)
     room.handle(a.id, { type: 'draft', text: 'SECRET-SHEET' }, a.conn)
     room.handle(b.id, { type: 'lock', text: '42' }, b.conn)

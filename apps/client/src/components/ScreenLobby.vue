@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { estimateGameMinutes, type RoomView } from '@fermi/shared'
+import { estimateGameMinutes, playersMissing, type RoomView } from '@fermi/shared'
+import { S } from '@/lib/strings'
 import { versionTag } from '@/lib/version'
 import FermeanieSays from './FermeanieSays.vue'
 import JoinQr from './JoinQr.vue'
@@ -11,6 +12,7 @@ const props = defineProps<{ room: RoomView; joinUrl: string }>()
 
 const host = computed(() => props.room.players.find((p) => p.id === props.room.hostId))
 const s = computed(() => props.room.settings)
+const missingPlayers = computed(() => playersMissing(props.room.players))
 const minutes = computed(() => estimateGameMinutes(s.value, props.room.players.length))
 </script>
 
@@ -50,7 +52,8 @@ const minutes = computed(() => estimateGameMinutes(s.value, props.room.players.l
     />
 
     <p class="status">
-      <template v-if="host"
+      <template v-if="host && missingPlayers">{{ S.needPlayers(missingPlayers) }}</template>
+      <template v-else-if="host"
         >Waiting for <strong>{{ host.name }}</strong> to start</template
       >
       <template v-else>The first player to join becomes the host</template>
