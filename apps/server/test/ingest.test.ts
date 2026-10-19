@@ -105,6 +105,21 @@ describe('ingestQuestion', () => {
     expect(JSON.stringify(r2)).toMatch(/archiveUrl/)
   })
 
+  it('only accepts categories from the fixed list', () => {
+    const db = testDb()
+    const r = ingestQuestion(db, { ...makeQuestion(), category: 'body' }, { now: NOW })
+    expect(r.status).toBe('invalid')
+    expect(JSON.stringify(r)).toMatch(/category/)
+    expect(ingestQuestion(db, { ...makeQuestion(), category: 'fiction' }, { now: NOW }).status).toBe('added')
+  })
+
+  it('makes records questions time-sensitive, since records get broken', () => {
+    const db = testDb()
+    const r = ingestQuestion(db, { ...makeQuestion(), category: 'records', timeSensitive: false }, { now: NOW })
+    expect(r.status).toBe('invalid')
+    expect(JSON.stringify(r)).toMatch(/timeSensitive/)
+  })
+
   it('rejects an id that already exists', () => {
     const db = testDb()
     const q = makeQuestion()

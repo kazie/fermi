@@ -49,17 +49,24 @@ export async function prepareDraft(draft: Draft, deps: PrepareDeps): Promise<{ d
     }
     if (quotes[s.id] === 'missing') problems.push(`source ${s.id}: quote not found on the live page or the snapshot`)
   }
-  const res = await deps.dryRun(draft)
+  const check = withDryRun({ id: String(draft.id ?? '?'), quotes, excerpts, problems }, await deps.dryRun(draft))
+  return { draft, check }
+}
+
+/** Folds an ingest dry run into a check: its problems, its status and any similar questions (replacing older ones). */
+export function withDryRun(
+  check: Omit<DraftCheck, 'ok' | 'ingest' | 'similar'> & { similar?: unknown },
+  res: Awaited<ReturnType<PrepareDeps['dryRun']>>,
+): DraftCheck {
+  const { similar: _, ...rest } = check
+  const problems = [...rest.problems]
   if (res.status === 'invalid') problems.push(...(res.errors ?? []))
   if (res.status === 'duplicate') problems.push('duplicate of an existing question')
-  const check: DraftCheck = {
-    id: String(draft.id ?? '?'),
+  return {
+    ...rest,
     ok: problems.length === 0 && (res.status === 'valid' || res.status === 'needs_review'),
-    quotes,
-    excerpts,
     ingest: res.status,
     problems,
     ...(res.matches?.length ? { similar: res.matches.map(({ id, question, reasons }) => ({ id, question, reasons })) } : {}),
   }
-  return { draft, check }
 }

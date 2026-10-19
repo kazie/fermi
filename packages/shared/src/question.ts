@@ -3,6 +3,53 @@ import { z } from 'zod'
 const partialDate = z.string().regex(/^\d{4}(-\d{2}(-\d{2})?)?$/, 'YYYY, YYYY-MM or YYYY-MM-DD')
 const fullDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD')
 
+/**
+ * Every question has exactly one of these categories; ingest rejects anything else. Each scope draws the border with
+ * its neighbours; in a tie, pick the one a player would expect above the question. content/QUESTION_RULES.md mirrors
+ * this table (a test keeps them in step).
+ */
+export const CATEGORY_SCOPES = {
+  space: 'stars, planets, spaceflight',
+  geography: 'land, countries, rivers, mountains',
+  cities: 'urban life and infrastructure',
+  travel: 'tourism, hotels, visitors',
+  transport: 'vehicles, routes, traffic',
+  nature: 'landscapes, weather, oceans, the planet at large',
+  plants: 'trees, forests, wild plants',
+  farming: 'crops, harvests, livestock',
+  animals: 'wild and farm animals',
+  pets: 'animals kept by people',
+  bugs: 'insects and spiders',
+  biology: 'cells, genes, life in general',
+  'human-body': 'our own bodies',
+  prehistory: 'dinosaurs, fossils, early humans',
+  history: 'recorded history',
+  food: 'eating and cooking',
+  science: 'physics, chemistry, atoms, light, elements',
+  energy: 'power, fuel, batteries, electricity',
+  engineering: 'machines, bridges, tunnels: how things are built and run',
+  architecture: 'buildings as designed',
+  technology: "today's digital and electronic world",
+  inventions: 'firsts, patents, gadgets',
+  business: 'companies, brands, products',
+  economy: 'money, trade, national figures',
+  'everyday-life': 'households, daily routines',
+  sport: 'competitive sport',
+  hobbies: 'LEGO, chess, cards, crafts',
+  records: 'when the record itself is the point; otherwise its topic',
+  festivals: 'holidays and traditions',
+  culture: 'customs and anything cultural without a better home',
+  language: 'words, alphabets, dictionaries',
+  books: 'real-world facts about books: sales, lengths, libraries',
+  art: 'museums, paintings, the stage',
+  music: 'songs, streams, instruments, concerts',
+  'film-tv': 'real-world facts about films and TV: box office, runtimes',
+  games: 'real-world facts about video and board games',
+  fiction: "numbers inside a story's world, from official canon",
+} as const
+export type Category = keyof typeof CATEGORY_SCOPES
+export const CATEGORIES = Object.keys(CATEGORY_SCOPES) as [Category, ...Category[]]
+
 export const SourceSchema = z.object({
   id: z.string().min(1).max(40),
   url: z.url(),
@@ -36,10 +83,7 @@ export const QuestionSchema = z
     question: z.string().min(10).max(300),
     /** Shown with the question: what to answer in, e.g. "km", "rivets", "seconds". */
     unit: z.string().min(1).max(60),
-    category: z
-      .string()
-      .regex(/^[a-z]+(-[a-z]+)*$/)
-      .max(40),
+    category: z.enum(CATEGORIES),
     difficulty: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     kind: z.enum(['direct', 'derived']),
     answer: z.number().finite().positive(),
@@ -81,6 +125,9 @@ export const QuestionSchema = z
       for (const sid of input.sourceIds) {
         if (!ids.has(sid)) ctx.addIssue({ code: 'custom', path: ['inputs', i, 'sourceIds'], message: `unknown source id ${sid}` })
       }
+    }
+    if (q.category === 'records' && !q.timeSensitive) {
+      ctx.addIssue({ code: 'custom', path: ['timeSensitive'], message: 'records get broken: a records question is time-sensitive' })
     }
     if (q.timeSensitive && !q.recheckAfter) {
       ctx.addIssue({ code: 'custom', path: ['recheckAfter'], message: 'time-sensitive questions need a recheckAfter date' })

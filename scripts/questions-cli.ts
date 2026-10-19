@@ -1,13 +1,13 @@
 // pnpm q <command> — thin client for the question admin API, plus source-checking helpers.
 // Never prints answers unless you ask for a full question (`get`, `export`).
 
-import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { quoteExcerpt } from '../apps/server/src/questions/dedupe.ts'
 import { extractNumbers, quoteContainsNumber } from '../apps/server/src/questions/numbers.ts'
-import { prepareDraft, type DraftCheck } from '../apps/server/src/questions/prepare.ts'
+import { prepareDraft, withDryRun, type DraftCheck } from '../apps/server/src/questions/prepare.ts'
 import { fetchPageText } from '../apps/server/src/questions/html.ts'
-import { createBatch, sweepLeftovers } from './batch.ts'
+import { createBatch, mtime, sweepLeftovers } from './batch.ts'
 import { parseCli } from './cli-args.ts'
 
 const ROOT = new URL('../', import.meta.url)
@@ -37,6 +37,11 @@ async function call(method: string, path: string, body?: unknown) {
   // admin API responses are loosely typed here; the server validates everything that matters
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { status: res.status, json: json as any }
+}
+
+/** Active questions per category, every category included, fewest first: `n<TAB>category` lines. */
+function categoryLines(byCategory: { category: string; n: number }[]) {
+  return byCategory.toReversed().map(({ category, n }) => `${n}\t${category}\n`)
 }
 
 function die(msg: string): never {
@@ -153,7 +158,7 @@ async function main() {
           writeFileSync(lock, String(process.pid), { flag: 'wx' })
           break
         } catch {
-          if (Date.now() - (statSync(lock, { throwIfNoEntry: false })?.mtimeMs ?? 0) > 15 * 60 * 1000) rmSync(lock, { force: true })
+          if (Date.now() - (mtime(lock) ?? 0) > 15 * 60 * 1000) rmSync(lock, { force: true })
           else await new Promise((r) => setTimeout(r, 2000))
         }
       }
@@ -161,7 +166,7 @@ async function main() {
       const dryRun = async (d: unknown) => (await call('POST', '/questions', { questions: [d], dryRun: true })).json.results[0]
       const check = async (path: string): Promise<DraftCheck> => {
         const checkPath = path.replace(/\.json$/, '.check.json')
-        if (!existsSync(checkPath) || statSync(checkPath).mtimeMs < statSync(path).mtimeMs) {
+        if ((mtime(checkPath) ?? 0) < (mtime(path) ?? 0)) {
           const prepared = await prepareDraft(JSON.parse(readFileSync(path, 'utf8')), { pageText, archive, dryRun })
           writeFileSync(path, JSON.stringify(prepared.draft, null, 2))
           writeFileSync(checkPath, JSON.stringify(prepared.check, null, 2))
@@ -171,21 +176,9 @@ async function main() {
         if (!cached.ok) return cached
         // A passed draft may since have been rejected by a verifier, or duplicated by a newer question: ask the server
         // again (cheap). The check file is only rewritten when it flips, so quiet batches stay quiet.
-        const res = await dryRun(JSON.parse(readFileSync(path, 'utf8')))
-        if (res.status === 'valid' || res.status === 'needs_review') return { ...cached, ingest: res.status }
-        const flipped: DraftCheck = {
-          ...cached,
-          ok: false,
-          ingest: res.status,
-          problems: [...cached.problems, `now ${res.status}`, ...(res.errors ?? [])],
-          similar: res.matches?.map((m: { id: string; question: string; reasons: string[] }) => ({
-            id: m.id,
-            question: m.question,
-            reasons: m.reasons,
-          })),
-        }
-        writeFileSync(checkPath, JSON.stringify(flipped, null, 2))
-        return flipped
+        const updated = withDryRun(cached, await dryRun(JSON.parse(readFileSync(path, 'utf8'))))
+        if (!updated.ok) writeFileSync(checkPath, JSON.stringify(updated, null, 2))
+        return updated
       }
       let ok = 0
       let next = 0
@@ -199,8 +192,9 @@ async function main() {
             // Usually a draft a generator is still writing: leave it for the next call. Only the error's name is
             // printed, since JSON.parse messages quote the draft. A draft still unreadable after 10 minutes is dropped.
             const id = basename(path, '.json')
-            if (!existsSync(path)) continue
-            if (Date.now() - statSync(path).mtimeMs < 10 * 60 * 1000) {
+            const written = mtime(path)
+            if (written === undefined) continue
+            if (Date.now() - written < 10 * 60 * 1000) {
               console.log(`… ${id}: not ready (${(e as Error).name}), checked on a later call`)
               continue
             }
@@ -246,13 +240,7 @@ async function main() {
         join(dir, 'existing.tsv'),
         list.questions.map((q: { id: string; category: string; status: string }) => `${q.id}\t${q.category}\t${q.status}\n`).join(''),
       )
-      writeFileSync(
-        join(dir, 'categories.tsv'),
-        stats.byCategory
-          .toReversed()
-          .map(({ category, n }: { category: string; n: number }) => `${n}\t${category}\n`)
-          .join(''),
-      )
+      writeFileSync(join(dir, 'categories.tsv'), categoryLines(stats.byCategory).join(''))
       const { deleted, leftovers } = sweepLeftovers(workDir, new Date(), dir, heartbeat)
       console.log(`batch ${dir}`)
       for (const l of leftovers) console.log(`leftover ${l.dir} ${l.pending} pending`)
@@ -289,7 +277,7 @@ async function main() {
     case 'stats': {
       const { json } = await call('GET', '/stats')
       // --categories: active questions per category, fewest first (for steering generation)
-      if (opts.categories) for (const { category, n } of json.byCategory.toReversed()) console.log(`${n}\t${category}`)
+      if (opts.categories) process.stdout.write(categoryLines(json.byCategory).join(''))
       else console.log(JSON.stringify(json, null, 2))
       return
     }

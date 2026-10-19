@@ -25,11 +25,59 @@ here and are the verifier's job.
 - **No hidden traps in the wording.** Trivia that only shows up at the reveal is welcome ("1900 was not a leap
   year!"), but the question must not mislead. A trick question is only fair if a careful reader could
   have worked it out.
-- **Mix of difficulty** (1 = most people get within 2×, 3 = most are 10× off) **and categories**
-  (`space`, `geography`, `biology`, `human-body`, `engineering`, `food`, `history`, `economy`,
-  `sport`, `technology`, `animals`, `everyday-life`, `nature`, `culture`…).
+- **Mix of difficulty** (1 = most people get within 2×, 3 = most are 10× off) **and categories** (see below).
 - **Avoid** sad or distressing topics (deaths, disasters, crime statistics), politics, anything that
   singles out a group of people, and anything that changes weekly.
+- **`fiction` numbers come from official canon**: the books, the studio's or publisher's own guides, or the game
+  itself. Fan wikis may point the way, but they are not the source, and fan theories never count.
+- **`records` get broken**, so a records question is always `timeSensitive`, with a `recheckAfter` date (ingest
+  enforces this).
+
+### Categories
+
+`category` must be exactly one of these; ingest rejects anything else. The list lives in
+`packages/shared/src/question.ts` (`CATEGORIES`, `CATEGORY_SCOPES`), and a test keeps this table in step with it.
+In a tie, pick the one a player would expect to see above the question.
+
+| Category        | Scope                                                     |
+| --------------- | --------------------------------------------------------- |
+| `space`         | stars, planets, spaceflight                               |
+| `geography`     | land, countries, rivers, mountains                        |
+| `cities`        | urban life and infrastructure                             |
+| `travel`        | tourism, hotels, visitors                                 |
+| `transport`     | vehicles, routes, traffic                                 |
+| `nature`        | landscapes, weather, oceans, the planet at large          |
+| `plants`        | trees, forests, wild plants                               |
+| `farming`       | crops, harvests, livestock                                |
+| `animals`       | wild and farm animals                                     |
+| `pets`          | animals kept by people                                    |
+| `bugs`          | insects and spiders                                       |
+| `biology`       | cells, genes, life in general                             |
+| `human-body`    | our own bodies                                            |
+| `prehistory`    | dinosaurs, fossils, early humans                          |
+| `history`       | recorded history                                          |
+| `food`          | eating and cooking                                        |
+| `science`       | physics, chemistry, atoms, light, elements                |
+| `energy`        | power, fuel, batteries, electricity                       |
+| `engineering`   | machines, bridges, tunnels: how things are built and run  |
+| `architecture`  | buildings as designed                                     |
+| `technology`    | today's digital and electronic world                      |
+| `inventions`    | firsts, patents, gadgets                                  |
+| `business`      | companies, brands, products                               |
+| `economy`       | money, trade, national figures                            |
+| `everyday-life` | households, daily routines                                |
+| `sport`         | competitive sport                                         |
+| `hobbies`       | LEGO, chess, cards, crafts                                |
+| `records`       | when the record itself is the point; otherwise its topic  |
+| `festivals`     | holidays and traditions                                   |
+| `culture`       | customs and anything cultural without a better home       |
+| `language`      | words, alphabets, dictionaries                            |
+| `books`         | real-world facts about books: sales, lengths, libraries   |
+| `art`           | museums, paintings, the stage                             |
+| `music`         | songs, streams, instruments, concerts                     |
+| `film-tv`       | real-world facts about films and TV: box office, runtimes |
+| `games`         | real-world facts about video and board games              |
+| `fiction`       | numbers inside a story's world, from official canon       |
 
 ## 2. Answers come from sources, never from estimates
 

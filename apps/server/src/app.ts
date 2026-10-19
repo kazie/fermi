@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
-import { fermeanieRelease, KEY_RE, toRevealed } from '@fermi/shared'
+import { CATEGORIES, fermeanieRelease, KEY_RE, toRevealed } from '@fermi/shared'
 import type { DB } from './db.ts'
 import { RoomsFullError, type RoomRegistry } from './rooms.ts'
 import { hashKey, rateLimiter } from './keys.ts'
@@ -212,7 +212,7 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
   admin.get('/stats', (c) =>
     c.json({
       byStatus: db.prepare('SELECT status, COUNT(*) AS n FROM questions GROUP BY status').all(),
-      byCategory: db.prepare("SELECT category, SUM(status = 'active') AS n FROM questions GROUP BY category ORDER BY n DESC").all(),
+      byCategory: activeByCategory(db),
       rejections: (db.prepare('SELECT COUNT(*) AS n FROM question_rejections').get() as { n: number }).n,
       openDisputes: openDisputes(db).length,
     }),
@@ -221,4 +221,14 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
   app.route('/api/admin', admin)
   app.all('/api/*', (c: Context) => c.json({ error: 'Not found' }, 404))
   return app
+}
+
+/** Active questions per category, every category included (empty ones too, so generation can find them), most first. */
+function activeByCategory(db: DB) {
+  const rows = db.prepare("SELECT category, SUM(status = 'active') AS n FROM questions GROUP BY category").all() as {
+    category: string
+    n: number
+  }[]
+  const counts = new Map(rows.map((r) => [r.category, r.n]))
+  return CATEGORIES.map((category) => ({ category, n: counts.get(category) ?? 0 })).sort((a, b) => b.n - a.n)
 }

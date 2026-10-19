@@ -1,8 +1,9 @@
 // Batch directories for /fermi-questions: `.fermi-work/b-<stamp>-<rand>/{drafts,verified}`.
 // Plain file work so the skill's setup is a single `pnpm q batch` call (headless runs can't approve shell glue).
 // Several runs may work at once, so a run only takes over another batch once that batch's run is gone, and claims it
-// first. Under `pnpm grow` a run has a heartbeat file (FERMI_HEARTBEAT) that grow keeps fresh while the run lives, and
-// the batch records it: the batch is busy exactly while it's fresh. Manual runs have none; their batches count as
+// first. The creator holds `claim-0`, and each takeover writes the next number; the highest claim owns the batch. Under
+// `pnpm grow` a claim holds the run's heartbeat file (FERMI_HEARTBEAT), which grow keeps fresh while the run lives: the
+// batch is busy exactly while it's fresh. Manual runs have none; their batches count as
 // abandoned once no file in them has changed for 45 minutes.
 
 import { randomBytes } from 'node:crypto'
@@ -25,18 +26,12 @@ export function createBatch(workDir: string, now: Date, heartbeat = '') {
   const dir = join(workDir, batchName(now))
   mkdirSync(join(dir, 'drafts'), { recursive: true })
   mkdirSync(join(dir, 'verified'), { recursive: true })
-  writeFileSync(join(dir, 'owner'), heartbeat)
+  writeFileSync(join(dir, 'claim-0'), heartbeat)
   return dir
 }
 
 /** mtime, or undefined if the file is gone (another run's sweep, or an editor's temp file, may delete it any time). */
-function mtime(path: string) {
-  try {
-    return statSync(path).mtimeMs
-  } catch {
-    return undefined
-  }
-}
+export const mtime = (path: string) => statSync(path, { throwIfNoEntry: false })?.mtimeMs
 
 /** Drafts in `<batch>/drafts` with no same-named file in `<batch>/verified`, skipping ones that failed `prepare`. */
 function pendingDrafts(batch: string) {
@@ -66,33 +61,26 @@ function lastActivity(dir: string): number {
   return newest
 }
 
-function claimNumbers(batch: string) {
-  return readdirSync(batch)
-    .map((f) => /^claim-(\d+)$/.exec(f)?.[1])
-    .filter((n) => n !== undefined)
-    .map(Number)
+/** The highest claim number in the batch, or -1 for batches from before claims existed. */
+function latestClaim(batch: string) {
+  return Math.max(-1, ...readdirSync(batch).map((f) => Number(/^claim-(\d+)$/.exec(f)?.[1] ?? -1)))
 }
 
-/** Is the run that owns the batch (its latest claimer, else its creator) still alive? */
-function busy(batch: string, now: Date) {
-  const latest = Math.max(0, ...claimNumbers(batch))
-  let heartbeat = ''
-  try {
-    heartbeat = readFileSync(join(batch, latest ? `claim-${latest}` : 'owner'), 'utf8').trim()
-  } catch {
-    /* batches from before owners were recorded */
-  }
+/** Is the run that owns the batch (its latest claim) still alive? */
+function busy(batch: string, latest: number, now: Date) {
+  const heartbeat = latest < 0 ? '' : readFileSync(join(batch, `claim-${latest}`), 'utf8').trim()
   if (heartbeat) return now.getTime() - (mtime(heartbeat) ?? 0) < HEARTBEAT_MS
   return now.getTime() - lastActivity(batch) < IDLE_MS
 }
 
 /**
- * Claims are numbered files (`claim-1`, `claim-2`, …) created with `wx`, so exactly one run wins each number. The
- * number is read before the busy check: a run that claimed in between makes the batch busy or takes our number.
+ * Claims are numbered files created with `wx`, so exactly one run wins each number. The number is read before the busy
+ * check: a run that claimed in between makes the batch busy or takes our number.
  */
 function claim(batch: string, heartbeat: string, now: Date) {
-  const next = Math.max(0, ...claimNumbers(batch)) + 1
-  if (busy(batch, now)) return false
+  const latest = latestClaim(batch)
+  const next = latest + 1
+  if (busy(batch, latest, now)) return false
   try {
     writeFileSync(join(batch, `claim-${next}`), heartbeat, { flag: 'wx' })
     return true

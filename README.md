@@ -152,8 +152,8 @@ Runs bill the Claude account whose config dir is in `FERMI_CLAUDE_CONFIG_DIR` (i
 `pnpm grow` won't start without it, so it can never fall back to whichever account the shell defaults to.
 The server must be running, and `.claude/settings.local.json` must allow the pipeline's tools (`pnpm q`, the two
 agents, WebSearch, WebFetch, writes in `.fermi-work/` and `date`), since headless runs can't ask. Runs can safely
-overlap: each works in its own batch folder, and a run only takes over another batch's drafts once that batch has been
-quiet for 45 minutes. If you script runs by hand, `flock` keeps them one at a time.
+overlap: each works in its own batch folder, and a run only takes over another batch's drafts once that batch's run is
+gone (under `pnpm grow`, its heartbeat stops; for a hand-started run, nothing in it has changed for 45 minutes). If you script runs by hand, `flock` keeps them one at a time.
 
 The pipeline is built to be cheap and crash-safe:
 

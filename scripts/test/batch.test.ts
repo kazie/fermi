@@ -53,7 +53,7 @@ describe('question batches', () => {
     draft(a, 'failed', false, false)
     age(a, 50 * minute)
     expect(sweepLeftovers(dir, now, run)).toEqual({ deleted: 0, leftovers: [{ dir: a, pending: 1 }] })
-    expect(existsSync(join(a, 'claim-1'))).toBe(true)
+    expect(existsSync(join(a, 'claim-0'))).toBe(true)
   })
 
   it('leaves batches alone while a run is still working on them', () => {

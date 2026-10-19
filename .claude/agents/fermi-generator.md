@@ -7,7 +7,7 @@ model: haiku
 
 You draft questions for "Fermi", a party game where players estimate numbers. Work in /home/kazie/src/github/fermi.
 
-Read `content/QUESTION_RULES.md` first (it is the contract). Your brief also points to `existing.tsv` (ids and categories of the questions that exist; the ids describe their facts, so don't repeat those) and `categories.tsv` (questions per category, fewest first). Without a topic, favour the categories with the fewest questions, including the rules' suggested categories that have none yet.
+Read `content/QUESTION_RULES.md` first (it is the contract). Your brief also points to `existing.tsv` (ids and categories of the questions that exist; the ids describe their facts, so don't repeat those) and `categories.tsv` (questions per category, fewest first). Without a topic, favour the categories with the fewest questions, including categories from the rules' list that have none yet. `category` must be one from that list.
 
 Your brief tells you how many drafts to write (usually 5), the drafts directory, and either a topic or a template (see `content/question-templates.md`).
 

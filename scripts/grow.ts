@@ -11,7 +11,9 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
+import { CATEGORIES } from '../packages/shared/src/question.ts'
 
 const ROOT = new URL('../', import.meta.url).pathname
 const envFile = new URL('../.env', import.meta.url)
@@ -29,23 +31,6 @@ if (!existsSync(configDir)) {
   console.error(`✗ FERMI_CLAUDE_CONFIG_DIR points to ${configDir}, which doesn't exist.`)
   process.exit(1)
 }
-/** The categories in content/QUESTION_RULES.md; `stats` only lists categories that already have questions. */
-const CATEGORIES = [
-  'space',
-  'geography',
-  'biology',
-  'human-body',
-  'engineering',
-  'food',
-  'history',
-  'economy',
-  'sport',
-  'technology',
-  'animals',
-  'everyday-life',
-  'nature',
-  'culture',
-]
 const RETRY_MS = 20 * 60 * 1000
 const MAX_FAILURES = 9
 
@@ -57,10 +42,19 @@ const { values, positionals } = parseArgs({
     count: { type: 'string', default: '15' },
   },
 })
-const workers = Number(values.workers)
-const rounds = Number(values.rounds)
-const count = Number(values.count)
+const [workers, rounds, count] = [values.workers, values.rounds, values.count].map(Number)
+if (![workers, rounds, count].every((n) => Number.isInteger(n) && n > 0)) {
+  console.error('✗ --workers, --rounds and --count take positive whole numbers')
+  process.exit(1)
+}
+/** Auto mode picks the emptiest free category per run; otherwise the given topics are worked through as a queue. */
+const auto = positionals.length === 0
 const queue = [...positionals]
+const unknown = positionals.filter((t) => !(CATEGORIES as readonly string[]).includes(t))
+if (unknown.length) {
+  console.error(`✗ not a category: ${unknown.join(', ')}. Topics must be categories:\n  ${CATEGORIES.join(', ')}`)
+  process.exit(1)
+}
 const inUse = new Set<string>()
 /** Topics whose run came back with `+0 added`: nothing new left there for now. */
 const exhausted = new Set<string>()
@@ -69,20 +63,24 @@ function categoryCounts(): Promise<Map<string, number>> {
   return new Promise((resolve, reject) =>
     execFile('node', ['scripts/questions-cli.ts', 'stats', '--categories'], { cwd: ROOT }, (err, stdout) => {
       if (err) return reject(new Error('pnpm q stats failed: is the server running?'))
-      const counts = new Map(CATEGORIES.map((c) => [c, 0]))
-      for (const line of stdout.trim().split('\n')) {
-        const [n, category] = line.split('\t')
-        if (category) counts.set(category, Number(n))
-      }
-      resolve(counts)
+      // every category, empty ones included, fewest first (the server fills in the empty ones)
+      resolve(
+        new Map(
+          stdout
+            .trim()
+            .split('\n')
+            .map((line) => line.split('\t').reverse() as [string, string])
+            .map(([c, n]) => [c, Number(n)]),
+        ),
+      )
     }),
   )
 }
 
 /** Picks and marks a topic in one synchronous step, so two workers can't take the same one. */
 async function nextTopic(): Promise<string | undefined> {
-  const counts = positionals.length ? null : await categoryCounts()
-  const topic = counts ? [...counts].filter(([c]) => !inUse.has(c) && !exhausted.has(c)).sort((a, b) => a[1] - b[1])[0]?.[0] : queue.shift()
+  const counts = auto ? await categoryCounts() : null
+  const topic = counts ? [...counts.keys()].find((c) => !inUse.has(c) && !exhausted.has(c)) : queue.shift()
   if (topic) inUse.add(topic)
   return topic
 }
@@ -91,7 +89,7 @@ async function nextTopic(): Promise<string | undefined> {
  * One headless run; returns how many questions it added, or null if it failed or reported nothing. While it runs, a
  * heartbeat file is touched every minute; its batch records the path, so other runs know it's alive (scripts/batch.ts).
  */
-function run(topic: string): Promise<{ added: number | null; report: string }> {
+function run(topic: string) {
   const aliveDir = join(ROOT, '.fermi-work', '.alive')
   mkdirSync(aliveDir, { recursive: true })
   const heartbeat = join(aliveDir, `${process.pid}-${randomBytes(3).toString('hex')}`)
@@ -125,10 +123,13 @@ function run(topic: string): Promise<{ added: number | null; report: string }> {
         /* no JSON: the run died */
       }
       // Only the report line may be printed: anything else in the result could hold question texts.
-      const report = (json.result ?? '').split('\n').find((l) => /^\+\d+ added/.test(l.trim()))
+      const report = (json.result ?? '')
+        .split('\n')
+        .map((l) => l.trim())
+        .find((l) => /^\+\d+ added/.test(l))
       if (json.is_error || !report) {
         resolve({ added: null, report: `no report (${json.is_error ? 'error' : (json.subtype ?? 'no output')})` })
-      } else resolve({ added: Number(/^\+(\d+)/.exec(report.trim())![1]), report: report.trim() })
+      } else resolve({ added: parseInt(report.slice(1)), report })
     })
   }).finally(() => {
     clearInterval(beat)
@@ -136,7 +137,6 @@ function run(topic: string): Promise<{ added: number | null; report: string }> {
   })
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const log = (w: number, msg: string) => console.log(`${new Date().toTimeString().slice(0, 5)} [w${w}] ${msg}`)
 
 async function worker(w: number) {
@@ -150,7 +150,7 @@ async function worker(w: number) {
     await sleep(RETRY_MS)
     return true
   }
-  for (let round = 0; positionals.length ? queue.length : round < rounds;) {
+  for (let round = 0; auto ? round < rounds : queue.length;) {
     let topic: string | undefined
     try {
       topic = await nextTopic()
@@ -164,8 +164,9 @@ async function worker(w: number) {
       const { added, report } = await run(topic)
       log(w, `${topic}: ${report}`)
       if (added === null) {
-        // Failed or limited: put the topic back so it's retried (by whichever worker gets to it first).
-        if (positionals.length) queue.unshift(topic)
+        // Failed or limited: put the topic back so it's retried (by whichever worker gets to it first). Released now,
+        // not in `finally`, which only runs after fail()'s 20-minute wait.
+        if (!auto) queue.unshift(topic)
         inUse.delete(topic)
         if (await fail(`${topic}: no report`)) continue
         return
@@ -180,9 +181,7 @@ async function worker(w: number) {
 }
 
 await categoryCounts() // fail fast if the server is down
-console.log(
-  `account: ${configDir.replace(homedir(), '~')} · ${workers} workers · topics: ${positionals.length ? positionals.join(', ') : 'auto'}`,
-)
+console.log(`account: ${configDir.replace(homedir(), '~')} · ${workers} workers · topics: ${auto ? 'auto' : positionals.join(', ')}`)
 await Promise.all(Array.from({ length: workers }, (_, i) => sleep(i * 30_000).then(() => worker(i + 1))))
 const counts = await categoryCounts().catch(() => null)
 if (counts) console.log(`pool: ${[...counts.values()].reduce((a, b) => a + b, 0)} active`)
