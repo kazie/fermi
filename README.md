@@ -165,6 +165,10 @@ The pipeline is built to be cheap and crash-safe:
    questions, and never sees existing question texts (only ids and categories).
 3. `pnpm q prepare` does the mechanical work with no LLM: it archives sources to the Wayback Machine, checks each quote
    against the live page or snapshot, saves the page text around it, and dry-runs ingest (which catches duplicates).
+   Save Page Now refuses captures when too many run at once, so all runs share a few capture slots
+   (`.fermi-work/.archive-slots`), a refused capture is retried after a pause, and a draft that still couldn't be
+   archived is tried again on the next two `prepare` calls. With free archive.org keys in `FERMI_ARCHIVE_KEYS`,
+   captures use the logged-in API, which queues them instead of refusing them, so far fewer fail.
 4. `fermi-verifier` (**Sonnet**) makes the judgement calls from that page text: does the number mean exactly what the
    question asks, is it fair, is it fun. Then it ingests.
 
@@ -211,16 +215,18 @@ rotation once two different players have disputed it, until `/fermi-questions --
 
 ## Self-hosting
 
-| Variable                  | Default                                        | What it does                                                                     |
-| ------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------- |
-| `FERMI_ADMIN_TOKEN`       | none                                           | Bearer token for the question admin API. Required to add questions.              |
-| `FERMI_CLAUDE_CONFIG_DIR` | none                                           | Claude config dir of the account `pnpm grow` runs bill. Required by `pnpm grow`. |
-| `FERMI_DB`                | `./data/fermi.db` (`/data/fermi.db` in Docker) | Where the SQLite database lives                                                  |
-| `PORT`                    | `3000`                                         | The server's port                                                                |
-| `HOST`                    | `0.0.0.0`                                      | The address the server listens on                                                |
-| `FERMI_SERVER`            | `http://localhost:3000`                        | Where `pnpm q` sends requests                                                    |
-| `FERMI_TRUST_PROXY`       | off                                            | Set to `1` behind a reverse proxy, so rate limits see the real client address    |
-| `FERMI_TIME_SCALE`        | `1`                                            | Speeds up reveals and breaks; for tests only                                     |
+| Variable                  | Default                                        | What it does                                                                                |
+| ------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `FERMI_ADMIN_TOKEN`       | none                                           | Bearer token for the question admin API. Required to add questions.                         |
+| `FERMI_CLAUDE_CONFIG_DIR` | none                                           | Claude config dir of the account `pnpm grow` runs bill. Required by `pnpm grow`.            |
+| `FERMI_ARCHIVE_KEYS`      | none                                           | archive.org S3 keys (`access:secret`, from archive.org/account/s3.php) for faster archiving |
+| `FERMI_ARCHIVE_SLOTS`     | `3` (a new account's logged-in limit)          | How many Wayback captures may run at once, across all runs                                  |
+| `FERMI_DB`                | `./data/fermi.db` (`/data/fermi.db` in Docker) | Where the SQLite database lives                                                             |
+| `PORT`                    | `3000`                                         | The server's port                                                                           |
+| `HOST`                    | `0.0.0.0`                                      | The address the server listens on                                                           |
+| `FERMI_SERVER`            | `http://localhost:3000`                        | Where `pnpm q` sends requests                                                               |
+| `FERMI_TRUST_PROXY`       | off                                            | Set to `1` behind a reverse proxy, so rate limits see the real client address               |
+| `FERMI_TIME_SCALE`        | `1`                                            | Speeds up reveals and breaks; for tests only                                                |
 
 - **Fully self-hosted.** The game loads nothing from other servers: no CDNs, web fonts, analytics or icon services. It
   works with access to the game server alone, even on a closed LAN. The server's `Content-Security-Policy` makes

@@ -1,12 +1,14 @@
 // pnpm q <command> — thin client for the question admin API, plus source-checking helpers.
 // Never prints answers unless you ask for a full question (`get`, `export`).
 
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { quoteExcerpt } from '../apps/server/src/questions/dedupe.ts'
 import { extractNumbers, quoteContainsNumber } from '../apps/server/src/questions/numbers.ts'
 import { prepareDraft, withDryRun, type DraftCheck } from '../apps/server/src/questions/prepare.ts'
 import { fetchPageText } from '../apps/server/src/questions/html.ts'
+import { archive as archiveWith, archiveOptionsFromEnv } from './archive.ts'
 import { createBatch, mtime, sweepLeftovers } from './batch.ts'
 import { parseCli } from './cli-args.ts'
 
@@ -22,6 +24,8 @@ try {
   process.exit(1)
 }
 const { cmd, rest, opts } = parsed
+const archiveOpts = archiveOptionsFromEnv(fileURLToPath(new URL('.fermi-work', ROOT)))
+const archive = (url: string) => archiveWith(url, archiveOpts)
 const server = (opts.server ?? process.env.FERMI_SERVER ?? 'http://localhost:3000').replace(/\/$/, '')
 const token = process.env.FERMI_ADMIN_TOKEN
 
@@ -145,7 +149,7 @@ async function main() {
     case 'prepare': {
       // Mechanical checks for every draft in a directory; writes <id>.check.json next to each. Drafts already verified
       // are left out, and drafts checked since their last edit just repeat that result, so it's cheap to call after
-      // every generator. Three at a time keeps Wayback's Save Page Now happy.
+      // every generator. Captures share a few slots across all runs (scripts/archive.ts).
       const dir = rest[0]
       if (!dir) die('usage: pnpm q prepare <drafts-dir>')
       const verified = join(dir, '..', 'verified')
@@ -163,6 +167,8 @@ async function main() {
         }
       }
       process.on('exit', () => rmSync(lock, { force: true }))
+      // Waiting for archive slots can take a while: keep the lock fresh so it isn't mistaken for a crashed prepare.
+      const lockBeat = setInterval(() => existsSync(lock) && utimesSync(lock, new Date(), new Date()), 60_000)
       const dryRun = async (d: unknown) => (await call('POST', '/questions', { questions: [d], dryRun: true })).json.results[0]
       const check = async (path: string): Promise<DraftCheck> => {
         const checkPath = path.replace(/\.json$/, '.check.json')
@@ -173,7 +179,16 @@ async function main() {
           return prepared.check
         }
         const cached: DraftCheck = JSON.parse(readFileSync(checkPath, 'utf8'))
-        if (!cached.ok) return cached
+        if (!cached.ok) {
+          // Archiving fails for passing reasons (Wayback busy): try again on later calls, up to ARCHIVE_TRIES in all.
+          const tries = cached.archiveTries ?? 1
+          if (tries >= ARCHIVE_TRIES || !cached.problems.some((p) => p.includes('could not archive'))) return cached
+          const prepared = await prepareDraft(JSON.parse(readFileSync(path, 'utf8')), { pageText, archive, dryRun })
+          const check = prepared.check.ok ? prepared.check : { ...prepared.check, archiveTries: tries + 1 }
+          writeFileSync(path, JSON.stringify(prepared.draft, null, 2))
+          writeFileSync(checkPath, JSON.stringify(check, null, 2))
+          return check
+        }
         // A passed draft may since have been rejected by a verifier, or duplicated by a newer question: ask the server
         // again (cheap). The check file is only rewritten when it flips, so quiet batches stay quiet.
         const updated = withDryRun(cached, await dryRun(JSON.parse(readFileSync(path, 'utf8'))))
@@ -208,6 +223,7 @@ async function main() {
         }
       }
       await Promise.all([work(), work(), work()])
+      clearInterval(lockBeat)
       console.log(`\n${ok}/${files.length} drafts passed the mechanical checks`)
       return
     }
@@ -329,36 +345,7 @@ async function main() {
 }
 
 const pageText = (url: string) => fetchPageText(url)
-
-/** Find or create a Wayback snapshot. Throws (never exits), so `prepare` can record the failure and carry on. */
-async function archive(url: string): Promise<{ archiveUrl: string; archivedAt: string }> {
-  const toIso = (ts: string) =>
-    `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}T${ts.slice(8, 10) || '00'}:${ts.slice(10, 12) || '00'}:${ts.slice(12, 14) || '00'}Z`
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  try {
-    const r = await fetch(`https://archive.org/wayback/available?url=${encodeURIComponent(url)}&timestamp=${today}`, {
-      signal: AbortSignal.timeout(30_000),
-    })
-    const j = (await r.json()) as { archived_snapshots?: { closest?: { available: boolean; url: string; timestamp: string } } }
-    const c = j.archived_snapshots?.closest
-    if (c?.available && Math.abs(Date.parse(toIso(c.timestamp)) - Date.now()) < 7 * 86_400_000) {
-      return { archiveUrl: c.url.replace(/^http:/, 'https:'), archivedAt: toIso(c.timestamp) }
-    }
-  } catch {
-    /* fall through to save */
-  }
-  const res = await fetch(`https://web.archive.org/save/${url}`, {
-    redirect: 'follow',
-    signal: AbortSignal.timeout(120_000),
-    headers: { 'user-agent': 'Mozilla/5.0 (fermi archiver)' },
-  }).catch((e) => {
-    throw new Error(`Save Page Now failed: ${e.message}`)
-  })
-  const final = res.url.match(/web\.archive\.org\/web\/(\d{14})\//) ? res.url : (res.headers.get('content-location') ?? '')
-  const m = final.match(/\/web\/(\d{14})\//)
-  if (!m) throw new Error(`Save Page Now did not return a snapshot (HTTP ${res.status}). Try again in a minute.`)
-  const archiveUrl = final.startsWith('http') ? final : `https://web.archive.org${final}`
-  return { archiveUrl, archivedAt: toIso(m[1]) }
-}
+/** How many `prepare` calls may try to archive a draft's sources before it is given up. */
+const ARCHIVE_TRIES = 3
 
 await main()

@@ -19,6 +19,8 @@ export interface DraftCheck {
   ingest: string
   problems: string[]
   similar?: { id: string; question: string; reasons: string[] }[]
+  /** How many `prepare` calls have tried to archive this draft's sources (failed archiving is retried a few times). */
+  archiveTries?: number
 }
 
 type DraftSource = { id: string; url: string; quote: string; archiveUrl?: string; archivedAt?: string }
