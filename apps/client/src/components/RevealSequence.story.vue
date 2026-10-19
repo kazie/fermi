@@ -11,6 +11,7 @@ const variants = [
   { title: 'FerMEANie sits out', reveal: reveals.sitsOut() },
   { title: 'Derived answer', reveal: reveals.derived() },
   { title: 'Big swarm (8)', reveal: reveals.crowd() },
+  { title: 'Early lock-ins and twins', reveal: reveals.twins() },
 ]
 type Reveal = (typeof variants)[number]['reveal']
 const duration = (r: Reveal) => r.timeline.endsAt - T0
@@ -21,6 +22,7 @@ const times = reactive<Record<string, number>>(Object.fromEntries(variants.map((
 const loops = [
   { title: '▶ Play steal (loops)', reveal: reveals.steal() },
   { title: '▶ Play dunce round (loops)', reveal: reveals.dunce() },
+  { title: '▶ Play early lock-ins and twins (loops)', reveal: reveals.twins() },
 ]
 const clock = ref(0)
 const id = setInterval(() => (clock.value += 100), 100)

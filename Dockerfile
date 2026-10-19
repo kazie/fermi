@@ -13,7 +13,7 @@ RUN pnpm install --frozen-lockfile
 COPY packages packages
 COPY apps apps
 # the name screen's welcome lines are bundled into the client
-COPY content/fermeanie-lines.json content/
+COPY content/fermeanie content/fermeanie
 RUN pnpm --filter @fermi/client build
 
 FROM base AS runtime

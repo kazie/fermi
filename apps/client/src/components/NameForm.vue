@@ -3,6 +3,7 @@ import { computed, ref, useId } from 'vue'
 import { NAME_MAX } from '@fermi/shared'
 import { S } from '@/lib/strings'
 import { pickWelcome } from '@/lib/welcome'
+import FerText from './FerText.vue'
 import FermeanieSays from './FermeanieSays.vue'
 
 const props = withDefaults(defineProps<{ code: string; midGame?: boolean; initialName?: string; quote?: string }>(), {
@@ -40,7 +41,7 @@ function submit() {
       enterkeyhint="go"
       autofocus
     />
-    <p v-if="quote" class="quote">“{{ quote }}”</p>
+    <p v-if="quote" class="quote">“<FerText :text="quote" />”</p>
     <button class="btn btn-primary btn-block" type="submit" :disabled="!clean">{{ S.joinGame }}</button>
     <p v-if="midGame" class="muted">A game is in progress. You’ll be in from the next question.</p>
   </form>

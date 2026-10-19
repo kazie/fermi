@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { players, reveals } from '../src/fixtures/rooms'
-import { flippedCount, STEAL, stealPlan } from '../src/lib/reveal'
-import { pickWelcome } from '../src/lib/welcome'
-import { tween } from '../src/composables/useProgress'
+import { players, reveals } from '@/fixtures/rooms.ts'
+import { flippedCount, STEAL, stealPlan } from '@/lib/reveal.ts'
+import { pickWelcome, welcome } from '@/lib/welcome.ts'
+import { tween } from '@/composables/useProgress.ts'
 import RevealSequence from '../src/components/RevealSequence.vue'
-import { welcome } from '../../../content/fermeanie-lines.json'
 
 const mountAt = (r: ReturnType<typeof reveals.normal>, now: number) =>
   mount(RevealSequence, { props: { reveal: r, players: players(r.cards.length), you: 'p0', now, fermeanieBefore: 0, noScroll: true } })

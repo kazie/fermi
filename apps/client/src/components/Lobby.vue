@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { BREAK_OPTIONS, estimateGameMinutes, ROUND_OPTIONS, TIMER_OPTIONS, type RoomView } from '@fermi/shared'
+import {
+  BREAK_OPTIONS,
+  estimateGameMinutes,
+  PACING_OPTIONS,
+  ROUND_OPTIONS,
+  TIMER_OPTIONS,
+  type RoomSettings,
+  type RoomView,
+} from '@fermi/shared'
 import { CALC_TIPS, HOW_TO_PLAY, S } from '@/lib/strings'
+import { versionTag } from '@/lib/version'
 import FermeanieAvatar from './FermeanieAvatar.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import JoinQr from './JoinQr.vue'
@@ -10,15 +19,15 @@ import PlayerAvatar from './PlayerAvatar.vue'
 import PracticePad from './PracticePad.vue'
 
 const props = defineProps<{ room: RoomView; joinUrl: string }>()
-const emit = defineEmits<{ settings: [{ rounds: number; timerSec: number; breakSec: number }]; start: [] }>()
+const emit = defineEmits<{ settings: [RoomSettings]; start: [] }>()
 
 const isHost = computed(() => props.room.hostId === props.room.you)
 // Phones: the essentials first (code, players, start); QR, rules and practice fold away.
 const narrow = useMediaQuery('(max-width: 899px)')
 const showQr = ref(false)
-const minutes = computed(() =>
-  estimateGameMinutes(props.room.settings.rounds, props.room.settings.timerSec, props.room.players.length, props.room.settings.breakSec),
-)
+const hostPaced = computed(() => props.room.settings.pacing === 'host')
+const minutes = computed(() => estimateGameMinutes(props.room.settings, props.room.players.length))
+const pacingLabel = { timer: S.pacingTimer, host: S.pacingHost }
 /** A big screen shows the QR code already, so phones don't need it. */
 const onTv = computed(() => props.room.screens > 0)
 const tooFewQuestions = computed(() => props.room.poolSize < props.room.settings.rounds)
@@ -44,8 +53,8 @@ async function share() {
 }
 const canShare = typeof navigator !== 'undefined' && 'share' in navigator
 
-function set(rounds: number, timerSec: number, breakSec = props.room.settings.breakSec) {
-  emit('settings', { rounds, timerSec, breakSec })
+function set(change: Partial<RoomSettings>) {
+  emit('settings', { ...props.room.settings, ...change })
 }
 </script>
 
@@ -97,7 +106,7 @@ function set(rounds: number, timerSec: number, breakSec = props.room.settings.br
               :key="r"
               type="button"
               :aria-pressed="room.settings.rounds === r"
-              @click="set(r, room.settings.timerSec)"
+              @click="set({ rounds: r })"
             >
               {{ r }}
             </button>
@@ -112,7 +121,7 @@ function set(rounds: number, timerSec: number, breakSec = props.room.settings.br
               :key="t"
               type="button"
               :aria-pressed="room.settings.timerSec === t"
-              @click="set(room.settings.rounds, t)"
+              @click="set({ timerSec: t })"
             >
               {{ t }}s
             </button>
@@ -120,6 +129,21 @@ function set(rounds: number, timerSec: number, breakSec = props.room.settings.br
           <strong v-else>{{ room.settings.timerSec }}s</strong>
         </div>
         <div class="setting">
+          <span class="label">{{ S.pacing }}</span>
+          <div v-if="isHost" class="segmented" role="group" :aria-label="S.pacing">
+            <button
+              v-for="p in PACING_OPTIONS"
+              :key="p"
+              type="button"
+              :aria-pressed="room.settings.pacing === p"
+              @click="set({ pacing: p })"
+            >
+              {{ pacingLabel[p] }}
+            </button>
+          </div>
+          <strong v-else>{{ pacingLabel[room.settings.pacing] }}</strong>
+        </div>
+        <div v-if="!hostPaced" class="setting">
           <span class="label">{{ S.breakLabel }}</span>
           <div v-if="isHost" class="segmented" role="group" :aria-label="S.breakLabel">
             <button
@@ -127,7 +151,7 @@ function set(rounds: number, timerSec: number, breakSec = props.room.settings.br
               :key="b"
               type="button"
               :aria-pressed="room.settings.breakSec === b"
-              @click="set(room.settings.rounds, room.settings.timerSec, b)"
+              @click="set({ breakSec: b })"
             >
               {{ b ? `${b}s` : 'Off' }}
             </button>
@@ -136,9 +160,11 @@ function set(rounds: number, timerSec: number, breakSec = props.room.settings.br
         </div>
         <p class="muted est">
           About {{ minutes }} min of play.{{
-            room.settings.breakSec
-              ? ' Between rounds there’s a break to talk; a majority can skip it.'
-              : ' No breaks: once it starts, it runs.'
+            hostPaced
+              ? ' After each round, everyone talks it over until the host taps Next.'
+              : room.settings.breakSec
+                ? ' Between rounds there’s a break to talk; a majority can skip it.'
+                : ' No breaks: once it starts, it runs.'
           }}
         </p>
         <p v-if="room.poolSize === 0" class="warn">There are no questions in the database yet. Generate some first (see README).</p>
@@ -152,7 +178,7 @@ function set(rounds: number, timerSec: number, breakSec = props.room.settings.br
 
     <aside class="side">
       <FermeanieSays
-        :version="room.fermeanie.version"
+        :version="versionTag(room.fermeanie)"
         mood="smug"
         :text="
           room.fermeanie.wins > 0

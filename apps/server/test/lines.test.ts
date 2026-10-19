@@ -1,71 +1,94 @@
+import type { FluentFile } from '@fermi/shared/fluent'
 import { describe, expect, it } from 'vitest'
-import { fill, LinePicker, linesAt, loadLines } from '../src/lines.ts'
-import { testDb } from './fixtures.ts'
+import { loadLinePool } from '@fermi/shared/lines'
+import { LinePicker, loadLines } from '../src/lines.ts'
+import { testDb, testLineFiles, testLines } from './fixtures.ts'
 
-// Placeholders the game code fills in, per situation.
-const ALLOWED: Record<string, string[]> = {
-  intro: ['count'],
-  welcome: [],
-  sits_out: ['count'],
-  rule_change: ['name', 'count'],
-  'dunce.mild': ['name', 'factor'],
-  'dunce.severe': ['name', 'factor'],
-  'dunce.cosmic': ['name', 'factor'],
-  'dunce.nonpositive': ['name', 'value'],
-  'dunce.repeat_offender': ['name', 'count'],
-  'dunce.group': ['names', 'count'],
-  steal: ['points', 'best'],
-  defeated: ['name'],
-  everyone_way_off: ['factor'],
-  human_bullseye: ['name'],
-  game_win: ['winner', 'version', 'wins'],
-  game_loss: ['winner', 'version'],
-  version_upgrade: ['oldVersion', 'version', 'wins'],
-}
-
-describe('FerMEANie line pool', () => {
+describe('FerMEANie lines', () => {
   const pool = loadLines()
+  // Every reading of every line, variables left as {$name}
+  const texts = Object.entries(pool.categories).flatMap(([category, lines]) =>
+    lines.flatMap(({ id, readings }) => readings.map((text) => ({ category, id, text }))),
+  )
 
-  it('has every situation the game uses, with plenty of dunce lines', () => {
-    for (const key of Object.keys(ALLOWED)) expect(linesAt(pool, key).length, key).toBeGreaterThanOrEqual(10)
-    const dunce = Object.keys(ALLOWED)
-      .filter((k) => k.startsWith('dunce.'))
-      .reduce((n, k) => n + linesAt(pool, k).length, 0)
-    expect(dunce).toBeGreaterThanOrEqual(150)
-  })
-
-  it.each(Object.entries(ALLOWED))('%s uses only valid placeholders', (key, allowed) => {
-    for (const line of linesAt(pool, key)) {
-      const used = [...line.matchAll(/\{(\w+)\}/g)].map((m) => m[1])
-      for (const u of used) expect(allowed, `${key}: "${line}"`).toContain(u)
-    }
+  it('has plenty of lines for every situation, and of dunce lines', () => {
+    for (const [key, lines] of Object.entries(pool.categories)) expect(lines.length, key).toBeGreaterThanOrEqual(10)
+    const dunce = Object.entries(pool.categories).filter(([k]) => k.startsWith('dunce.'))
+    expect(dunce.reduce((n, [, lines]) => n + lines.length, 0)).toBeGreaterThanOrEqual(150)
   })
 
   it('never calls anyone a troll, and never says crowd', () => {
-    const all = Object.keys(ALLOWED).flatMap((k) => linesAt(pool, k))
-    expect(all.filter((l) => /troll/i.test(l))).toEqual([])
+    expect(texts.filter(({ text }) => /troll/i.test(text))).toEqual([])
     // FerMEANie speaks of the swarm / hive mind / collective, never "the crowd"
-    expect(all.filter((l) => /crowd/i.test(l))).toEqual([])
+    expect(texts.filter(({ text }) => /crowd/i.test(text))).toEqual([])
   })
 
   it('has no digits outside placeholders', () => {
-    const all = Object.keys(ALLOWED).flatMap((k) => linesAt(pool, k))
-    expect(all.filter((l) => /\d/.test(l.replace(/\{\w+\}/g, '')))).toEqual([])
+    expect(texts.filter(({ text }) => /\d/.test(text))).toEqual([])
+  })
+})
+
+describe('loadLinePool', () => {
+  /** The fixture lines with some files replaced (null removes one). */
+  const poolWith = (files: Record<string, string | null>) => () =>
+    loadLinePool([
+      ...testLineFiles.filter((f) => !(f.path in files)),
+      ...Object.entries(files).flatMap(([path, source]): FluentFile[] => (source === null ? [] : [{ path, source }])),
+    ])
+
+  it('checks the files against the categories the game uses', () => {
+    expect(poolWith({ 'human_bullseye.ftl': null })).toThrow(/human_bullseye\.ftl: missing/)
+    expect(poolWith({ 'dunce/mlid.ftl': 'x = Hi\n' })).toThrow(/dunce\/mlid\.ftl: there is no "dunce\.mlid" category/)
+    expect(poolWith({ 'defeated.ftl': 'x = { $name } and { $nmae }\n' })).toThrow(/"x" uses \$nmae, but the variables passed are: \$name/)
+    expect(poolWith({ 'quip.ftl': 'x = { $leader } leads.\n' })).toThrow(/quip\.ftl: needs at least one line that uses no variables/)
+    expect(poolWith({ 'defeated.ftl': 'x = Well done.\n' })).toThrow(/defeated\.ftl: no line uses \$name/)
   })
 
-  it('fills placeholders and avoids repeats within a game', () => {
-    expect(fill('{name} was {factor} off', { name: 'Ada', factor: '3×' })).toBe('Ada was 3× off')
-    const picker = new LinePicker(pool)
-    const seen = new Set(Array.from({ length: 10 }, () => picker.pick('steal', { points: 1, best: 'x' })))
+  it('checks the markup in every reading of a line', () => {
+    const sitsOut = (variant: string) => `x = { $count ->\n  [one] One.\n *[other] ${variant}\n}\n`
+    expect(poolWith({ 'sits_out.ftl': sitsOut('**Many** { $count }.') })).not.toThrow()
+    expect(poolWith({ 'sits_out.ftl': sitsOut('**Many { $count }.') })).toThrow(/sits_out\.ftl: "x": "\*\*" is never closed/)
+  })
+})
+
+describe('LinePicker', () => {
+  it('formats variables, with plurals for numbers', () => {
+    const picker = new LinePicker(testLines)
+    expect(picker.pick('sits_out', { count: 1 })).toBe('Only 1 answer. I abstain.')
+    expect(picker.pick('sits_out', { count: 0 })).toBe('Only 0 answers. I abstain.')
+    expect(picker.pick('intro', { count: 12000 })).toBe('Welcome, 12000 specimens.') // no digit grouping
+    expect(picker.pick('dunce.mild', { name: 'Ada', factor: '3×' })).toBe('Ada was 3× off.')
+  })
+
+  it('escapes markup in names, so they show as typed', () => {
+    const picker = new LinePicker(testLines)
+    expect(picker.pick('defeated', { name: '**Bob**' })).toBe('\\*\\*Bob\\*\\* beat me.')
+  })
+
+  it('avoids repeats within a game', () => {
+    const picker = new LinePicker(loadLines())
+    const seen = new Set(Array.from({ length: 10 }, () => picker.pick('steal', { points: 100, best: 'x' })))
     expect(seen.size).toBe(10)
   })
 
-  it('steers dunce lines away from ones a player has already seen', () => {
+  it('skips lines that need an optional variable that was left out', () => {
+    const both = new LinePicker(testLines, undefined, () => 0)
+    expect(both.pick('quip', { leader: 'Ada', last: 'Bob' })).toBe('Ada leads, Bob trails.')
+    const neither = new LinePicker(testLines, undefined, () => 0)
+    expect(neither.pick('quip', {})).toBe('Carry on.')
+    expect(neither.pick('quip', { leader: 'Ada' })).toBe('Carry on.')
+  })
+
+  it('keys history by message ID and steers dunce lines away from ones a player has seen', () => {
     const db = testDb()
-    const first = new LinePicker(pool, db)
-    const a = first.pick('dunce.mild', { name: 'Ada', factor: '3×' }, 'player-a')
+    const pool = loadLines()
+    const vars = { name: 'Ada', factor: '3×' }
+    const a = new LinePicker(pool, db).pick('dunce.mild', vars, 'player-a')
+    const keys = (db.prepare('SELECT line_key FROM player_lines').all() as { line_key: string }[]).map((r) => r.line_key)
+    expect(keys).toEqual([expect.stringMatching(/^dunce\.mild#dunce-mild-\d+$/)])
+
     const second = new LinePicker(pool, db, () => 0) // a fresh game, deterministic pick
-    const picks = Array.from({ length: 5 }, () => second.pick('dunce.mild', { name: 'Ada', factor: '3×' }, 'player-a'))
+    const picks = Array.from({ length: 5 }, () => second.pick('dunce.mild', vars, 'player-a'))
     expect(picks).not.toContain(a)
   })
 })

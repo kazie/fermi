@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RoomView, ServerMessage } from '@fermi/shared'
-import { Room, DEADLINE_GRACE_MS, HOST_HANDOVER_MS } from '../src/game.ts'
+import { Room, DEADLINE_GRACE_MS, HOST_HANDOVER_MS, quipNames } from '../src/game.ts'
 import { getQuestion } from '../src/questions/repo.ts'
 import { makeQuestion, seed, testDb, testLines } from './fixtures.ts'
 import { insertQuestion } from '../src/questions/repo.ts'
@@ -50,7 +50,7 @@ describe('Room', () => {
     room.handle(players[1].id, { type: 'start' }, players[1].conn)
     expect(players[1].conn.errors.at(-1)).toMatchObject({ message: /Only the host/ })
     room.handle(players[0].id, { type: 'settings', rounds: 5, timerSec: 30 }, players[0].conn)
-    expect(players[1].conn.last.settings).toEqual({ rounds: 5, timerSec: 30, breakSec: 0 })
+    expect(players[1].conn.last.settings).toEqual({ rounds: 5, timerSec: 30, breakSec: 0, pacing: 'timer' })
   })
 
   it('de-duplicates names and reserves FerMEANie', () => {
@@ -75,7 +75,7 @@ describe('Room', () => {
     room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 60 }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     expect(a.conn.last.phase).toBe('question')
-    expect(a.conn.last.introLine).toBe('Welcome, 4 specimens.')
+    expect(a.conn.last.round!.line).toBe('Welcome, 4 specimens.')
     expect(JSON.stringify(a.conn.last)).not.toContain(String(answerOf())) // the truth never leaks early
 
     // Round 1
@@ -112,6 +112,7 @@ describe('Room', () => {
 
     // Round 2: the crowd beats everyone → FerMEANie steals
     expect(a.conn.last.phase).toBe('question')
+    expect(a.conn.last.round!.line).toBe('Ada leads, Dee trails.') // a quip from the second round on
     expect(a.conn.last.players.find((p) => p.id === a.id)!.score).toBe(rv.scoresAfter[a.id])
     expect(rv.scoresAfter[a.id]).toBe(300 + 100) // rank 1 of 3 answered + bullseye
     const t2 = answerOf()
@@ -151,9 +152,12 @@ describe('Room', () => {
     expect(a.conn.last.phase).toBe('lobby')
   })
 
-  it('FerMEANie version grows when it wins', () => {
-    const { db, room, players, answerOf } = setup(3)
+  /** Plays 5 rounds that FerMEANie's swarm wins (each player 4–10× off, the swarm closer). */
+  function fermeanieWinsAGame(wins = 0) {
+    const ctx = setup(3)
+    const { db, room, players, answerOf } = ctx
     const [a, b, c] = players
+    db.prepare('UPDATE fermeanie SET wins = ?, loss_streak = 2').run(wins)
     room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30 }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     for (let i = 0; i < 5; i++) {
@@ -163,15 +167,54 @@ describe('Room', () => {
       room.handle(c.id, { type: 'lock', text: `${t} * 4` }, c.conn)
       vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
     }
-    const final = a.conn.last.final!
+    return { ...ctx, final: a.conn.last.final!, view: a.conn.last }
+  }
+
+  it('FerMEANie gains a pi digit and writes release notes when it wins', () => {
+    const { db, final, view } = fermeanieWinsAGame()
     expect(final.fermeanieWon).toBe(true)
-    expect(final.oldVersion).toBe('v3.14')
-    expect(final.version).toBe('v3.141')
-    expect(final.versionLine).toBe('v3.14 → v3.141.')
-    expect(a.conn.last.fermeanie.version).toBe('v3.141')
-    expect((db.prepare('SELECT wins FROM fermeanie').get() as { wins: number }).wins).toBe(1)
+    expect(final).toMatchObject({ version: 'v3.141', wins: 1 })
+    expect(final.codename).toBeUndefined()
+    expect(final.versionLine).toMatch(/^v3\.141: fixed \w+, 1 wins\.$/)
+    expect(view.fermeanie.version).toBe('v3.141')
+    expect(db.prepare('SELECT wins, loss_streak FROM fermeanie').get()).toEqual({ wins: 1, loss_streak: 0 }) // a win ends the losing streak
   })
 
+  it('every fifth win is a pie release', () => {
+    const { final, view } = fermeanieWinsAGame(4)
+    expect(final).toMatchObject({ version: 'v3.141592…', wins: 5, codename: 'Apple Pie' })
+    expect(final.versionLine).toBe('Apple Pie is out: v3.141592…, 5 wins.')
+    expect(view.fermeanie.codename).toBe('Apple Pie')
+  })
+
+  /** Plays 5 rounds where only Ada answers (exactly), unless `silent`: then nobody answers. FerMEANie has already lost `lossStreak` in a row. */
+  function humansWinAGame({ silent = false, lossStreak = 0 } = {}) {
+    const ctx = setup(2)
+    const { db, room, players, answerOf } = ctx
+    db.prepare('UPDATE fermeanie SET loss_streak = ?').run(lossStreak)
+    const [a] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30 }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    for (let i = 0; i < 5; i++) {
+      if (!silent) room.handle(a.id, { type: 'lock', text: String(answerOf()) }, a.conn)
+      vi.advanceTimersByTime(30_000 + DEADLINE_GRACE_MS)
+      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+    }
+    return a.conn.last.final!
+  }
+
+  it('a tie with FerMEANie is still a loss, with its own line', () => {
+    const final = humansWinAGame({ silent: true })
+    expect(final.fermeanieWon).toBe(false)
+    expect(final.line).toBe('A tie with Ada. v3.14 still loses.')
+    expect(final.versionLine).toBeUndefined()
+  })
+
+  it('after three losses in a row, FerMEANie eats humble pie', () => {
+    expect(humansWinAGame({ lossStreak: 1 }).line).toBe('Ada beat v3.14.') // the second loss in a row
+    expect(humansWinAGame({ lossStreak: 2 }).line).toBe('Ada won. 3 losses for v3.14.')
+    expect(humansWinAGame({ lossStreak: 4 }).line).toBe('Ada won. 5 losses for v3.14.')
+  })
   it('never asks two questions from the same template in one game', () => {
     const db = testDb()
     for (let i = 0; i < 6; i++) {
@@ -262,12 +305,14 @@ describe('Room', () => {
     const v = a.conn.last
     expect(v.phase).toBe('break')
     expect(v.reveal).toBeDefined() // the finished round stays visible to talk about
-    expect(v.break).toMatchObject({ index: 0, total: 5, votes: 0, needed: 2, youVoted: false })
+    expect(v.break).toMatchObject({ index: 0, total: 5, line: 'Break.', timed: { votes: 0, needed: 2, youVoted: false } })
+    room.handle(a.id, { type: 'next' }, a.conn) // only for host pacing
+    expect(a.conn.last.phase).toBe('break')
     expect(v.players.find((p) => p.id === a.id)!.score).toBe(rv.scoresAfter[a.id]) // scores already applied
     room.handle(a.id, { type: 'skip_break' }, a.conn)
     room.handle(a.id, { type: 'skip_break' }, a.conn) // a second vote from the same player doesn't count
-    expect(b.conn.last.break).toMatchObject({ votes: 1, youVoted: false })
-    expect(a.conn.last.break!.youVoted).toBe(true)
+    expect(b.conn.last.break!.timed).toMatchObject({ votes: 1, youVoted: false })
+    expect(a.conn.last.break!.timed!.youVoted).toBe(true)
     room.handle(b.id, { type: 'skip_break' }, b.conn)
     expect(c.conn.last.phase).toBe('question')
     expect(c.conn.last.round!.index).toBe(1)
@@ -301,9 +346,82 @@ describe('Room', () => {
     room.handle(a.id, { type: 'skip_break' }, a.conn)
     expect(a.conn.last.phase).toBe('break')
     room.disconnect(c.id, c.conn) // now 2 connected: 1 of 2 is not yet a majority…
-    expect(a.conn.last.break!.needed).toBe(2)
+    expect(a.conn.last.break!.timed!.needed).toBe(2)
     room.handle(b.id, { type: 'skip_break' }, b.conn)
     expect(a.conn.last.phase).toBe('question')
+  })
+
+  it('host pacing: the break lasts until the host taps Next, and never follows the last round', () => {
+    const { room, players } = setup(2)
+    const [a, b] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0, pacing: 'host' }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    for (let i = 0; i < 5; i++) {
+      room.handle(a.id, { type: 'lock', text: '5' }, a.conn)
+      room.handle(b.id, { type: 'lock', text: '6' }, b.conn)
+      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+      if (i === 4) break
+      expect(a.conn.last.break).toMatchObject({ line: 'Waiting for Ada.' })
+      expect(a.conn.last.break!.timed).toBeUndefined()
+      vi.advanceTimersByTime(10 * 60_000)
+      room.handle(b.id, { type: 'skip_break' }, b.conn) // no votes with host pacing
+      room.handle(a.id, { type: 'skip_break' }, a.conn)
+      room.handle(b.id, { type: 'next' }, b.conn)
+      expect(b.conn.errors.at(-1)).toMatchObject({ message: /Only the host/ })
+      expect(a.conn.last.phase).toBe('break')
+      room.handle(a.id, { type: 'next' }, a.conn)
+      expect(a.conn.last.round!.index).toBe(i + 1)
+    }
+    expect(a.conn.last.phase).toBe('final')
+  })
+
+  it('host pacing: a new host is named while everyone waits', () => {
+    const { room, players } = setup(2)
+    const [a, b] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, pacing: 'host' }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
+    vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+    room.disconnect(a.id, a.conn)
+    vi.advanceTimersByTime(HOST_HANDOVER_MS)
+    expect(b.conn.last.break!.line).toBe('Waiting for Bob.')
+    room.handle(b.id, { type: 'next' }, b.conn)
+    expect(b.conn.last.phase).toBe('question')
+  })
+
+  it('FerMEANie remarks on early lock-ins, identical answers, lead changes and the final round', () => {
+    const { room, players, answerOf } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30 }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    // Round 1: Ada is exact; Bob and Cyd give the same answer, all with time to spare
+    let t = answerOf()
+    room.handle(a.id, { type: 'lock', text: String(t) }, a.conn)
+    room.handle(b.id, { type: 'lock', text: `${t} * 1000` }, b.conn)
+    room.handle(c.id, { type: 'lock', text: `${t} * 1000` }, c.conn)
+    let rv = a.conn.last.reveal!
+    expect(rv.lines.everyone).toBe('Everyone locked in early.')
+    expect(rv.lines.twins).toBe('Bob and Cyd said the same.')
+    vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
+    expect(a.conn.last.round!.line).toBe('Carry on.') // Ada leads, but Bob and Cyd tie for last
+
+    // Round 2: Bob is exact and overtakes Ada; answers at the deadline, all different
+    t = answerOf()
+    room.handle(a.id, { type: 'draft', text: `${t} * 100` }, a.conn)
+    room.handle(b.id, { type: 'draft', text: String(t) }, b.conn)
+    room.handle(c.id, { type: 'draft', text: `${t} * 1.5` }, c.conn)
+    vi.advanceTimersByTime(30_000 + DEADLINE_GRACE_MS)
+    rv = a.conn.last.reveal!
+    expect(rv.lines.everyone).toBeUndefined()
+    expect(rv.lines.twins).toBeUndefined()
+    vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
+    expect(a.conn.last.round!.line).toBe('Bob took the lead from Ada.')
+
+    for (let i = 2; i < 4; i++) {
+      vi.advanceTimersByTime(30_000 + DEADLINE_GRACE_MS)
+      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+    }
+    expect(a.conn.last.round!.line).toMatch(/^Last one\. Bob leads, \w+ trails\.$/)
   })
 
   it('a big screen watches but never plays or sees any sheet', () => {
@@ -323,5 +441,27 @@ describe('Room', () => {
     expect(tv.last.round!.question).toBeDefined()
     room.disconnectScreen(tv)
     expect(a.conn.last.screens).toBe(0)
+  })
+})
+
+describe('quipNames', () => {
+  const p = (name: string, score: number, fromStart = true) => ({ name, score, fromStart })
+
+  it('names the leader and the last when the scores single them out', () => {
+    expect(quipNames([p('Bob', 100), p('Ada', 300), p('Cy', 200)], 0)).toEqual({ leader: 'Ada', last: 'Bob' })
+  })
+
+  it('names nobody on a tie, or when there is no one else to compare with', () => {
+    expect(quipNames([p('Ada', 300), p('Bob', 300), p('Cy', 100), p('Dee', 100)], 0)).toEqual({ leader: undefined, last: undefined })
+    expect(quipNames([p('Ada', 300)], 0)).toEqual({ leader: undefined, last: undefined })
+  })
+
+  it('names no leader while FerMEANie is ahead', () => {
+    expect(quipNames([p('Ada', 300), p('Bob', 100)], 300).leader).toBeUndefined()
+    expect(quipNames([p('Ada', 300), p('Bob', 100)], 299).leader).toBe('Ada')
+  })
+
+  it('does not call a newcomer the last', () => {
+    expect(quipNames([p('Ada', 300), p('Bob', 100), p('Cy', 0, false)], 0).last).toBeUndefined()
   })
 })

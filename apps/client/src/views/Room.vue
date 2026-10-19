@@ -71,7 +71,9 @@ watch(
         v-else-if="room.phase === 'lobby'"
         :room="room"
         :join-url="joinUrl"
-        @settings="(s) => send({ type: 'settings', rounds: s.rounds as 5, timerSec: s.timerSec as 60, breakSec: s.breakSec as 30 })"
+        @settings="
+          (s) => send({ type: 'settings', rounds: s.rounds as 5, timerSec: s.timerSec as 60, breakSec: s.breakSec as 30, pacing: s.pacing })
+        "
         @start="send({ type: 'start' })"
       />
       <QuestionScreen
@@ -108,6 +110,7 @@ watch(
         :now="now"
         :variant="controller ? 'compact' : 'phone'"
         @skip="send({ type: 'skip_break' })"
+        @next="send({ type: 'next' })"
       />
       <FinalScreen
         v-else-if="room.phase === 'final' && room.final"

@@ -120,6 +120,7 @@ watch([stage, flipped], async () => {
         <span v-for="n in pending" :key="n" class="chip mono" aria-hidden="true">?</span>
       </div>
       <p v-if="stage === 'numberLine'" class="muted center">Everyone’s answers are in. The truth is about to land…</p>
+      <FermeanieSays v-if="reveal.lines.everyone && !atLeast('cards')" :text="reveal.lines.everyone" mood="smug" size="s" />
       <p v-else-if="mine && atLeast('cards') && flipped > reveal.cards.indexOf(mine)" class="center you-were">
         You were <strong>{{ describeOff(mine.factor, mine.direction, formatFactor) }}</strong>
       </p>
@@ -142,7 +143,10 @@ watch([stage, flipped], async () => {
           :you="c.playerId === you"
           :unit="reveal.question.unit"
         />
-        <FermeanieSays v-if="reveal.lines.bullseye && flipped === reveal.cards.length" :text="reveal.lines.bullseye" mood="sulk" size="s" />
+        <template v-if="flipped === reveal.cards.length">
+          <FermeanieSays v-if="reveal.lines.twins" :text="reveal.lines.twins" mood="smug" size="s" />
+          <FermeanieSays v-if="reveal.lines.bullseye" :text="reveal.lines.bullseye" mood="sulk" size="s" />
+        </template>
       </section>
 
       <div class="area-fer">

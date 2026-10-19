@@ -4,7 +4,7 @@ import FermeanieSays from './FermeanieSays.vue'
 
 const chat = [
   'Congratulations, Ada. You are the best of the humans. That is like being the tallest blade of grass.',
-  'v3.1415 retired with honours. Now running v3.14159. I feel more irrational already.',
+  'Release notes for v3.14159: **Fixed** a bug where Ada was briefly competitive.',
 ]
 const chatStart = ref(0)
 const chatNow = ref(0)

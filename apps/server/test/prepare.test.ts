@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { prepareDraft, type PrepareDeps } from '../src/questions/prepare.ts'
+import { quoteExcerpt } from '../src/questions/dedupe.ts'
 import { ingestQuestion } from '../src/questions/ingest.ts'
 import { makeQuestion, testDb } from './fixtures.ts'
 
@@ -28,6 +29,7 @@ describe('prepareDraft', () => {
     expect(d.archived).toEqual([src.url])
     expect((out.sources as { archiveUrl: string }[])[0].archiveUrl).toMatch(/web\.archive\.org/)
     expect(check).toMatchObject({ id: 'prep-ok', ok: true, quotes: { s1: 'live' }, ingest: 'valid', problems: [] })
+    expect(check.excerpts.s1).toBe(`<p>Fun fact: ${src.quote} Wow.</p>`)
   })
 
   it('falls back to the snapshot when the live page blocks us', async () => {
@@ -44,5 +46,18 @@ describe('prepareDraft', () => {
     expect(check.ok).toBe(false)
     expect(check.quotes.s1).toBe('missing')
     expect(check.problems.join()).toMatch(/no source quote contains the answer/)
+  })
+})
+
+describe('quoteExcerpt', () => {
+  const page = `${'Intro words. '.repeat(40)}The Tower has 2.5 million rivets, says the operator.${' Outro words.'.repeat(40)}`
+
+  it('cuts the page text around the quote, matching it the way the ingest checks do', () => {
+    const excerpt = quoteExcerpt(page, 'the tower has 2.5 MILLION rivets', 20)!
+    expect(excerpt).toBe('…s. Intro words. The Tower has 2.5 million rivets, says the operator.…')
+  })
+
+  it('returns null when the page lacks the quote', () => {
+    expect(quoteExcerpt(page, 'The Tower has 3 million rivets')).toBeNull()
   })
 })

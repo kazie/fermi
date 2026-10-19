@@ -1,97 +1,90 @@
 # Fermi
 
-A multiplayer browser party game of napkin maths. Everyone gets the same Fermi question
-("How many rivets hold the Eiffel Tower together?"), works it out in a calculator-style
-**answer block**, and the closest estimates score. Then the working is revealed, furthest answer
-first.
+A multiplayer browser party game of napkin maths. Everyone gets the same Fermi question ("How many rivets hold the
+Eiffel Tower together?"), works it out in a calculator-style **answer block**, and the closest estimates score. Then
+everyone's working is revealed, furthest answer first.
 
-Lurking in every game is **FerMEANie**, a smug GLaDOS-style AI. It takes the _wisdom of the
-crowd_, absorbing everyone's answers into **the swarm** (their geometric mean). If the swarm beats every human, it steals the round.
-If someone types `1e99` to sabotage it, FerMEANie "changes the rules" and uses the median instead,
-and puts a paper dunce cap on the culprit. The best human always wins the game, but FerMEANie keeps
-score, and its version number gains one more digit of π each time it beats you (`v3.14` → `v3.141` → …).
+Lurking in every game is **FerMEANie**, a smug GLaDOS-style AI. It absorbs everyone's answers into **the swarm** (their
+geometric mean), and if the swarm beats every human, it steals the round. It hands out paper dunce caps, stirs up the
+competition between questions, and keeps a career record of its wins against you.
 
-It works on PCs and phones, and there is no presenter screen: everyone plays on their own device,
-which also makes it work over a video call.
+Play on phones and PCs, each on their own device (it works over a video call), or put the game on a TV and use phones
+as controllers.
 
-## Running it
+## Quick start
 
 ```bash
 pnpm install
 cp .env.example .env        # then set FERMI_ADMIN_TOKEN to something random
 pnpm dev                    # server on :3000, client on :5173 (proxying /api and /ws)
-pnpm dev:lan                # same, reachable from phones on your network
+pnpm dev:lan                # the same, reachable from phones on your network
 ```
 
-Open http://localhost:5173, click **Host a game**, and share the link or QR code. You need questions
-in the database first; see [Questions](#questions).
+Open http://localhost:5173, click **Host a game**, and share the link or QR code. The game needs questions in the
+database first; see [Questions](#questions).
 
-Requires Node ≥ 24. The server runs TypeScript directly through Node's type stripping, so there is no
-build step. pnpm 12 is pinned in `package.json`.
+Requires Node ≥ 24 (see `.node-version`). The server runs TypeScript directly through Node's type stripping, so there is
+no build step. pnpm 12 is pinned in `package.json`.
 
-### Docker
+With Docker:
 
 ```bash
 docker build -t fermi .
 docker run -d -p 3000:3000 -v fermi-data:/data -e FERMI_ADMIN_TOKEN=… fermi
 ```
 
-One container serves the client, the websocket and the API. The SQLite database lives in `/data`.
+One container serves the client, the websocket and the API; the SQLite database lives in `/data`. See
+[Self-hosting](#self-hosting) for the settings.
 
-Behind a reverse proxy, set `FERMI_TRUST_PROXY=1` so rate limits see the real client address.
+## Playing
 
-### Hosting notes
+### Hosting
 
-- **Fully self-hosted.** The game loads nothing from other servers: no CDNs, web fonts, analytics or icon
-  services. It works with access to the game server alone, even on a closed LAN. The server's
-  `Content-Security-Policy` makes browsers refuse anything else, and the e2e test fails if any request
-  leaves the game's origin. (Histoire, the component-story dev tool, does load icons online, but it isn't
-  part of the game.)
+- **Host a game:** everyone plays on their own device. The first player to join is the host: they pick the settings
+  and press Start.
+- **Host on a big screen:** for a group in one room. Open the site on a TV or laptop and choose **Host on a big
+  screen**. It shows the room code and QR code big, then only _shows_ the game: the question, the reveal, the
+  scores. Everyone joins and answers on their phones, and the first phone to join hosts.
 
-- **Players are identified by a private key** kept in each browser's localStorage. It is only ever
-  sent to the server and stored there as a hash. Other players see a random per-room id, which can't be
-  used to act as someone else.
-- **Answers can't be looked up mid-round.** `/q/:id` only shows a question once it has been played,
-  and not while a room is playing it.
-- **Disputes:** the first dispute only flags a question. It leaves rotation once two different players
-  have disputed it.
-- **Rate limits** (per client): 10 new rooms/minute and 20 disputes/hour, with at most 2000 open rooms.
+While a big screen is connected, each phone can switch between **Controller** (the default: your own card, your
+result and score, and "look at the big screen") and **Full view** (everything, as without a TV). Any number of
+screens can watch at `/screen/<CODE>`. Screens never play and never see anyone's sheet.
 
-## Big screen mode
+If the host disconnects, the earliest-joined connected player takes over after 15 seconds.
 
-For a group in one room: open the site on a TV or laptop and choose **Host on a big screen**. That screen
-shows the room code and QR big and then only _shows_ the game: the question, the reveal, the scores.
-Everyone joins and answers on their phones; the first phone to join is the host and gets the Start
-button. Groups where everyone has a PC can skip it and use **Host a game** instead.
+### Settings
 
-While a big screen is connected, each phone can switch between **Controller** (the default: your own
-card, your result and score, and "look at the big screen") and **Full view** (everything, as without a
-TV). Any number of screens can watch: open `/screen/<CODE>`. Screens never play and never see anyone's
-sheet.
+| Setting              | Options                               | Default |
+| -------------------- | ------------------------------------- | ------- |
+| Rounds               | 5, 10, 15                             | 10      |
+| Seconds per question | 30, 60, 90                            | 60      |
+| Pacing               | Timed breaks, Host taps Next          | Timed   |
+| Break between rounds | Off, 15, 30, 60 s (timed pacing only) | 30 s    |
 
-## How a round works
+**Pacing.** With timed breaks, the game runs by itself; when more than half of the connected players tap **Skip
+break**, the next question starts early. With **Host taps Next**, everyone talks the round over until the host taps
+**Next question**, which suits a group that likes to argue about the answers. Either way the answer timer and the
+reveal run on their own, and the host can't cut answering short.
 
-1. **Question (30/60/90 s, chosen by the host).** Players see who has locked in, never what they answered.
-   The round ends early once everyone has locked in.
+### A round
+
+1. **Question.** Players see who has locked in, never what they answered. The round ends early once every connected
+   player has locked in.
 2. **Reveal.**
-   1. All answers drop onto a log-scale number line, then the true answer lands with its explanation
-      and sources.
+   1. All answers drop onto a log-scale number line, then the true answer lands with its explanation and sources.
    2. Cards flip from furthest to closest, showing each player's full working.
-   3. FerMEANie's swarm estimate lands.
+   3. FerMEANie's swarm estimate lands, and it has something to say about it.
    4. The scoreboard shows.
-3. **Break** (optional, set in the lobby: off / 15 / 30 / 60 s, default 30). Between rounds there is a
-   countdown to talk about the answers; when more than half of the connected players tap **Skip
-   break**, the next question starts right away. There is no break after the last round.
-4. **Scoring.** Error is measured in orders of magnitude (`|log10(guess / answer)|`), so 2× too high
-   counts the same as 2× too low. Points are `100 × (N − rank + 1)`, plus +100 for being within 10%
-   or +50 for being within 2×. If FerMEANie's estimate beats every human (ties go to the humans),
-   it takes all of that round's points.
+3. **Break** (see Pacing). There is no break after the last round.
 
-The tunable constants are in `packages/shared/src/scoring.ts` and `crowd.ts`.
+**Scoring.** Error is measured in orders of magnitude (`|log10(guess / answer)|`), so 2× too high counts the same as
+2× too low. Points are `100 × (N − rank + 1)`, plus +100 for being within 10% or +50 for being within 2×. If
+FerMEANie's estimate beats every human (ties go to the humans), it takes all of that round's points. The best human
+wins the game; the tunable constants are in `packages/shared/src/scoring.ts` and `crowd.ts`.
 
-## The answer block
+### The answer block
 
-The calculator is shared by client and server: the server re-evaluates every sheet itself.
+The calculator is shared by client and server, and the server re-evaluates every sheet itself.
 
 ```
 # humans stacked to the moon
@@ -102,77 +95,123 @@ people * height / moon
 ```
 
 - One step per line, with the result shown on the right. The last line is your answer.
-- Variables and `ans` (the previous line's result). Comments are shown at the reveal.
-- `* × x ·` all multiply, `/ ÷` divide, `^ **` raise to a power, and `%` is a percentage. Implicit
-  multiplication works too: `2(3+4)`, `3 days`, `seconds / 365days` (it binds tighter than `/`).
-  A faint "read as" line shows how each line was understood.
-- Numbers can be written `5k 2.5M 8bn 1e9 3 million`. Use `.` for decimals and `_` to group digits.
-  Commas and spaces inside numbers are rejected with a one-click fix, because `1,000` means
-  different things in different countries.
+- Variables, and `ans` (the previous line's result). Comments are shown at the reveal.
+- `* × x ·` all multiply, `/ ÷` divide, `^ **` raise to a power, and `%` is a percentage. Implicit multiplication
+  works too: `2(3+4)`, `3 days`, `seconds / 365days` (it binds tighter than `/`). A faint "read as" line shows how
+  each line was understood.
+- Numbers can be written `5k 2.5M 8bn 1e9 3 million`. Use `.` for decimals and `_` to group digits. Commas and spaces
+  inside numbers are rejected with a one-click fix, because `1,000` means different things in different countries.
 - Functions: `sqrt cbrt log10 log ln exp abs round floor ceil min max`. Constants: `pi π`.
+
+## FerMEANie
+
+- **The swarm.** FerMEANie plays the geometric mean of everyone's answers. If someone types `1e99` to sabotage it, it
+  "changes the rules" to the median, smugly, and puts a paper dunce cap on the culprit.
+- **Commentary.** It greets the players, needles the leader and the last between questions (Portal 2 co-op style),
+  notices lead changes, identical answers and suspiciously fast lock-ins, eavesdrops on the break, and gloats or sulks
+  at the end.
+- **Its version** gains a digit of π with every game it wins (`v3.14` → `v3.141` → … `v3.141592…`), and each win comes
+  with release notes about the humans it beat. Every fifth win is a major release named after a pie (Apple Pie,
+  Banoffee Pie, Cherry Pie…); after three losses in a row, it is served humble pie. The record is shared by every room
+  on the server.
+
+Its lines are [Fluent](https://projectfluent.org/) files in [`content/fermeanie/`](content/fermeanie/), one file per
+situation, and may use a little formatting (`**bold**`, `*italic*`, `~~struck~~`, `||redacted||`) for comic effect.
+The server checks them all at startup and refuses to start on a mistake, naming the file and line.
+[`content/FERMEANIE.md`](content/FERMEANIE.md) is the persona and tone guide for writing more.
 
 ## Questions
 
-Questions live in the database and can be added **while the server runs**. A new question is
-playable from the next round. Every question must carry dated sources: the publisher, a verbatim
-quote containing the number, the access date and a Wayback Machine snapshot. Derived answers store
-their formula in calculator syntax. [`content/QUESTION_RULES.md`](content/QUESTION_RULES.md) is the
-full contract.
+Questions live in the database and can be added **while the server runs**; a new question is playable from the next
+round. Every question carries dated sources: the publisher, a verbatim quote containing the number, the access date
+and a Wayback Machine snapshot. Derived answers store their formula in calculator syntax.
+[`content/QUESTION_RULES.md`](content/QUESTION_RULES.md) is the full contract.
 
 ### Generating with Claude Code
 
 ```
-/fermi-questions 6                         # try to add ~6 new questions (max 15 per run)
-/fermi-questions 5 space food              # with a topic focus
+/fermi-questions 6                                # try to add about 6 new questions (max 15 per run)
+/fermi-questions 5 space food                     # with a topic focus
 /fermi-questions --template visitors-per-year 6   # many questions from one source family
-/fermi-questions --recheck                 # re-verify disputed / changed / due questions
-/loop 1h /fermi-questions 5                # slow, steady growth
+/fermi-questions --recheck                        # re-verify disputed questions
 ```
+
+For steady growth, schedule fresh runs rather than looping inside one session, e.g. from cron:
+`cd ~/fermi && claude -p "/fermi-questions 5"`. The server must be running.
 
 The pipeline is built to be cheap and crash-safe:
 
-1. `fermi-generator` (Haiku, pinned in `.claude/agents/`) writes 3 drafts per agent, saving each file
-   as soon as it's done.
-2. `pnpm q prepare` does the mechanical work with no LLM: it archives sources to the Wayback Machine,
-   checks each quote against the live page or snapshot, and dry-runs ingest.
-3. `fermi-verifier` (Sonnet) makes the judgement calls: does the number mean exactly what the question
-   asks, is it fair, is it fun. Then it ingests.
+1. The skill itself runs on **Sonnet** (pinned in its frontmatter) and only coordinates: it never searches, fetches
+   or reads drafts.
+2. `fermi-generator` (**Haiku**, pinned in `.claude/agents/`) writes 5 drafts per agent, saving each file as soon as
+   it's done, with at most 2 searches and 3 page fetches per draft. It favours the categories with the fewest
+   questions, and never sees existing question texts (only ids and categories).
+3. `pnpm q prepare` does the mechanical work with no LLM: it archives sources to the Wayback Machine, checks each quote
+   against the live page or snapshot, saves the page text around it, and dry-runs ingest (which catches duplicates).
+4. `fermi-verifier` (**Sonnet**) makes the judgement calls from that page text: does the number mean exactly what the
+   question asks, is it fair, is it fun. Then it ingests.
 
-Templates ([`content/question-templates.md`](content/question-templates.md)) turn one source table into
-many questions; a game never asks two from the same template. Run the skill from a **fresh Claude Code
-session**: inside a long coding session every orchestration step is expensive. It only ever reports
-counts, so the person running it can still play.
+Templates ([`content/question-templates.md`](content/question-templates.md)) turn one source table into many
+questions; a game never asks two from the same template. The skill only ever reports counts, so the person running it
+can still play. Run it from a **fresh session**: inside a long coding session, every coordination step re-reads the
+whole conversation.
 
 ### The `pnpm q` CLI
 
-`pnpm q` is a thin client for the admin API, authenticated with `FERMI_ADMIN_TOKEN`. Use
-`--server URL` to target a deployment.
+`pnpm q` is a thin client for the admin API, authenticated with `FERMI_ADMIN_TOKEN`. Use `--server URL` to target a
+deployment. Commands marked ⚠ print question texts or answers: don't run them if you want to play.
 
-| Command                                                          |                                                                                                                                                                        |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm q add file.json… [--batch id] [--replaces id] [--dry-run]` | Insert, with all checks                                                                                                                                                |
-| `pnpm q prepare <dir>`                                           | Archive sources, check quotes, dry-run ingest for a directory of drafts                                                                                                |
-| `pnpm q list [--texts]`                                          | IDs, categories and statuses (no answers)                                                                                                                              |
-| `pnpm q stats` / `pnpm q disputes`                               | Pool overview / open disputes                                                                                                                                          |
-| `pnpm q check [--links]`                                         | Re-validate the pool and live sources (runs as a server-side job; the CLI polls it)                                                                                    |
-| `pnpm q status <id> active\|retired\|disputed`                   | Change a question's status                                                                                                                                             |
-| `pnpm q archive <url>`                                           | Find or create a Wayback snapshot                                                                                                                                      |
-| `pnpm q quote <url> "<quote>" [n]`                               | Check a quote is on the page and contains `n`                                                                                                                          |
-| `pnpm q export [file]` / `pnpm q import <file>`                  | Backup, restore and **merge**: import keeps statuses/flags, skips ids the target already has, de-duplicates the rest, merges rejections, and is safe to run repeatedly |
+| Command                                                          |                                                                          |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `pnpm q add file.json… [--batch id] [--replaces id] [--dry-run]` | Insert, with all checks                                                  |
+| `pnpm q prepare <dir>`                                           | Archive sources, check quotes, dry-run ingest for a directory of drafts  |
+| `pnpm q list`                                                    | IDs, categories and statuses                                             |
+| `pnpm q list --texts` ⚠                                          | The same, with question texts (never answers)                            |
+| `pnpm q get <id>` ⚠                                              | A question's full JSON                                                   |
+| `pnpm q stats [--categories]`                                    | Pool counts; `--categories` lists active questions per category          |
+| `pnpm q disputes`                                                | Open disputes                                                            |
+| `pnpm q check [--links]`                                         | Re-validate the pool and live sources (a server-side job; the CLI polls) |
+| `pnpm q status <id> active\|retired\|disputed`                   | Change a question's status                                               |
+| `pnpm q archive <url>`                                           | Find or create a Wayback snapshot                                        |
+| `pnpm q quote <url> "<quote>" [n]`                               | Check a quote is on the page and contains `n`                            |
+| `pnpm q export [file]` ⚠ / `pnpm q import <file>`                | Backup and restore (see below)                                           |
+
+`import` **merges**: it keeps statuses and flags, skips ids the target already has, de-duplicates the rest, merges
+rejections, and is safe to run repeatedly.
 
 Every insert goes through `apps/server/src/questions/ingest.ts`:
 
 - **Schema and dates:** zod validation; the snapshot must be within 7 days of the access date.
-- **Quotes and formulas:**
-  - the quote must contain the number;
-  - a derived formula must evaluate to the answer;
-  - each derived input must be set in the formula and appear in its cited quote.
-- **Duplicates:** text similarity, the same source passage, or the same answer with related wording.
-  Grey-zone matches return `409 needs_review` and can be cleared with
-  `distinctFrom` + `distinctReason`. Rejected candidates are remembered.
+- **Quotes and formulas:** the quote must contain the number; a derived formula must evaluate to the answer; each
+  derived input must be set in the formula and appear in its cited quote.
+- **Duplicates:** text similarity, the same source passage, or the same answer with related wording. Grey-zone
+  matches return `409 needs_review` and can be cleared with `distinctFrom` + `distinctReason`. Rejected candidates are
+  remembered.
 
-Players can **dispute** an answer from the recap or `/q/:id` page. A disputed question is taken
-out of rotation until `/fermi-questions --recheck` resolves it.
+Players can **dispute** an answer from the recap or `/q/:id` page. The first dispute only flags a question; it leaves
+rotation once two different players have disputed it, until `/fermi-questions --recheck` resolves it.
+
+## Self-hosting
+
+| Variable            | Default                                        | What it does                                                                  |
+| ------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------- |
+| `FERMI_ADMIN_TOKEN` | none                                           | Bearer token for the question admin API. Required to add questions.           |
+| `FERMI_DB`          | `./data/fermi.db` (`/data/fermi.db` in Docker) | Where the SQLite database lives                                               |
+| `PORT`              | `3000`                                         | The server's port                                                             |
+| `HOST`              | `0.0.0.0`                                      | The address the server listens on                                             |
+| `FERMI_SERVER`      | `http://localhost:3000`                        | Where `pnpm q` sends requests                                                 |
+| `FERMI_TRUST_PROXY` | off                                            | Set to `1` behind a reverse proxy, so rate limits see the real client address |
+| `FERMI_TIME_SCALE`  | `1`                                            | Speeds up reveals and breaks; for tests only                                  |
+
+- **Fully self-hosted.** The game loads nothing from other servers: no CDNs, web fonts, analytics or icon services. It
+  works with access to the game server alone, even on a closed LAN. The server's `Content-Security-Policy` makes
+  browsers refuse anything else, and the e2e test fails if any request leaves the game's origin. (Histoire, the
+  component-story dev tool, does load icons online, but it isn't part of the game.)
+- **Players are identified by a private key** kept in each browser's localStorage. It is only ever sent to the server
+  and stored there as a hash. Other players see a random per-room id, which can't be used to act as someone else.
+- **Answers can't be looked up mid-round.** `/q/:id` only shows a question once it has been played, and not while a
+  room is playing it.
+- **Rate limits** (per client): 10 new rooms per minute and 20 disputes per hour, with at most 2000 open rooms.
 
 ## Development
 
@@ -184,26 +223,25 @@ pnpm lint           # ESLint for TS + Vue (pnpm lint:fix to autofix)
 pnpm story:dev      # Histoire stories for every component; "Screens / Devices" shows each screen at 360, 390 and 1280 px
 ```
 
-Node version: see `.node-version`. Editor settings: `.editorconfig`.
+Editor settings are in `.editorconfig`. Ideas that aren't scheduled yet live in [`IDEAS.md`](IDEAS.md): pick one from
+there, or add your own.
 
 ### CI and automation (`.github/`)
 
-- **CI** (`workflows/ci.yml`) runs on every PR and push to `master`:
-  - format, lint, type check and unit tests;
-  - Playwright e2e (report uploaded on failure);
-  - client, stories and Docker image builds (not pushed).
-  - A final `ci-ok` job sums it up. That is the one check to require.
-- **Dependabot** (`dependabot.yml`) opens weekly, grouped PRs for npm packages, GitHub Actions and the
-  Docker base image. Patch and minor updates merge automatically once `ci-ok` passes
-  (`workflows/dependabot-auto-merge.yml`); majors wait for review.
-- **Stories** (`workflows/stories.yml`) publishes the Histoire stories to GitHub Pages on pushes to
-  `master`. They use only fake fixtures, never real questions.
+- **CI** (`workflows/ci.yml`) runs on every PR and push to `master`: format, lint, type check and unit tests;
+  Playwright e2e (report uploaded on failure); client, stories and Docker image builds (not pushed). A final `ci-ok`
+  job sums it up; that is the one check to require.
+- **Dependabot** (`dependabot.yml`) opens weekly, grouped PRs for npm packages, GitHub Actions and the Docker base
+  image. Patch and minor updates merge automatically once `ci-ok` passes (`workflows/dependabot-auto-merge.yml`);
+  majors wait for review.
+- **Stories** (`workflows/stories.yml`) publishes the Histoire stories to GitHub Pages on pushes to `master`. They use
+  only fake fixtures, never real questions.
 
 ### Code layout
 
-| Path              |                                                                                                                                         |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/shared` | Calculator (tokenizer → Pratt parser → evaluator → formatting), scoring, crowd maths, protocol and question schemas                     |
-| `apps/server`     | Hono HTTP + `ws`, SQLite (`node:sqlite`) with migrations, the room state machine, question ingest                                       |
-| `apps/client`     | Vue 3 + Vite. Views are pure (props in, events out); `useSocket` owns the connection. Stories and fixtures live next to the components. |
-| `content/`        | Question rules, FerMEANie's line pool and persona guide ([`FERMEANIE.md`](content/FERMEANIE.md))                                        |
+| Path              |                                                                                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared` | Calculator (tokenizer → Pratt parser → evaluator → formatting), scoring, crowd maths, protocol, question schemas, and the Fluent line loader |
+| `apps/server`     | Hono HTTP + `ws`, SQLite (`node:sqlite`) with migrations, the room state machine, FerMEANie's line picker, question ingest                   |
+| `apps/client`     | Vue 3 + Vite. Views are pure (props in, events out); `useSocket` owns the connection. Stories and fixtures live next to the components.      |
+| `content/`        | Question rules and templates, FerMEANie's lines (`fermeanie/*.ftl`) and persona guide ([`FERMEANIE.md`](content/FERMEANIE.md))               |

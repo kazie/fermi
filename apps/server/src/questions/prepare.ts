@@ -1,7 +1,7 @@
 // Mechanical draft preparation — no LLM: archive sources, confirm quotes on the live page or snapshot,
 // and dry-run the ingest checks. The verifier agent then only does the judgement calls.
 
-import { normalizeText } from './dedupe.ts'
+import { quoteExcerpt } from './dedupe.ts'
 
 export interface PrepareDeps {
   pageText(url: string): Promise<string | null>
@@ -14,6 +14,8 @@ export interface DraftCheck {
   id: string
   ok: boolean
   quotes: Record<string, 'live' | 'archive' | 'missing'>
+  /** The page text around each found quote, so the verifier can judge its meaning without fetching the page. */
+  excerpts: Record<string, string>
   ingest: string
   problems: string[]
   similar?: { id: string; question: string; reasons: string[] }[]
@@ -25,6 +27,7 @@ type Draft = { id?: string; sources?: DraftSource[] } & Record<string, unknown>
 export async function prepareDraft(draft: Draft, deps: PrepareDeps): Promise<{ draft: Draft; check: DraftCheck }> {
   const problems: string[] = []
   const quotes: DraftCheck['quotes'] = {}
+  const excerpts: DraftCheck['excerpts'] = {}
   for (const s of draft.sources ?? []) {
     if (!s.archiveUrl || !s.archivedAt) {
       try {
@@ -33,14 +36,18 @@ export async function prepareDraft(draft: Draft, deps: PrepareDeps): Promise<{ d
         problems.push(`source ${s.id}: could not archive (${(e as Error).message})`)
       }
     }
-    const want = normalizeText(s.quote)
-    const live = await deps.pageText(s.url)
-    if (live !== null && normalizeText(live).includes(want)) quotes[s.id] = 'live'
-    else if (s.archiveUrl && normalizeText((await deps.pageText(s.archiveUrl)) ?? '').includes(want)) quotes[s.id] = 'archive'
-    else {
-      quotes[s.id] = 'missing'
-      problems.push(`source ${s.id}: quote not found on the live page or the snapshot`)
+    quotes[s.id] = 'missing'
+    for (const [where, url] of [
+      ['live', s.url],
+      ['archive', s.archiveUrl],
+    ] as const) {
+      const excerpt = url ? quoteExcerpt(await deps.pageText(url), s.quote) : null
+      if (excerpt === null) continue
+      quotes[s.id] = where
+      excerpts[s.id] = excerpt
+      break
     }
+    if (quotes[s.id] === 'missing') problems.push(`source ${s.id}: quote not found on the live page or the snapshot`)
   }
   const res = await deps.dryRun(draft)
   if (res.status === 'invalid') problems.push(...(res.errors ?? []))
@@ -49,6 +56,7 @@ export async function prepareDraft(draft: Draft, deps: PrepareDeps): Promise<{ d
     id: String(draft.id ?? '?'),
     ok: problems.length === 0 && (res.status === 'valid' || res.status === 'needs_review'),
     quotes,
+    excerpts,
     ingest: res.status,
     problems,
     ...(res.matches?.length ? { similar: res.matches.map(({ id, question, reasons }) => ({ id, question, reasons })) } : {}),

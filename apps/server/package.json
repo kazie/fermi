@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch --watch-path=src --watch-path=../../packages/shared/src src/index.ts",
-    "dev:lan": "node --watch --watch-path=src --watch-path=../../packages/shared/src src/index.ts",
+    "dev": "node --watch --watch-path=src --watch-path=../../packages/shared/src --watch-path=../../content/fermeanie src/index.ts",
+    "dev:lan": "node --watch --watch-path=src --watch-path=../../packages/shared/src --watch-path=../../content/fermeanie src/index.ts",
     "start": "node src/index.ts"
   },
   "dependencies": {

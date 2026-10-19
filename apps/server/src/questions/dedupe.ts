@@ -169,3 +169,28 @@ function quoteOverlap(a: string, b: string): number {
 }
 
 const round = (x: number) => Math.round(x * 100) / 100
+
+/**
+ * The quote with about `context` characters of page text on each side, or null if the page doesn't contain it.
+ * Matches the way the ingest checks do (normalizeText: case, punctuation, stopwords and plurals ignored), word by
+ * word, so the excerpt can be cut from the readable page.
+ */
+export function quoteExcerpt(page: string | null, quote: string, context = 300): string | null {
+  const wanted = normalizeText(quote)
+  if (page === null || !wanted || !normalizeText(page).includes(wanted)) return null // the quick check first
+  const want = wanted.split(' ')
+  const words = [...page.matchAll(/[\p{L}\p{N}\p{M}]+/gu)].flatMap((m) =>
+    normalizeText(m[0])
+      .split(' ')
+      .filter(Boolean)
+      .map((word) => ({ word, start: m.index, end: m.index + m[0].length })),
+  )
+  for (let i = 0; i + want.length <= words.length; i++) {
+    if (want.every((w, j) => words[i + j].word === w)) {
+      const start = Math.max(0, words[i].start - context)
+      const end = Math.min(page.length, words[i + want.length - 1].end + context)
+      return `${start > 0 ? '…' : ''}${page.slice(start, end).replace(/\s+/g, ' ').trim()}${end < page.length ? '…' : ''}`
+    }
+  }
+  return null
+}

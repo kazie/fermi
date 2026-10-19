@@ -1,7 +1,8 @@
 ---
 name: fermi-questions
-description: Generate, independently verify and ingest new Fermi questions into the running game server (or re-check disputed ones with --recheck). Cheap by design (Haiku drafts, script checks, Sonnet verifies). Safe to run unattended, e.g. `/loop 1h /fermi-questions 5`. Never reveals questions or answers to the user.
+description: Generate, independently verify and ingest new Fermi questions into the running game server (or re-check disputed ones with --recheck). Cheap by design (Sonnet orchestrates, Haiku drafts, script checks, Sonnet verifies). Run it from a fresh session, e.g. `claude -p "/fermi-questions 5"` from cron. Never reveals questions or answers to the user.
 argument-hint: '[count=6, max 15] [topic…] | --template <id> [count] | --recheck'
+model: sonnet
 ---
 
 # /fermi-questions
@@ -22,7 +23,8 @@ agents and one script:
 - The person running this also plays: never show question texts or answers. Don't read draft JSON,
   `.check.json` files or `existing.tsv` in this conversation. Report counts only.
 - Run this from a fresh session if you can. A long coding session makes every orchestration turn
-  expensive.
+  expensive. Don't `/loop` it inside one session either: the context grows every round. For steady
+  growth, schedule fresh runs instead (`claude -p "/fermi-questions 5"` from cron).
 
 Arguments: `$ARGUMENTS`
 
@@ -35,7 +37,9 @@ Arguments: `$ARGUMENTS`
 1. Check `pnpm q stats >/dev/null 2>&1`. If it fails, tell the user to start the server (`pnpm dev` or
    the container, with `FERMI_ADMIN_TOKEN` in `.env`) and stop.
 2. Set `B=.fermi-work/b-$(date +%Y%m%d-%H%M)` and run
-   `mkdir -p $B/drafts $B/verified && pnpm q list --texts > $B/existing.tsv 2>/dev/null`.
+   `mkdir -p $B/drafts $B/verified && pnpm q list > $B/existing.tsv && pnpm q stats --categories > $B/categories.tsv`.
+   These hold ids, categories and counts only, no question texts: generators don't need the texts, because
+   the `prepare` step below catches duplicates on the server. If either command fails, stop and report it.
 3. **Leftovers first.** For each older `.fermi-work/*/drafts/` directory, list its `*.json` drafts
    (not `.check.json`) that have no file with the same name in that batch's `verified/`:
    - drafts older than 7 days: delete them, since their access dates would be stale;
@@ -44,16 +48,17 @@ Arguments: `$ARGUMENTS`
 
 ## 1. Draft (Haiku)
 
-Split what is still needed into chunks of **3 drafts**, with about 30% spare. Spawn
+Split what is still needed into chunks of **5 drafts** (template chunks: 6), with about 10% spare. Spawn
 `fermi-generator` agents, **at most 2 at a time**, each with a brief like:
 
-> Write 3 drafts into `$B/drafts/`. Avoid facts listed in `$B/existing.tsv`. Topic: <topic or "any:
-> vary the categories">.
+> Write 5 drafts into `$B/drafts/`. Existing ids and categories: `$B/existing.tsv`; questions per
+> category: `$B/categories.tsv`. Topic: <topic, or "any: favour the categories with the fewest
+> questions">.
 
 When the run has no topic, make every third chunk a template chunk:
 
-> Write 3 drafts for template `<id>` from `content/question-templates.md`, with 3 different
-> well-known slots not yet in `$B/existing.tsv`.
+> Write 6 drafts for template `<id>` from `content/question-templates.md`, from one source table if you
+> can, with 6 different well-known slots not yet in `$B/existing.tsv` (ids name the slot).
 
 For `--template`, every chunk is for that template.
 
@@ -64,10 +69,10 @@ snapshot, and dry-runs ingest. Read only its last line (`x/y drafts passed`) and
 
 ## 3. Judge and ingest (Sonnet)
 
-Pass only the ✓ drafts to `fermi-verifier`, in chunks of **3**, one agent each, at most 2 at a time:
+Pass only the ✓ drafts to `fermi-verifier`, in chunks of **5**, one agent each, at most 2 at a time:
 
 > Batch `$B`. Check and ingest these drafts: `$B/drafts/<id>.json`, … (their `.check.json` files are next
-> to them).
+> to them, with the page text around each quote).
 
 ✗ drafts are dropped. Their check files say why, which is useful for tuning the generator later.
 

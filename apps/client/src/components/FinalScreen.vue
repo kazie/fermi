@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { FinalView } from '@fermi/shared'
 import { S } from '@/lib/strings'
+import { versionTag } from '@/lib/version'
 import FermeanieAvatar from './FermeanieAvatar.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import PlayerAvatar from './PlayerAvatar.vue'
@@ -40,7 +41,7 @@ const rows = computed(() => {
 
     <FermeanieSays
       :messages="[final.line, final.versionLine]"
-      :version="final.version"
+      :version="versionTag(final)"
       :mood="final.fermeanieWon ? 'smug' : 'sulk'"
       size="l"
     />

@@ -12,6 +12,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "test/**/*.ts", "../../packages/shared/src/**/*.ts", "../../content/fermeanie-lines.json"],
+  "include": ["src/**/*.ts", "src/**/*.vue", "test/**/*.ts", "../../packages/shared/src/**/*.ts"],
   "exclude": ["src/**/*.story.vue"]
 }
