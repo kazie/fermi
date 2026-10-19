@@ -18,7 +18,7 @@ export const plain = (line: string) =>
     .join('')
 
 /** The text for screen readers: redacted parts are announced as such. */
-export const spoken = (line: string) =>
-  segments(line)
-    .map((s) => (s.redacted ? '(redacted)' : s.text))
-    .join('')
+export const spoken = (line: string) => spokenSegments(segments(line))
+
+/** `spoken`, for a line already parsed. */
+export const spokenSegments = (parts: MarkupSegment[]) => parts.map((s) => (s.redacted ? '(redacted)' : s.text)).join('')

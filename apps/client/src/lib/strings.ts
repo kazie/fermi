@@ -1,4 +1,4 @@
-import { MIN_PLAYERS } from '@fermi/shared'
+import { MIN_PLAYERS, type RoomSettings } from '@fermi/shared'
 
 // All user-facing copy in one place, so a translation can slot in later.
 export const S = {
@@ -20,6 +20,15 @@ export const S = {
   pacing: 'Pacing',
   pacingTimer: 'Timed breaks',
   pacingHost: 'Host taps Next',
+  /** What happens between rounds, as a sentence (lobby) or a short status (big screen). */
+  betweenRounds: ({ pacing, breakSec }: RoomSettings) =>
+    pacing === 'host'
+      ? 'After each round, everyone talks it over until the host taps Next.'
+      : breakSec
+        ? 'Between rounds there’s a break to talk; a majority can skip it.'
+        : 'No breaks: once it starts, it runs.',
+  betweenRoundsShort: ({ pacing, breakSec }: RoomSettings) =>
+    pacing === 'host' ? 'the host taps Next between rounds' : breakSec ? `${breakSec} s breaks` : 'no breaks',
   lookUp: 'Look at the big screen',
   controllerView: 'Controller',
   fullView: 'Full view',

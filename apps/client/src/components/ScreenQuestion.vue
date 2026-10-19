@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { RoomView } from '@fermi/shared'
-import { versionTag } from '@/lib/version'
 import FermeanieSays from './FermeanieSays.vue'
 import PlayerStrip from './PlayerStrip.vue'
 import RoundTimer from './RoundTimer.vue'
@@ -25,7 +24,7 @@ const playing = computed(() => props.room.players.filter((p) => !p.spectating).l
       <span class="eyebrow">Locked in {{ locked }} / {{ playing }}</span>
       <PlayerStrip :players="room.players" you="" />
     </div>
-    <FermeanieSays :text="round.line" :version="versionTag(room.fermeanie)" mood="smug" size="l" />
+    <FermeanieSays :text="round.line" :release="room.fermeanie" mood="smug" size="l" />
   </div>
 </template>
 

@@ -11,7 +11,6 @@ import {
   type RoomView,
 } from '@fermi/shared'
 import { CALC_TIPS, HOW_TO_PLAY, S } from '@/lib/strings'
-import { versionTag } from '@/lib/version'
 import FermeanieAvatar from './FermeanieAvatar.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import JoinQr from './JoinQr.vue'
@@ -160,15 +159,7 @@ function set(change: Partial<RoomSettings>) {
           </div>
           <strong v-else>{{ room.settings.breakSec ? `${room.settings.breakSec}s` : 'Off' }}</strong>
         </div>
-        <p class="muted est">
-          About {{ minutes }} min of play.{{
-            hostPaced
-              ? ' After each round, everyone talks it over until the host taps Next.'
-              : room.settings.breakSec
-                ? ' Between rounds there’s a break to talk; a majority can skip it.'
-                : ' No breaks: once it starts, it runs.'
-          }}
-        </p>
+        <p class="muted est">About {{ minutes }} min of play. {{ S.betweenRounds(room.settings) }}</p>
         <p v-if="room.poolSize === 0" class="warn">There are no questions in the database yet. Generate some first (see README).</p>
         <p v-else-if="tooFewQuestions" class="warn">Only {{ room.poolSize }} questions available; the game will end early.</p>
         <p v-if="missingPlayers" class="warn">{{ S.needPlayers(missingPlayers) }}</p>
@@ -187,7 +178,7 @@ function set(change: Partial<RoomSettings>) {
 
     <aside class="side">
       <FermeanieSays
-        :version="versionTag(room.fermeanie)"
+        :release="room.fermeanie"
         mood="smug"
         :text="
           room.fermeanie.wins > 0

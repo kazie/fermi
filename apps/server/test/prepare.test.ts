@@ -61,6 +61,20 @@ describe('quoteExcerpt', () => {
     expect(quoteExcerpt(page, 'ower has 2.5 million riv', 5)).toBe('…The Tower has 2.5 million rivets, say…')
   })
 
+  it('finds quotes with compatibility characters like the ingest checks do', () => {
+    expect(quoteExcerpt('Water boils at 100 ℃ at sea level.', 'boils at 100 ℃ at sea level', 0)).toBe('…boils at 100 ℃ at sea level…')
+    expect(quoteExcerpt('Kleenex™ brand tissues', 'Kleenex™ brand', 0)).toBe('Kleenex™ brand…')
+  })
+
+  it('shows the page as written', () => {
+    expect(quoteExcerpt('An area of 12 km² in total', 'area of 12 km2', 3)).toBe('An area of 12 km² in…')
+  })
+
+  it('keeps to the context on text without spaces', () => {
+    const table = `${'cell|'.repeat(2000)}The Tower has 2.5 million rivets|${'cell|'.repeat(2000)}`
+    expect(quoteExcerpt(table, 'Tower has 2.5 million rivets', 10)).toBe('…|cell|The Tower has 2.5 million rivets|cell|cell…')
+  })
+
   it('returns null when the page lacks the quote', () => {
     expect(quoteExcerpt(page, 'The Tower has 3 million rivets')).toBeNull()
   })

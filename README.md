@@ -176,7 +176,7 @@ deployment. Commands marked ⚠ print question texts or answers: don't run them 
 | `pnpm q check [--links]`                                         | Re-validate the pool and live sources (a server-side job; the CLI polls) |
 | `pnpm q status <id> active\|retired\|disputed`                   | Change a question's status                                               |
 | `pnpm q archive <url>`                                           | Find or create a Wayback snapshot                                        |
-| `pnpm q quote <url> "<quote>" [n]`                               | Check a quote is on the page and contains `n`                            |
+| `pnpm q quote <url> "<quote>" [n]` ⚠                             | Check a quote is on the page and contains `n`; prints the text around it |
 | `pnpm q export [file]` ⚠ / `pnpm q import <file>`                | Backup and restore (see below)                                           |
 
 `import` **merges**: it keeps statuses and flags, skips ids the target already has, de-duplicates the rest, merges

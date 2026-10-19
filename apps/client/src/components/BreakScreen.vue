@@ -61,7 +61,7 @@ const me = computed(() => props.room.players.find((p) => p.id === props.room.you
 
     <div v-if="!timed" class="vote">
       <button v-if="canAdvance" class="btn btn-primary btn-block skip" type="button" @click="emit('next')">{{ S.nextQuestion }} ▶</button>
-      <p v-else class="muted center">{{ S.waitingForName(hostName) }}</p>
+      <p v-else class="muted center wrap">{{ S.waitingForName(hostName) }}</p>
     </div>
     <div v-else class="vote">
       <template v-if="variant === 'tv'">
@@ -104,6 +104,10 @@ const me = computed(() => props.room.players.find((p) => p.id === props.room.you
 .head h2 {
   font-size: var(--text-xl);
   margin: var(--space-1) 0 var(--space-3);
+  overflow-wrap: anywhere; /* long host names */
+}
+.wrap {
+  overflow-wrap: anywhere;
 }
 .secs {
   color: var(--accent);

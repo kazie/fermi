@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { estimateGameMinutes, playersMissing, type RoomView } from '@fermi/shared'
 import { S } from '@/lib/strings'
-import { versionTag } from '@/lib/version'
 import FermeanieSays from './FermeanieSays.vue'
 import JoinQr from './JoinQr.vue'
 import PlayerAvatar from './PlayerAvatar.vue'
@@ -43,7 +42,7 @@ const minutes = computed(() => estimateGameMinutes(s.value, props.room.players.l
     <FermeanieSays
       size="l"
       mood="smug"
-      :version="versionTag(room.fermeanie)"
+      :release="room.fermeanie"
       :text="
         room.players.length
           ? 'More specimens. Excellent. The more of you there are, the smarter I get.'
@@ -57,8 +56,7 @@ const minutes = computed(() => estimateGameMinutes(s.value, props.room.players.l
         >Waiting for <strong>{{ host.name }}</strong> to start</template
       >
       <template v-else>The first player to join becomes the host</template>
-      · {{ s.rounds }} rounds · {{ s.timerSec }} s per question · {{ s.breakSec ? `${s.breakSec} s breaks` : 'no breaks' }} · about
-      {{ minutes }} min
+      · {{ s.rounds }} rounds · {{ s.timerSec }} s per question · {{ S.betweenRoundsShort(s) }} · about {{ minutes }} min
     </p>
   </div>
 </template>

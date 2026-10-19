@@ -48,7 +48,7 @@ const stealT = ref(stealFrom + lastStart + STEAL.flight / 2)
           you="p0"
           :now="T0 + loopTime(l.reveal)"
           :fermeanie-before="0"
-          version="v3.1415"
+          :release="{ version: 'v3.1415' }"
           no-scroll
         />
       </div>
@@ -62,7 +62,7 @@ const stealT = ref(stealFrom + lastStart + STEAL.flight / 2)
             you="p0"
             :now="T0 + stealT"
             :fermeanie-before="0"
-            version="v3.1415"
+            :release="{ version: 'v3.1415' }"
             no-scroll
           />
         </div>
@@ -80,7 +80,7 @@ const stealT = ref(stealFrom + lastStart + STEAL.flight / 2)
             you="p0"
             :now="T0 + times[v.title]"
             :fermeanie-before="0"
-            version="v3.1415"
+            :release="{ version: 'v3.1415' }"
             no-scroll
           />
         </div>

@@ -65,6 +65,14 @@ describe('LinePicker', () => {
     expect(picker.pick('defeated', { name: '**Bob**' })).toBe('\\*\\*Bob\\*\\* beat me.')
   })
 
+  it('says a chosen line again with newer values, keeping the old ones where none are given', () => {
+    const picker = new LinePicker(testLines, undefined, () => 0)
+    const chosen = picker.choose('quip', { leader: 'Ada', last: 'Bob' })
+    expect(picker.say(chosen)).toBe('Ada leads, Bob trails.')
+    expect(picker.say(chosen, { leader: 'Cyd' })).toBe('Cyd leads, Bob trails.')
+    expect(picker.say(chosen, { leader: undefined })).toBe('Ada leads, Bob trails.') // never a hole in the line
+  })
+
   it('avoids repeats within a game', () => {
     const picker = new LinePicker(loadLines())
     const seen = new Set(Array.from({ length: 10 }, () => picker.pick('steal', { points: 100, best: 'x' })))

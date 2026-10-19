@@ -92,7 +92,7 @@ watch(
         :players="room.players"
         :you="room.you"
         :now="now"
-        :version="room.fermeanie.version"
+        :release="room.fermeanie"
       />
       <RevealSequence
         v-else-if="room.phase === 'reveal' && room.reveal"
@@ -102,7 +102,7 @@ watch(
         :you="room.you"
         :now="now"
         :fermeanie-before="room.fermeanie.score"
-        :version="room.fermeanie.version"
+        :release="room.fermeanie"
       />
       <BreakScreen
         v-else-if="room.phase === 'break' && room.break"

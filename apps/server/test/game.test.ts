@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MIN_PLAYERS, type RoomView, type ServerMessage } from '@fermi/shared'
-import { Room, DEADLINE_GRACE_MS, HOST_HANDOVER_MS, quipNames } from '../src/game.ts'
+import { Room, DEADLINE_GRACE_MS, HOST_HANDOVER_MS, LOBBY_DROP_MS, quipNames } from '../src/game.ts'
 import { getQuestion } from '../src/questions/repo.ts'
 import { makeQuestion, seed, testDb, testLines } from './fixtures.ts'
 import { insertQuestion } from '../src/questions/repo.ts'
@@ -19,17 +19,22 @@ class FakeConn {
   }
 }
 
-function setup(playerCount: number, questions = 6) {
-  const db = testDb()
-  seed(db, questions)
-  const room = new Room('ABCD', { db, lines: testLines, rand: () => 0 })
-  const players = Array.from({ length: playerCount }, (_, i) => {
+/** Connects and names players: Ada, Bob, Cyd… */
+function joinPlayers(room: Room, count: number) {
+  return Array.from({ length: count }, (_, i) => {
     const id = `player-${i}-xxxxxxxx`
     const conn = new FakeConn()
     room.connect(id, conn)
     room.handle(id, { type: 'join', name: ['Ada', 'Bob', 'Cyd', 'Dee', 'Eve'][i] }, conn)
     return { id, conn }
   })
+}
+
+function setup(playerCount: number, questions = 6) {
+  const db = testDb()
+  seed(db, questions)
+  const room = new Room('ABCD', { db, lines: testLines, rand: () => 0 })
+  const players = joinPlayers(room, playerCount)
   // most tests play straight through; the break has its own tests below
   if (players[0]) room.handle(players[0].id, { type: 'settings', rounds: 10, timerSec: 60, breakSec: 0 }, players[0].conn)
   const answerOf = () => getQuestion(db, players[0].conn.last.round!.question.id)!.question.answer
@@ -240,12 +245,7 @@ describe('Room', () => {
     }
     seed(db, 4)
     const room = new Room('TMPL', { db, lines: testLines })
-    const players = ['Ada', 'Bob', 'Cyd'].map((name) => {
-      const p = { id: `${name}-player-1234`, conn: new FakeConn() }
-      room.connect(p.id, p.conn)
-      room.handle(p.id, { type: 'join', name }, p.conn)
-      return p
-    })
+    const players = joinPlayers(room, 3)
     const c = players[0].conn
     room.handle(players[0].id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0 }, c)
     room.handle(players[0].id, { type: 'start' }, c)
@@ -375,7 +375,7 @@ describe('Room', () => {
       for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
       vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
       if (i === 4) break
-      expect(a.conn.last.break).toMatchObject({ line: 'Waiting for Ada.' })
+      expect(a.conn.last.break!.line).toMatch(/Ada/) // a new line each break, naming the host
       expect(a.conn.last.break!.timed).toBeUndefined()
       vi.advanceTimersByTime(10 * 60_000)
       room.handle(b.id, { type: 'skip_break' }, b.conn) // no votes with host pacing
@@ -401,6 +401,53 @@ describe('Room', () => {
     expect(b.conn.last.break!.line).toBe('Waiting for Bob.')
     room.handle(b.id, { type: 'next' }, b.conn)
     expect(b.conn.last.phase).toBe('question')
+  })
+
+  it('a host who took over an empty lobby still gets the grace period', () => {
+    const { room, players } = setup(3)
+    const [, b, c] = players
+    for (const p of players) room.disconnect(p.id, p.conn)
+    vi.advanceTimersByTime(LOBBY_DROP_MS) // everyone is dropped
+    room.connect(b.id, b.conn)
+    room.handle(b.id, { type: 'join', name: 'Bob' }, b.conn)
+    expect(b.conn.last.hostId).toBe(b.id)
+    room.disconnect(b.id, b.conn) // a phone sleeping for a moment
+    room.connect(c.id, c.conn)
+    room.handle(c.id, { type: 'join', name: 'Cyd' }, c.conn)
+    expect(c.conn.last.hostId).toBe(b.id)
+    vi.advanceTimersByTime(HOST_HANDOVER_MS)
+    expect(c.conn.last.hostId).toBe(c.id)
+  })
+
+  it('a dropped host who looks in without joining leaves the host role to whoever comes back', () => {
+    const { room, players } = setup(2)
+    const [a, b] = players
+    room.disconnect(a.id, a.conn)
+    vi.advanceTimersByTime(30_000)
+    room.disconnect(b.id, b.conn)
+    vi.advanceTimersByTime(30_000) // Ada is dropped; Bob still has 30 s
+    room.connect(a.id, a.conn) // the name form, then gone again
+    room.disconnect(a.id, a.conn)
+    room.connect(b.id, b.conn)
+    expect(b.conn.last.hostId).toBe(b.id)
+  })
+
+  it('host pacing: when nobody was around to take over, the next player back hosts', () => {
+    const { room, players } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, pacing: 'host' }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
+    vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+    for (const p of [b, c, a]) room.disconnect(p.id, p.conn)
+    vi.advanceTimersByTime(HOST_HANDOVER_MS) // nobody to hand over to
+    room.connect(c.id, c.conn)
+    expect(c.conn.last.hostId).toBe(c.id)
+    expect(c.conn.last.break!.line).toBe('Waiting for Cyd.')
+    room.handle(c.id, { type: 'rename', name: 'Cy' }, c.conn)
+    expect(c.conn.last.break!.line).toBe('Waiting for Cy.') // the same line, with the new name
+    room.handle(c.id, { type: 'next' }, c.conn)
+    expect(c.conn.last.phase).toBe('question')
   })
 
   it('FerMEANie remarks on early lock-ins, identical answers, lead changes and the final round', () => {
@@ -470,7 +517,7 @@ describe('Room', () => {
 })
 
 describe('quipNames', () => {
-  const p = (name: string, score: number, fromStart = true) => ({ name, score, fromStart })
+  const p = (name: string, score: number, fromStart = true, here = true) => ({ name, score, fromStart, here })
 
   it('names the leader and the last when the scores single them out', () => {
     expect(quipNames([p('Bob', 100), p('Ada', 300), p('Cy', 200)], 0)).toEqual({ leader: 'Ada', last: 'Bob' })
@@ -488,5 +535,12 @@ describe('quipNames', () => {
 
   it('does not call a newcomer the last', () => {
     expect(quipNames([p('Ada', 300), p('Bob', 100), p('Cy', 0, false)], 0).last).toBeUndefined()
+  })
+
+  it('does not call someone who left the last, but a leader who is away still leads', () => {
+    expect(quipNames([p('Ada', 500, true, false), p('Bob', 300), p('Cy', 100, true, false)], 200)).toEqual({
+      leader: 'Ada',
+      last: undefined,
+    })
   })
 })

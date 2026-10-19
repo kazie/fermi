@@ -2,7 +2,7 @@
 // steered away from ones a player has already been insulted with.
 
 import { fileURLToPath } from 'node:url'
-import { FluentNumber, readFluentDir } from '@fermi/shared/fluent'
+import { FluentNumber, readFluentDir, type FluentLine } from '@fermi/shared/fluent'
 import { loadLinePool, type LineArgs, type LineCategory, type LinePool } from '@fermi/shared/lines'
 import { escapeMarkup } from '@fermi/shared'
 import { nowIso, type DB } from './db.ts'
@@ -16,6 +16,12 @@ let cached: LinePool | undefined
 export function loadLines(): LinePool {
   cached ??= loadLinePool(readFluentDir(CONTENT_DIR))
   return cached
+}
+
+/** A line picked for a category, with the values it was picked for; `say` can update them. */
+export interface ChosenLine<K extends LineCategory> {
+  msg: FluentLine
+  vars: LineArgs<K>
 }
 
 export class LinePicker {
@@ -35,6 +41,11 @@ export class LinePicker {
    * @param playerId when given, prefer lines this player hasn't seen before (across games).
    */
   pick<K extends LineCategory>(key: K, vars: LineArgs<K>, playerId?: string): string {
+    return this.say(this.choose(key, vars, playerId))
+  }
+
+  /** Picks a line (as `pick` does) to `say` later, perhaps with newer values, such as a host who has changed. */
+  choose<K extends LineCategory>(key: K, vars: LineArgs<K>, playerId?: string): ChosenLine<K> {
     const args: Record<string, string | number | undefined> = vars
     const candidates = this.pool.categories[key]
       .filter((msg) => msg.variables.every((name) => args[name] !== undefined))
@@ -68,14 +79,24 @@ export class LinePicker {
         .prepare('INSERT OR REPLACE INTO player_lines (player_id, line_key, seen_at) VALUES (?, ?, ?)')
         .run(playerId, choice.id, nowIso())
     }
-    // Numbers become FluentNumbers without digit grouping (the game formats big numbers itself), and
-    // text is escaped so a name like "**Bob**" shows as typed instead of as markup.
-    const fluentArgs = Object.fromEntries(
-      choice.msg.variables.map((name) => {
-        const v = args[name]!
+    return { msg: choice.msg, vars }
+  }
+
+  /**
+   * The line as text. `update` replaces values; a value left out or undefined keeps the one the line was picked for,
+   * so every variable the line uses is always there.
+   * Numbers become FluentNumbers without digit grouping (the game formats big numbers itself), and text is escaped so
+   * a name like "**Bob**" shows as typed instead of as markup.
+   */
+  say<K extends LineCategory>({ msg, vars }: ChosenLine<K>, update: Partial<LineArgs<K>> = {}): string {
+    const picked: Record<string, string | number | undefined> = vars
+    const updated = update as Record<string, string | number | undefined> // a Partial of a generic loses its value types
+    const args = Object.fromEntries(
+      msg.variables.map((name) => {
+        const v = (updated[name] ?? picked[name])!
         return [name, typeof v === 'number' ? new FluentNumber(v, { useGrouping: false }) : escapeMarkup(v)]
       }),
     )
-    return this.pool.bundle.formatPattern(choice.msg.value, fluentArgs)
+    return this.pool.bundle.formatPattern(msg.value, args)
   }
 }

@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { S } from '@/lib/strings'
 import { chatState, MAX_TYPE_MS, MS_PER_CHAR } from '@/lib/chat'
 import { plain, spoken } from '@/lib/markup'
+import { versionTag, type Release } from '@/lib/version'
 import FermeanieAvatar from './FermeanieAvatar.vue'
 import FerText from './FerText.vue'
 import TypingDots from './TypingDots.vue'
@@ -16,7 +17,8 @@ const props = withDefaults(
     /** With `messages`: drive the sequence from a clock (stories, synced reveals) instead of an own timer. */
     startAt?: number
     now?: number
-    version?: string
+    /** FerMEANie's version (and codename), shown on the bubble. */
+    release?: Release
     mood?: 'smug' | 'sulk' | 'idle'
     instant?: boolean
     /** s: inline remark (dunce cap, bullseye); m: default; l: final screen */
@@ -29,7 +31,7 @@ const props = withDefaults(
     messages: undefined,
     startAt: undefined,
     now: undefined,
-    version: '',
+    release: undefined,
     mood: 'idle',
     instant: false,
     size: 'm',
@@ -114,7 +116,7 @@ const avatarSize = computed(() => ({ s: 28, m: 44, l: 64 })[props.size])
     <div class="bubble">
       <div class="who">
         <span class="name" :title="S.botBackronym">Fer<b>MEAN</b>ie</span>
-        <span v-if="version" class="ver mono">{{ version }}</span>
+        <span v-if="release" class="ver mono">{{ versionTag(release) }}</span>
       </div>
       <p class="line mono">
         <span class="sr-only">{{ fullText }}</span>

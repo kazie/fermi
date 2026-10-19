@@ -4,7 +4,6 @@ import type { RoomView } from '@fermi/shared'
 import { S } from '@/lib/strings'
 import { useMediaQuery } from '@/composables/useMediaQuery'
 import AnswerBlock from './AnswerBlock.vue'
-import { versionTag } from '@/lib/version'
 import FermeanieSays from './FermeanieSays.vue'
 import PlayerStrip from './PlayerStrip.vue'
 import RoundTimer from './RoundTimer.vue'
@@ -156,7 +155,7 @@ function lock() {
         </div>
         <PlayerStrip :players="room.players" :you="room.you" @locked-in="glance" />
         <div ref="remarkBox">
-          <FermeanieSays :text="round.line" :version="versionTag(room.fermeanie)" mood="smug" :look="look" />
+          <FermeanieSays :text="round.line" :release="room.fermeanie" mood="smug" :look="look" />
         </div>
       </aside>
     </div>

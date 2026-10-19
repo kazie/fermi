@@ -62,7 +62,7 @@ async function toggleFullscreen() {
         you=""
         :now="now"
         :fermeanie-before="room.fermeanie.score"
-        :version="room.fermeanie.version"
+        :release="room.fermeanie"
       />
       <BreakScreen v-else-if="room.phase === 'break' && room.break" :room="room" :now="now" variant="tv" />
       <FinalScreen v-else-if="room.phase === 'final' && room.final" :final="room.final" you="" :is-host="false" screen />

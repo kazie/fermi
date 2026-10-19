@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { MIN_CROWD, type CrowdStats } from './crowd.ts'
 import type { PublicQuestion, RevealedQuestion } from './question.ts'
-import type { DunceKind } from './scoring.ts'
+import type { DunceKind, FermeanieRelease } from './scoring.ts'
 import { LIMITS } from './calc/evaluate.ts'
 
 export const ROUND_OPTIONS = [5, 10, 15] as const
@@ -9,13 +9,13 @@ export const TIMER_OPTIONS = [30, 60, 90] as const
 /** Discussion break between rounds (seconds); 0 = off. */
 export const BREAK_OPTIONS = [0, 15, 30, 60] as const
 export const DEFAULT_BREAK_SEC = 30
-/** `timer`: breaks count down on their own. `host`: after each reveal, everyone waits until the host taps Next. */
 /** Players needed to start: FerMEANie sits out any round with fewer answers, and Fermi is a game for friends. */
 export const MIN_PLAYERS = MIN_CROWD
 
 /** How many more connected players the lobby needs before the game can start. */
 export const playersMissing = (players: { connected: boolean }[]) => Math.max(0, MIN_PLAYERS - players.filter((p) => p.connected).length)
 
+/** `timer`: breaks count down on their own. `host`: after each reveal, everyone waits until the host taps Next. */
 export const PACING_OPTIONS = ['timer', 'host'] as const
 export type Pacing = (typeof PACING_OPTIONS)[number]
 /** With a break coming, the reveal's scoreboard step is short: the break shows the scores anyway. */
@@ -102,12 +102,8 @@ export interface PlayerView {
   dunces: number
 }
 
-export interface FermeanieView {
+export interface FermeanieView extends FermeanieRelease {
   score: number
-  version: string
-  wins: number
-  /** The current pie release ("Cherry Pie"), from the fifth win on. */
-  codename?: string
 }
 
 export interface QuestionView {
@@ -179,15 +175,13 @@ export interface RevealView {
   fermeanieScoreAfter: number
 }
 
-export interface FinalView {
+/** The end of a game. Its release is FerMEANie's after this game. */
+export interface FinalView extends FermeanieRelease {
   gameId: string
   ranking: { playerId: string; name: string; score: number }[]
   winnerId: string | null
   fermeanieScore: number
   fermeanieWon: boolean
-  version: string
-  wins: number
-  codename?: string
   line: string
   /** After a win: the release notes, or the announcement of a new pie release. */
   versionLine?: string

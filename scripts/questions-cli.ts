@@ -248,7 +248,7 @@ async function main() {
   check [--links]                                     re-validate the pool (and live sources)
   stats [--categories]                                pool counts (--categories: active questions per category, fewest first)
   archive <url>                                       find/create a Wayback snapshot → {archiveUrl, archivedAt}
-  quote <url> "<quote>" [number]                      verify a quote is on the page and contains the number
+  quote <url> "<quote>" [number]                      verify a quote is on the page and contains the number (⚠ prints page text)
 
   --server URL (default $FERMI_SERVER or http://localhost:3000); token from FERMI_ADMIN_TOKEN`)
   }

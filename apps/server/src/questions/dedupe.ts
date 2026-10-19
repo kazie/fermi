@@ -178,10 +178,22 @@ const round = (x: number) => Math.round(x * 100) / 100
  */
 export function quoteExcerpt(page: string | null, quote: string, context = 300): string | null {
   const wanted = normalizeText(quote)
-  if (page === null || !wanted) return null
+  // the quick check first: most pages don't have it, and need no word-by-word walk
+  if (page === null || !wanted || !normalizeText(page).includes(wanted)) return null
+  // Decompose, as normalizeText does, so its words and these line up (℃ → °C, ™ → TM). One character at a time, to
+  // remember where each piece came from: the excerpt is cut from the page as written (km², not km2).
+  let text = ''
+  const from: number[] = [] // from[i]: where text[i] came from in the page
+  let at = 0
+  for (const ch of page) {
+    const piece = ch.normalize('NFKD')
+    text += piece
+    for (let k = 0; k < piece.length; k++) from.push(at)
+    at += ch.length
+  }
   let normalized = ''
   const words: { at: number; start: number; end: number }[] = [] // at: offset in `normalized`
-  for (const m of page.matchAll(/[\p{L}\p{N}\p{M}]+/gu)) {
+  for (const m of text.matchAll(/[\p{L}\p{N}\p{M}]+/gu)) {
     const word = normalizeText(m[0])
     if (!word) continue
     if (normalized) normalized += ' '
@@ -192,7 +204,9 @@ export function quoteExcerpt(page: string | null, quote: string, context = 300):
   if (hit < 0) return null
   const first = words.findLast((w) => w.at <= hit)!
   const last = words.findLast((w) => w.at < hit + wanted.length)!
-  const start = Math.max(0, first.start - context)
-  const end = Math.min(page.length, last.end + context)
+  const quoteStart = from[first.start]
+  const quoteEnd = last.end < from.length ? from[last.end] : page.length
+  const start = Math.max(0, quoteStart - context)
+  const end = Math.min(page.length, quoteEnd + context)
   return `${start > 0 ? '…' : ''}${page.slice(start, end).replace(/\s+/g, ' ').trim()}${end < page.length ? '…' : ''}`
 }

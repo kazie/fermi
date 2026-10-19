@@ -15,6 +15,7 @@ import {
   scoreRound,
   toRevealed,
   type ClientMessage,
+  type FermeanieRelease,
   type FinalView,
   type PlayerView,
   type Question,
@@ -25,7 +26,7 @@ import {
   type ServerMessage,
 } from '@fermi/shared'
 import { nowIso, type DB } from './db.ts'
-import { LinePicker, type LinePool } from './lines.ts'
+import { LinePicker, type ChosenLine, type LinePool } from './lines.ts'
 import { countActive, markPlayed, markSeen, pickQuestion } from './questions/repo.ts'
 
 export const MAX_PLAYERS = 30
@@ -36,15 +37,16 @@ const byStanding = (a: { score: number; name: string | null }, b: { score: numbe
 
 /**
  * Who a quip may single out. The leader: ahead of every other player and of FerMEANie. The last:
- * behind everyone else, and in the game from the start (a newcomer starting on 0 isn't falling behind).
+ * behind everyone else, in the game from the start (a newcomer starting on 0 isn't falling behind), and still here
+ * (someone who left isn't trailing). A leader who is away for a moment still leads.
  */
-export function quipNames(players: { name: string; score: number; fromStart: boolean }[], fermeanieScore: number) {
+export function quipNames(players: { name: string; score: number; fromStart: boolean; here: boolean }[], fermeanieScore: number) {
   const ranked = players.toSorted(byStanding)
   const [first, second] = ranked
   const [last, aboveLast] = [ranked.at(-1), ranked.at(-2)]
   return {
     leader: second && first.score > Math.max(second.score, fermeanieScore) ? first.name : undefined,
-    last: last && aboveLast && last.score < aboveLast.score && last.fromStart ? last.name : undefined,
+    last: last && aboveLast && last.score < aboveLast.score && last.fromStart && last.here ? last.name : undefined,
   }
 }
 /** Extra time after the deadline for last drafts in flight. */
@@ -87,6 +89,14 @@ interface RoundState {
   line: string
 }
 
+/**
+ * Timed breaks count down and take skip votes. With host pacing the break lasts until the host taps Next, and its
+ * line names whoever is host when it's shown.
+ */
+type BreakState =
+  | { index: number; startedAt: number; line: string; timed: { endsAt: number; votes: Set<string> } }
+  | { index: number; startedAt: number; hostWait: ChosenLine<'host_wait'>; timed?: undefined }
+
 interface GameState {
   id: string
   usedQuestionIds: string[]
@@ -118,10 +128,7 @@ export class Room {
   private settings: RoomSettings = { rounds: 10, timerSec: 60, breakSec: DEFAULT_BREAK_SEC, pacing: 'timer' }
   /** Big screens (TVs) watching: they get snapshots but never play. */
   private screens = new Set<Conn>()
-  /** `endsAt` and `votes` only with timed breaks; with host pacing the break lasts until the host taps Next. */
-  private breakState: { index: number; startedAt: number; line: string; timed?: { endsAt: number; votes: Set<string> } } | null = null
-  /** This break's host_wait line per host, so a host handed back and forth keeps their line. */
-  private hostWaitLines = new Map<string, string>()
+  private breakState: BreakState | null = null
   private fermeanieScore = 0
   private game: GameState | null = null
   private round: RoundState | null = null
@@ -162,7 +169,8 @@ export class Room {
     clearTimeout(p.dropTimer)
     p.conns.add(conn)
     this.lastActivity = this.now()
-    if (this.hostId === playerId) clearTimeout(this.hostTimer)
+    if (this.hostId === playerId) this.stopHostTimer()
+    this.ensureHost()
     this.broadcast()
   }
 
@@ -177,14 +185,18 @@ export class Room {
       return
     }
     if (this.hostId === playerId) {
-      clearTimeout(this.hostTimer)
-      this.hostTimer = setTimeout(() => this.handOverHost(), HOST_HANDOVER_MS)
+      this.stopHostTimer()
+      this.hostTimer = setTimeout(() => {
+        this.hostTimer = undefined
+        this.ensureHost()
+        this.broadcast()
+      }, HOST_HANDOVER_MS)
     }
     if (this.phase === 'lobby') {
       p.dropTimer = setTimeout(() => {
         if (p.conns.size === 0 && this.phase === 'lobby') {
           this.players.delete(p.id)
-          if (this.hostId === p.id) this.handOverHost()
+          this.ensureHost()
           this.broadcast()
         }
       }, LOBBY_DROP_MS)
@@ -219,15 +231,29 @@ export class Room {
     this.broadcast()
   }
 
-  private handOverHost() {
-    const current = this.hostId ? this.players.get(this.hostId) : undefined
-    if (current && current.conns.size) return
-    const next = [...this.players.values()].filter((p) => p.name !== null && p.conns.size > 0).sort((a, b) => a.joinedAt - b.joinedAt)[0]
-    if (!next) return
-    this.hostId = next.id
-    // the waiting line names the host
-    if (this.phase === 'break' && this.breakState && this.hostPaced) this.breakState.line = this.breakLine()
-    this.broadcast()
+  /**
+   * Makes sure someone hosts: if the host is gone (left, dropped, or never named) and isn't within their grace period
+   * after a disconnect, the earliest-joined connected player takes over. With nobody to take over, the next player to
+   * connect or join does. Callers broadcast.
+   */
+  private ensureHost() {
+    const host = this.hostId ? this.players.get(this.hostId) : undefined
+    if (host && host.name !== null && (host.conns.size > 0 || this.hostTimer !== undefined)) return
+    const next = this.connectedPlayers().sort((a, b) => a.joinedAt - b.joinedAt)[0]
+    if (next) this.hostId = next.id
+  }
+
+  private stopHostTimer() {
+    clearTimeout(this.hostTimer)
+    this.hostTimer = undefined
+  }
+
+  private breakLine(b: BreakState) {
+    return 'hostWait' in b ? this.game!.lines.say(b.hostWait, { host: this.hostName() }) : b.line
+  }
+
+  private hostName() {
+    return (this.hostId && this.players.get(this.hostId)?.name) || 'the host'
   }
 
   // ---------- messages ----------
@@ -249,9 +275,9 @@ export class Room {
           if (this.joinedPlayers().length >= MAX_PLAYERS) return fail(`This room is full (${MAX_PLAYERS} players)`)
           p.joinedAt = this.now()
           p.spectating = this.phase === 'question' || this.phase === 'reveal'
-          if (!this.hostId || !this.players.get(this.hostId)?.name) this.hostId = p.id
         }
         p.name = this.uniqueName(msg.name, p.id)
+        this.ensureHost()
         this.broadcast()
         return
       }
@@ -387,7 +413,7 @@ export class Room {
   private standings() {
     const game = this.game!
     return quipNames(
-      this.joinedPlayers().map((p) => ({ name: p.name!, score: p.score, fromStart: p.joinedAt <= game.startedAt })),
+      this.joinedPlayers().map((p) => ({ name: p.name!, score: p.score, fromStart: p.joinedAt <= game.startedAt, here: p.conns.size > 0 })),
       this.fermeanieScore,
     )
   }
@@ -589,28 +615,17 @@ export class Room {
 
   private startBreak(index: number) {
     const startedAt = this.now()
-    this.hostWaitLines.clear()
     const ms = this.settings.breakSec * 1000 * (this.deps.timeScale ?? 1)
-    this.breakState = {
-      index,
-      startedAt,
-      line: this.breakLine(),
-      ...(this.hostPaced ? {} : { timed: { endsAt: startedAt + ms, votes: new Set<string>() } }),
+    const { lines } = this.game!
+    if (this.hostPaced) {
+      this.breakState = { index, startedAt, hostWait: lines.choose('host_wait', { host: this.hostName() }) }
+    } else {
+      const line = lines.pick('break_time', { leader: this.standings().leader })
+      this.breakState = { index, startedAt, line, timed: { endsAt: startedAt + ms, votes: new Set<string>() } }
     }
     this.phase = 'break'
     if (!this.hostPaced) this.schedule(ms, () => this.endBreak())
     this.broadcast()
-  }
-
-  private breakLine(): string {
-    const { lines } = this.game!
-    if (!this.hostPaced) return lines.pick('break_time', { leader: this.standings().leader })
-    const host = (this.hostId && this.players.get(this.hostId)?.name) || 'the host'
-    const kept = this.hostWaitLines.get(host)
-    if (kept !== undefined) return kept
-    const line = lines.pick('host_wait', { host })
-    this.hostWaitLines.set(host, line)
-    return line
   }
 
   /** A majority of connected players; screens and disconnected players don't count. */
@@ -683,7 +698,7 @@ export class Room {
       p.spectating = false
       if (p.name !== null && p.conns.size === 0) this.players.delete(p.id)
     }
-    if (this.hostId && !this.players.has(this.hostId)) this.handOverHost()
+    this.ensureHost()
     this.broadcast()
   }
 
@@ -694,7 +709,7 @@ export class Room {
 
   dispose() {
     clearTimeout(this.timer)
-    clearTimeout(this.hostTimer)
+    this.stopHostTimer()
     for (const p of this.players.values()) clearTimeout(p.dropTimer)
   }
 
@@ -702,15 +717,14 @@ export class Room {
 
   private broadcast() {
     const serverNow = this.now()
-    const fv = this.fermeanieView()
-    const pool = countActive(this.deps.db)
+    const shared = this.sharedView()
     for (const p of this.players.values()) {
       if (!p.conns.size) continue
-      const msg: ServerMessage = { type: 'snapshot', room: this.view(p.id, fv, pool), serverNow }
+      const msg: ServerMessage = { type: 'snapshot', room: this.view(p.id, shared), serverNow }
       for (const c of p.conns) c.send(msg)
     }
     if (this.screens.size) {
-      const msg: ServerMessage = { type: 'snapshot', room: this.screenView(fv, pool), serverNow }
+      const msg: ServerMessage = { type: 'snapshot', room: this.screenView(shared), serverNow }
       for (const c of this.screens) c.send(msg)
     }
   }
@@ -720,7 +734,15 @@ export class Room {
     return { score: this.fermeanieScore, ...fermeanieRelease(wins) }
   }
 
-  view(forId: string, fv = this.fermeanieView(), poolSize = countActive(this.deps.db)): RoomView {
+  /** The parts of a view that are the same for everyone, worked out once per broadcast. */
+  private sharedView() {
+    return {
+      fermeanie: this.fermeanieView(),
+      poolSize: countActive(this.deps.db),
+    }
+  }
+
+  view(forId: string, shared = this.sharedView()): RoomView {
     const r = this.round
     const players: PlayerView[] = this.joinedPlayers()
       .sort((a, b) => a.joinedAt - b.joinedAt)
@@ -747,8 +769,8 @@ export class Room {
       settings: this.settings,
       screens: this.screens.size,
       players,
-      fermeanie: fv,
-      poolSize,
+      fermeanie: shared.fermeanie,
+      poolSize: shared.poolSize,
       ...(this.phase === 'question' && r
         ? {
             round: {
@@ -769,7 +791,7 @@ export class Room {
               index: this.breakState.index,
               total: this.settings.rounds,
               startedAt: this.breakState.startedAt,
-              line: this.breakState.line,
+              line: this.breakLine(this.breakState),
               ...(this.breakState.timed && {
                 timed: {
                   endsAt: this.breakState.timed.endsAt,
@@ -786,8 +808,8 @@ export class Room {
   }
 
   /** What a big screen sees: everything public, nothing personal (no own sheet, no votes of its own). */
-  screenView(fv = this.fermeanieView(), poolSize = countActive(this.deps.db)): RoomView {
-    return { ...this.view('', fv, poolSize), viewer: 'screen' }
+  screenView(shared = this.sharedView()): RoomView {
+    return { ...this.view('', shared), viewer: 'screen' }
   }
 }
 
@@ -799,10 +821,11 @@ function sameAnswer(entries: { playerId: string; value: number | null }[]): stri
   return largest.length >= 2 ? largest : []
 }
 
-type Release = ReturnType<typeof fermeanieRelease>
-
 /** FerMEANie's verdict on the game. A tie goes to the humans; three losses in a row is humble pie. */
-function finalLine(lines: LinePicker, r: Release & { winner: string; fermeanieWon: boolean; tied: boolean; losses: number }): string {
+function finalLine(
+  lines: LinePicker,
+  r: FermeanieRelease & { winner: string; fermeanieWon: boolean; tied: boolean; losses: number },
+): string {
   const { winner, version, wins, losses } = r
   if (r.fermeanieWon) return lines.pick('game_win', { winner, version, wins })
   if (r.tied) return lines.pick('game_tie', { winner, version })
@@ -811,7 +834,7 @@ function finalLine(lines: LinePicker, r: Release & { winner: string; fermeanieWo
 }
 
 /** After a win: a pie release every fifth win, release notes otherwise. */
-function versionLine(lines: LinePicker, { codename, version, wins, winner }: Release & { winner: string }): string {
+function versionLine(lines: LinePicker, { codename, version, wins, winner }: FermeanieRelease & { winner: string }): string {
   if (codename && isPieRelease(wins)) return lines.pick('pie_release', { codename, version, wins })
   return lines.pick('release_notes', { winner, version, wins })
 }

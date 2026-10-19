@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { MarkupSegment } from '@fermi/shared'
-import { segments, spoken } from '@/lib/markup'
+import { segments, spokenSegments } from '@/lib/markup'
 
 const props = withDefaults(
   defineProps<{
@@ -14,6 +14,8 @@ const props = withDefaults(
 )
 
 const parsed = computed(() => segments(props.text))
+/** For screen readers: a redaction stays redacted. */
+const spokenText = computed(() => spokenSegments(parsed.value))
 /** Redactions peeked at by tapping (hover peeks too). */
 const peeked = ref(new Set<number>())
 const peek = (i: number) => peeked.value.add(i)
@@ -45,7 +47,7 @@ const visible = computed(() => {
         @click="s.redacted && peek(i)"
         >{{ s.text }}</span
       ></span
-    ><span class="sr-only">{{ spoken(text) }}</span></span
+    ><span class="sr-only">{{ spokenText }}</span></span
   >
 </template>
 

@@ -172,8 +172,16 @@ export function fermeanieVersion(wins: number): string {
   return decimals > PI.length - 2 ? `v${PI}…` : `v${PI.slice(0, 2 + decimals)}`
 }
 
+/** FerMEANie's release after some number of wins. */
+export interface FermeanieRelease {
+  version: string
+  wins: number
+  /** The current pie release ("Cherry Pie"), from the fifth win on. */
+  codename?: string
+}
+
 /** FerMEANie's release after `wins` wins: version, win count and, from the fifth win, the pie. */
-export function fermeanieRelease(wins: number): { version: string; wins: number; codename?: string } {
+export function fermeanieRelease(wins: number): FermeanieRelease {
   const codename = fermeanieCodename(wins)
   return { version: fermeanieVersion(wins), wins, ...(codename ? { codename } : {}) }
 }
