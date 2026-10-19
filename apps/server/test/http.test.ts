@@ -187,6 +187,7 @@ describe('export → import merge', () => {
         question: 'How many lighthouses guard the coast of an imaginary test country?',
         unit: 'lighthouses',
         answer: 1234,
+        validAsOf: '2025',
         timeSensitive: true,
         recheckAfter: '2026-11-01',
       })

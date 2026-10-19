@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { ingestQuestion, checkQuestion } from '../src/questions/ingest.ts'
+import type { Question } from '@fermi/shared'
+import { ingestQuestion, checkQuestion, localeIssues } from '../src/questions/ingest.ts'
 import { extractNumbers, quoteContainsNumber } from '../src/questions/numbers.ts'
 import { normalizeText, textSimilarity } from '../src/questions/dedupe.ts'
 import { addRejection, getQuestion } from '../src/questions/repo.ts'
@@ -82,6 +83,69 @@ describe('checkQuestion', () => {
     q.sources[0].archiveUrl = 'https://web.archive.org/web/20270101000000/https://x.org/'
     q.sources[0].archivedAt = '2027-01-01T00:00:00Z'
     expect(checkQuestion(q, NOW).join()).toMatch(/in the future/)
+  })
+})
+
+describe('localeIssues: metric, international, recent', () => {
+  const issues = (overrides: Partial<Question>) => localeIssues(makeQuestion(overrides), NOW).join()
+
+  it.each([
+    'How many gallons of water does a bath hold?',
+    'How many pounds does a cow weigh?',
+    'How many lbs of cheese are eaten each year?',
+    'How many miles of road are there?',
+    'How hot is the surface of Venus, in °F?',
+    'How many square feet is the Louvre?',
+    'How many tons of steel are in the bridge?',
+  ])('rejects non-metric units in the question: %s', (question) => {
+    expect(issues({ question })).toMatch(/non-metric unit/)
+  })
+  it.each(['gallons', 'oz', 'miles', 'Fahrenheit'])('rejects non-metric unit field: %s', (unit) => {
+    expect(issues({ unit })).toMatch(/unit uses a non-metric unit/)
+  })
+  it.each([
+    'How many litres of water does a bath hold?',
+    'How many tonnes of steel are in the bridge?',
+    'How many pounds sterling did the ticket cost?',
+    'How many people get to work on foot in Stockholm?',
+    'How many football pitches would fit in Monaco?',
+    'How much nickel is mined each year?',
+  ])('allows metric and look-alike words: %s', (question) => {
+    expect(issues({ question })).toBe('')
+  })
+
+  it.each([
+    'How many hot dogs do people in the US eat each year?',
+    'How many cars do U.S. households own?',
+    'How many Americans own a passport?',
+    'How many pets live in the United States?',
+    'How many pennies are minted each year?',
+  ])('rejects US-wide questions: %s', (question) => {
+    expect(issues({ question })).toMatch(/US-wide/)
+  })
+  it.each([
+    'How much did Avatar earn at the box office, in US dollars?',
+    'What did the ticket cost in US$?',
+    'How many people live in South America?',
+    'How many Latin Americans speak Spanish?',
+    'How tall is the Empire State Building, in metres?',
+  ])('allows US dollars and non-US Americas: %s', (question) => {
+    expect(issues({ question })).toBe('')
+  })
+  it('allows US units in a derived input (converted in the formula)', () => {
+    const q = derivedQuestion()
+    q.inputs![1].unit = 'feet'
+    expect(localeIssues(q, NOW)).toEqual([])
+  })
+
+  it('rejects time-sensitive data older than five years', () => {
+    expect(issues({ timeSensitive: true, recheckAfter: '2027-10-17', validAsOf: '2015' })).toMatch(
+      /validAsOf 2015 is too old.*2021 or later/,
+    )
+  })
+  it('accepts recent time-sensitive data and old fixed facts', () => {
+    expect(issues({ timeSensitive: true, recheckAfter: '2027-10-17', validAsOf: '2021-03' })).toBe('')
+    expect(issues({ timeSensitive: false, validAsOf: '2015' })).toBe('')
   })
 })
 

@@ -8,6 +8,8 @@ import { getQuestion, insertQuestion, loadCandidates, setFlags, setStatus, type 
 
 export const FORMULA_TOLERANCE = 0.001
 export const ARCHIVE_MAX_DAYS = 7
+/** Time-sensitive facts must be at most this many years old. */
+export const MAX_DATA_AGE_YEARS = 5
 
 export type IngestResult =
   | { status: 'added'; id: string }
@@ -34,6 +36,33 @@ export interface IngestOptions {
 
 const DAY = 86_400_000
 
+// Players are mostly outside the US: questions use metric units and don't ask about US-wide figures.
+// Only the question and its unit are checked; sources and derived inputs keep the source's own units.
+const NON_METRIC =
+  /\b(?:gallons?|quarts?|pints?|fluid ounces?|fl\.? ?oz|ounces?|oz|lbs?|miles?|mph|feet|(?<!on )foot|ft|inch(?:es)?|yards?|acres?|(?:short )?tons?|fahrenheit)\b|°F\b|\bpounds?\b(?! sterling)/i
+const US_WIDE =
+  /(?<![\w.])(?:U\.S\.(?:A\.)?|USA|US|United States|(?<!(?:North|South|Central|Latin) )Americans?)(?!\w)(?!\s*(?:dollars?|\$))|\b(?:penny|pennies|dimes?)\b/
+
+/** Locale and freshness rules from QUESTION_RULES.md §1. Messages name the matched term only, never the question. */
+export function localeIssues(q: Question, now = new Date()): string[] {
+  const errors: string[] = []
+  for (const [field, text] of [
+    ['question', q.question],
+    ['unit', q.unit],
+  ] as const) {
+    const unit = NON_METRIC.exec(text)
+    if (unit) errors.push(`${field} uses a non-metric unit ("${unit[0]}"): use metric (litres, kg, km, °C…)`)
+    const us = US_WIDE.exec(text)
+    if (us) errors.push(`${field} is about US-wide figures ("${us[0]}"): ask about the world, or name a famous place or thing instead`)
+  }
+  const minYear = now.getUTCFullYear() - MAX_DATA_AGE_YEARS
+  const year = Number(q.validAsOf.slice(0, 4))
+  if (q.timeSensitive && year < minYear) {
+    errors.push(`validAsOf ${q.validAsOf} is too old for a time-sensitive fact: use data from ${minYear} or later`)
+  }
+  return errors
+}
+
 function archiveDate(url: string): Date | null {
   const m = /web\.archive\.org\/web\/(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?/.exec(url)
   if (!m) return null
@@ -43,7 +72,7 @@ function archiveDate(url: string): Date | null {
 
 /** Content checks beyond the schema. Pure: no DB access. */
 export function checkQuestion(q: Question, now = new Date()): string[] {
-  const errors: string[] = []
+  const errors = localeIssues(q, now)
 
   for (const s of q.sources) {
     const accessed = new Date(`${s.accessed}T00:00:00Z`)
@@ -107,8 +136,9 @@ export function ingestQuestion(db: DB, input: unknown, opts: IngestOptions = {})
     return { status: 'invalid', id: rawId, errors: parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`) }
   }
   const q = parsed.data
-  const overdue = (e: string) => e.startsWith('recheckAfter')
-  const errors = checkQuestion(q, opts.now).filter((e) => !(opts.import && overdue(e)))
+  // Imports keep questions that predate a rule (overdue rechecks, locale rules); `pnpm q check` still flags them.
+  const legacy = new Set(opts.import ? ['recheckAfter is already in the past', ...localeIssues(q, opts.now)] : [])
+  const errors = checkQuestion(q, opts.now).filter((e) => !legacy.has(e))
   if (errors.length) return { status: 'invalid', id: q.id, errors }
 
   return tx(db, () => {

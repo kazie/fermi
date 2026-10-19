@@ -26,6 +26,20 @@ here and are the verifier's job.
   year!"), but the question must not mislead. A trick question is only fair if a careful reader could
   have worked it out.
 - **Mix of difficulty** (1 = most people get within 2×, 3 = most are 10× off) **and categories** (see below).
+- **International audience.** Most players live outside the US. No US-wide statistics or framing ("in the
+  US", American households, US prices, pennies). Country figures are fine when the country is the subject and
+  named ("How many islands does Sweden have?"), but never use one country as a stand-in for "people". Famous
+  places, landmarks and companies that happen to be in the US are fine (Grand Canyon visitors, Apple's
+  revenue). Prices in US dollars are fine for global figures.
+- **Metric only**, in the question and in `unit`: km, m, kg, tonnes, litres, °C. No gallons, pounds,
+  ounces, miles, feet, acres or °F. If the source uses those, make the question derived and convert in the
+  formula (see §2).
+- **Recent data.** A fact that drifts must be from the last 5 years (`validAsOf` no older than the current
+  year minus 5). Don't dodge the drift by pinning an old year into the wording ("in 2015"): an old year is
+  only fine when the history itself is the point (the Eiffel Tower in 1889).
+- Ingest rejects non-metric units and US-wide wording in `question` and `unit`, and time-sensitive facts
+  older than 5 years. What a word list can't see (a US-only source behind neutral wording) is the
+  verifier's job.
 - **Avoid** sad or distressing topics (deaths, disasters, crime statistics), politics, anything that
   singles out a group of people, and anything that changes weekly.
 - **`fiction` numbers come from official canon**: the books, the studio's or publisher's own guides, or the game
@@ -93,7 +107,8 @@ In a tie, pick the one a player would expect to see above the question.
     and shown at the reveal.
   - Each input is a line `name = value` in the formula, with the value **in the units the source
     uses**. Conversions happen in the formula with definitional constants only
-    (`1000`, `60`, `24`, `365`, `pi`…).
+    (`1000`, `60`, `24`, `365`, `pi`…). Exact unit definitions count too: `0.3048` m per foot,
+    `1.609344` km per mile, `0.45359237` kg per pound, `3.785411784` litres per US gallon.
   - **No unsourced assumptions.** "Assume a person is 1.7 m tall" is not allowed unless a source
     says that average height is 1.7 m.
   - Prefer derived questions that someone has already published (a Fermi problem book, a "what if"
