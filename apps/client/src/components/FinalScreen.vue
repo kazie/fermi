@@ -38,12 +38,7 @@ const rows = computed(() => {
       <p v-else class="muted">Humanity beat the average this time ({{ final.fermeanieScore }} pts for FerMEANie).</p>
     </section>
 
-    <FermeanieSays
-      :messages="[final.line, final.versionLine]"
-      :version="final.version"
-      :mood="final.fermeanieWon ? 'smug' : 'sulk'"
-      size="l"
-    />
+    <FermeanieSays :messages="[final.line, final.versionLine]" :release="final" :mood="final.fermeanieWon ? 'smug' : 'sulk'" size="l" />
     <p v-if="final.fermeanieWon" class="counter mono">
       FerMEANie {{ final.version }} has defeated carbon-based organisms <strong>{{ final.wins }}</strong> time{{
         final.wins === 1 ? '' : 's'

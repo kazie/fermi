@@ -71,7 +71,9 @@ watch(
         v-else-if="room.phase === 'lobby'"
         :room="room"
         :join-url="joinUrl"
-        @settings="(s) => send({ type: 'settings', rounds: s.rounds as 5, timerSec: s.timerSec as 60, breakSec: s.breakSec as 30 })"
+        @settings="
+          (s) => send({ type: 'settings', rounds: s.rounds as 5, timerSec: s.timerSec as 60, breakSec: s.breakSec as 30, pacing: s.pacing })
+        "
         @start="send({ type: 'start' })"
       />
       <QuestionScreen
@@ -90,7 +92,7 @@ watch(
         :players="room.players"
         :you="room.you"
         :now="now"
-        :version="room.fermeanie.version"
+        :release="room.fermeanie"
       />
       <RevealSequence
         v-else-if="room.phase === 'reveal' && room.reveal"
@@ -100,7 +102,7 @@ watch(
         :you="room.you"
         :now="now"
         :fermeanie-before="room.fermeanie.score"
-        :version="room.fermeanie.version"
+        :release="room.fermeanie"
       />
       <BreakScreen
         v-else-if="room.phase === 'break' && room.break"
@@ -108,6 +110,7 @@ watch(
         :now="now"
         :variant="controller ? 'compact' : 'phone'"
         @skip="send({ type: 'skip_break' })"
+        @next="send({ type: 'next' })"
       />
       <FinalScreen
         v-else-if="room.phase === 'final' && room.final"

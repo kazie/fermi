@@ -1,7 +1,9 @@
 import type { Question } from '@fermi/shared'
 import { openDb } from '../src/db.ts'
 import { insertQuestion } from '../src/questions/repo.ts'
-import type { LinePool } from '../src/lines.ts'
+import { fileURLToPath } from 'node:url'
+import { readFluentDir } from '@fermi/shared/fluent'
+import { loadLinePool } from '@fermi/shared/lines'
 
 export const testDb = () => openDb(':memory:')
 
@@ -82,23 +84,6 @@ export function seed(db: ReturnType<typeof testDb>, count: number) {
   return questions
 }
 
-export const testLines: LinePool = {
-  intro: ['Welcome, {count} specimens.'],
-  sits_out: ['Only {count} answers. I abstain.'],
-  rule_change: ['{name} forced a rule change.'],
-  dunce: {
-    mild: ['{name} was {factor} off.'],
-    severe: ['{name} was severely {factor} off.'],
-    cosmic: ['{name} was cosmically {factor} off.'],
-    nonpositive: ['{name} said {value}.'],
-    repeat_offender: ['{name} again, {count} times.'],
-    group: ['{names}: {count} caps.'],
-  },
-  steal: ['I take {points}.', 'Mine: {points}.'],
-  defeated: ['{name} beat me.'],
-  everyone_way_off: ['Best was {factor} off.'],
-  human_bullseye: ['{name} cheated.'],
-  game_win: ['I win, {winner}. {version} with {wins} wins.'],
-  game_loss: ['{winner} won.'],
-  version_upgrade: ['{oldVersion} → {version}.'],
-}
+/** Fake lines from test/fermeanie/, so tests don't depend on FerMEANie's real wording. */
+export const testLineFiles = readFluentDir(fileURLToPath(new URL('./fermeanie/', import.meta.url)))
+export const testLines = loadLinePool(testLineFiles)

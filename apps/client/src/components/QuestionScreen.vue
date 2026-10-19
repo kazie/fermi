@@ -4,7 +4,6 @@ import type { RoomView } from '@fermi/shared'
 import { S } from '@/lib/strings'
 import { useMediaQuery } from '@/composables/useMediaQuery'
 import AnswerBlock from './AnswerBlock.vue'
-import FermeanieAvatar from './FermeanieAvatar.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import PlayerStrip from './PlayerStrip.vue'
 import RoundTimer from './RoundTimer.vue'
@@ -27,7 +26,6 @@ const locked = computed(() => !!sheet.value?.locked)
 const text = ref(sheet.value?.text ?? '')
 const lockedCount = computed(() => props.room.players.filter((p) => p.lockedIn).length)
 const playingCount = computed(() => props.room.players.filter((p) => !p.spectating).length)
-const intro = computed(() => round.value.index === 0 && !!props.room.introLine)
 
 // Phones, while typing: the keyboard takes half the screen, so the question card folds into the sticky
 // timer bar as one line. Tapping it shows the whole question until tapped again. No autofocus on phones:
@@ -78,12 +76,11 @@ watch(
 onUnmounted(flush)
 
 // FerMEANie glances at whoever just locked in, then goes back to wandering.
-const watcher = ref<HTMLElement>()
-const introBox = ref<HTMLElement>()
+const remarkBox = ref<HTMLElement>()
 const look = ref<{ x: number; y: number } | null>(null)
 let lookTimer: ReturnType<typeof setTimeout> | undefined
 function glance({ rect }: { rect: DOMRect }) {
-  const el = (intro.value ? introBox.value : watcher.value)?.querySelector('svg')
+  const el = remarkBox.value?.querySelector('svg')
   if (!el) return
   const e = el.getBoundingClientRect()
   const dx = rect.left + rect.width / 2 - (e.left + e.width / 2)
@@ -152,14 +149,13 @@ function lock() {
       </div>
 
       <aside class="side">
-        <div ref="watcher" class="lock-count">
-          <FermeanieAvatar v-if="!intro" :size="36" :look="look" />
+        <div class="lock-count">
           <span class="eyebrow">Locked in</span>
           <span class="mono count">{{ lockedCount }} / {{ playingCount }}</span>
         </div>
         <PlayerStrip :players="room.players" :you="room.you" @locked-in="glance" />
-        <div v-if="intro" ref="introBox">
-          <FermeanieSays :text="room.introLine!" :version="room.fermeanie.version" mood="smug" :look="look" />
+        <div ref="remarkBox">
+          <FermeanieSays :text="round.line" :release="room.fermeanie" mood="smug" :look="look" />
         </div>
       </aside>
     </div>

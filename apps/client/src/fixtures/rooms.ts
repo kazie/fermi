@@ -4,7 +4,7 @@
 import {
   crowdEstimate,
   evaluateSheet,
-  fermeanieVersion,
+  fermeanieRelease,
   REVEAL_TIMING,
   scoreRound,
   type FinalView,
@@ -76,16 +76,18 @@ export function players(n: number, opts: Partial<PlayerView> = {}): PlayerView[]
   }))
 }
 
+const SETTINGS: RoomView['settings'] = { rounds: 10, timerSec: 60, breakSec: 30, pacing: 'timer' }
+
 function base(phase: RoomView['phase'], ps: PlayerView[], extra: Partial<RoomView> = {}): RoomView {
   return {
     code: 'FRMI',
     you: 'p0',
     hostId: 'p0',
     phase,
-    settings: { rounds: 10, timerSec: 60, breakSec: 30 },
+    settings: SETTINGS,
     screens: 0,
     players: ps,
-    fermeanie: { score: 0, version: fermeanieVersion(3), wins: 3 },
+    fermeanie: { score: 0, ...fermeanieRelease(7) },
     poolSize: 142,
     ...extra,
   }
@@ -98,13 +100,13 @@ export function lobbyRoom(n = 4, extra: Partial<RoomView> = {}): RoomView {
 export function questionRoom(opts: { n?: number; text?: string; locked?: boolean; now?: number } = {}): RoomView {
   const ps = players(opts.n ?? 5).map((p, i) => ({ ...p, lockedIn: i === 1 || i === 3, typing: i === 2 }))
   return base('question', ps, {
-    introLine: 'Welcome, test subjects. Please estimate responsibly. Or don’t. I benefit either way.',
     round: {
       index: 0,
       total: 10,
       question: { id: QUESTION.id, question: QUESTION.question, unit: QUESTION.unit, category: QUESTION.category },
       startedAt: T0,
       endsAt: T0 + 60_000,
+      line: 'Welcome, test subjects. Please estimate responsibly. Or don’t. I benefit either way.',
     },
     yourSheet: { text: opts.text ?? '', locked: !!opts.locked },
   })
@@ -203,6 +205,14 @@ export const reveals = {
   sitsOut: () => revealFor(QUESTION, [SHEETS.good, null]),
   derived: () => revealFor(DERIVED, ['people = 8 billion\nh = 1.6\nmoon = 384_000_000\npeople h / moon', '100', '12', '1000']),
   crowd: () => revealFor(QUESTION, [SHEETS.good, SHEETS.double, SHEETS.low, SHEETS.close, '3M', '900k', '1.5M', '4M']),
+  /** Everyone locked in early, and Bob and Cyd gave the same answer. */
+  twins: () =>
+    revealFor(QUESTION, [SHEETS.good, '3M', '3M', SHEETS.close], {
+      lines: {
+        everyone: 'Everyone finished early. **Interesting.** I mean that in the clinical sense.',
+        twins: 'Bob and Cyd gave exactly the same answer. Collusion, or a shared brain cell? The lab will decide.',
+      },
+    }),
 }
 
 export function finalView(fermeanieWon: boolean): FinalView {
@@ -216,33 +226,37 @@ export function finalView(fermeanieWon: boolean): FinalView {
     winnerId: 'p0',
     fermeanieScore: fermeanieWon ? 3400 : 1200,
     fermeanieWon,
-    oldVersion: fermeanieVersion(3),
-    version: fermeanieVersion(fermeanieWon ? 4 : 3),
-    wins: fermeanieWon ? 4 : 3,
+    ...fermeanieRelease(fermeanieWon ? 10 : 9),
     line: fermeanieWon
       ? 'Congratulations, Ada. You are the best of the humans. That is like being the tallest blade of grass. FerMEANie v3.14159 thanks you for your data.'
       : 'Ada won. I have recalculated and concluded that this was a statistical fluke. Please do not do it again.',
-    ...(fermeanieWon ? { versionLine: 'v3.1415 retired with honours. Now running v3.14159. I feel more irrational already.' } : {}),
+    ...(fermeanieWon ? { versionLine: 'Introducing Banoffee Pie. Baked from the finest human defeats. Serves everyone except you.' } : {}),
   }
 }
 
 /** The discussion break after round 3: scores applied, the finished reveal still attached. */
-export function breakRoom(opts: { votes?: number; youVoted?: boolean; left?: number; screens?: number } = {}): RoomView {
+export function breakRoom(
+  opts: { votes?: number; youVoted?: boolean; left?: number; screens?: number; hostPaced?: boolean; host?: boolean } = {},
+): RoomView {
   const reveal = reveals.normal()
   const ps = players(reveal.cards.length).map((p) => ({ ...p, score: reveal.scoresAfter[p.id] ?? 0 }))
   const now = reveal.timeline.endsAt
   return base('break', ps, {
     reveal,
+    hostId: opts.host === false ? 'p1' : 'p0',
+    settings: { ...SETTINGS, pacing: opts.hostPaced ? 'host' : 'timer' },
     screens: opts.screens ?? 0,
-    fermeanie: { score: reveal.fermeanieScoreAfter, version: fermeanieVersion(3), wins: 3 },
+    fermeanie: { score: reveal.fermeanieScoreAfter, ...fermeanieRelease(7) },
     break: {
       index: reveal.index,
       total: 10,
       startedAt: now,
-      endsAt: now + (opts.left ?? 23) * 1000,
-      votes: opts.votes ?? 1,
-      needed: 3,
-      youVoted: !!opts.youVoted,
+      ...(opts.hostPaced
+        ? { line: 'Still waiting for Ada. Take all the time you need. ~~Hurry.~~' }
+        : {
+            line: 'Break. The scoreboard isn’t going anywhere. ~~Neither are your mistakes.~~ Enjoy.',
+            timed: { endsAt: now + (opts.left ?? 23) * 1000, votes: opts.votes ?? 1, needed: 3, youVoted: !!opts.youVoted },
+          }),
     },
   })
 }

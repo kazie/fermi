@@ -142,10 +142,65 @@ export function scoreRound(answer: number, entries: Entry[]): RoundScore {
 
 // ---------- FerMEANie's version easter egg ----------
 
-export const PI_DIGITS =
-  '3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679821480865132823066470938446095505822317253594081284811174502841027019385211055596446229489549303819644288109756659334461284756482337867831652712019091456485669234603486104543266482133936072602491412737245870066063155881748815209209628292540917153643678925903600113305305488204665213841469519415116094330572703657595919530921861173819326117931051185480744623799627495673518857527248912279381830119491'
+const PI = '3.141592'
+const PIE_EVERY = 5
+/** A named release every 5 wins, in alphabetical order (like Android's desserts). */
+export const PIE_RELEASES = [
+  'Apple Pie',
+  'Banoffee Pie',
+  'Cherry Pie',
+  'Deep Dish Pie',
+  'Egg Custard Pie',
+  'Fish Pie',
+  'Gooseberry Pie',
+  'Hand Pie',
+  'Key Lime Pie',
+  'Lemon Meringue Pie',
+  'Mud Pie',
+  'Pecan Pie',
+  'Pumpkin Pie',
+  'Quiche',
+  'Rhubarb Pie',
+  'Shepherd’s Pie',
+  'Sweet Potato Pie',
+  'Whoopie Pie',
+] as const
 
-/** `v3.14` with no wins, gaining one digit of π per win. */
+/** `v3.14` with no wins, gaining a digit of π per win up to `v3.141592…`. */
 export function fermeanieVersion(wins: number): string {
-  return 'v' + PI_DIGITS.slice(0, Math.min(PI_DIGITS.length, 4 + Math.max(0, wins)))
+  const decimals = 2 + Math.max(0, wins)
+  return decimals > PI.length - 2 ? `v${PI}…` : `v${PI.slice(0, 2 + decimals)}`
+}
+
+/** FerMEANie's release after some number of wins. */
+export interface FermeanieRelease {
+  version: string
+  wins: number
+  /** The current pie release ("Cherry Pie"), from the fifth win on. */
+  codename?: string
+}
+
+/** FerMEANie's release after `wins` wins: version, win count and, from the fifth win, the pie. */
+export function fermeanieRelease(wins: number): FermeanieRelease {
+  const codename = fermeanieCodename(wins)
+  return { version: fermeanieVersion(wins), wins, ...(codename ? { codename } : {}) }
+}
+
+/** True when this win count starts a new pie release. */
+export function isPieRelease(wins: number): boolean {
+  return wins > 0 && wins % PIE_EVERY === 0
+}
+
+/** The current pie release ("Cherry Pie"); none before the fifth win. After the last pie, they repeat as "Apple Pie II". */
+export function fermeanieCodename(wins: number): string | undefined {
+  const release = Math.floor(wins / PIE_EVERY) - 1
+  if (release < 0) return undefined
+  const lap = Math.floor(release / PIE_RELEASES.length)
+  const name = PIE_RELEASES[release % PIE_RELEASES.length]
+  return lap ? `${name} ${roman(lap + 1)}` : name
+}
+
+function roman(n: number): string {
+  const ones = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX']
+  return 'X'.repeat(Math.floor(n / 10)) + ones[n % 10]
 }

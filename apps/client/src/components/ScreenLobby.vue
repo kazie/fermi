@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { estimateGameMinutes, type RoomView } from '@fermi/shared'
+import { estimateGameMinutes, playersMissing, type RoomView } from '@fermi/shared'
+import { S } from '@/lib/strings'
 import FermeanieSays from './FermeanieSays.vue'
 import JoinQr from './JoinQr.vue'
 import PlayerAvatar from './PlayerAvatar.vue'
@@ -10,7 +11,8 @@ const props = defineProps<{ room: RoomView; joinUrl: string }>()
 
 const host = computed(() => props.room.players.find((p) => p.id === props.room.hostId))
 const s = computed(() => props.room.settings)
-const minutes = computed(() => estimateGameMinutes(s.value.rounds, s.value.timerSec, props.room.players.length, s.value.breakSec))
+const missingPlayers = computed(() => playersMissing(props.room.players))
+const minutes = computed(() => estimateGameMinutes(s.value, props.room.players.length))
 </script>
 
 <template>
@@ -40,7 +42,7 @@ const minutes = computed(() => estimateGameMinutes(s.value.rounds, s.value.timer
     <FermeanieSays
       size="l"
       mood="smug"
-      :version="room.fermeanie.version"
+      :release="room.fermeanie"
       :text="
         room.players.length
           ? 'More specimens. Excellent. The more of you there are, the smarter I get.'
@@ -49,12 +51,12 @@ const minutes = computed(() => estimateGameMinutes(s.value.rounds, s.value.timer
     />
 
     <p class="status">
-      <template v-if="host"
+      <template v-if="host && missingPlayers">{{ S.needPlayers(missingPlayers) }}</template>
+      <template v-else-if="host"
         >Waiting for <strong>{{ host.name }}</strong> to start</template
       >
       <template v-else>The first player to join becomes the host</template>
-      · {{ s.rounds }} rounds · {{ s.timerSec }} s per question · {{ s.breakSec ? `${s.breakSec} s breaks` : 'no breaks' }} · about
-      {{ minutes }} min
+      · {{ s.rounds }} rounds · {{ s.timerSec }} s per question · {{ S.betweenRoundsShort(s) }} · about {{ minutes }} min
     </p>
   </div>
 </template>

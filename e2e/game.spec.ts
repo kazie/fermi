@@ -54,7 +54,7 @@ async function joinAs(browser: Browser, url: string, name: string, mobile = fals
   await page.goto(url)
   await page.getByLabel('Your name').fill(name)
   await page.getByRole('button', { name: 'Join' }).click()
-  await expect(page.getByText('Test subjects')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Test subjects/ })).toBeVisible()
   return page
 }
 
@@ -143,7 +143,7 @@ test('three players (one on a phone) play a full game against FerMEANie', async 
   expect(res.headers()['content-security-policy']).toContain("default-src 'self'")
 })
 
-test('big screen + two phones: the TV hosts, phones play, the break can be skipped', async ({ browser }) => {
+test('big screen + three phones: the TV hosts, phones play, the break can be skipped', async ({ browser }) => {
   const tvCtx = await browser.newContext({ viewport: { width: 1600, height: 900 } })
   watch(tvCtx)
   const tv = await tvCtx.newPage()
@@ -156,6 +156,9 @@ test('big screen + two phones: the TV hosts, phones play, the break can be skipp
 
   const annie = await joinAs(browser, url, 'Annie', true)
   const bert = await joinAs(browser, url, 'Bert', true)
+  await expect(tv.getByText(/needs at least 3 test subjects/)).toBeVisible() // FerMEANie needs a crowd
+  await expect(annie.getByRole('button', { name: /Start game/ })).toBeDisabled()
+  const cleo = await joinAs(browser, url, 'Cleo', true)
   await expect(tv.getByText('Waiting for Annie to start')).toBeVisible()
   await expect(annie.getByText('The QR code is on the big screen')).toBeVisible()
   await expect(annie.getByRole('button', { name: /Start game/ })).toBeVisible() // the first phone hosts
@@ -171,7 +174,8 @@ test('big screen + two phones: the TV hosts, phones play, the break can be skipp
     await expect(tv.getByText(`Question ${round} of 5`)).toBeVisible()
     await expect(tv.getByLabel('Your calculation')).toHaveCount(0) // the TV never answers
     await answer(annie, 'pianos = 2k\npianos * 3')
-    await answer(bert, '5 thousand', true)
+    await answer(bert, '5 thousand')
+    await answer(cleo, '3000', true)
     await expect(tv.getByText('The answer', { exact: true })).toBeVisible()
     if (round === 1) {
       await expect(annie.getByText('Look at the big screen')).toBeVisible() // controller mode by default

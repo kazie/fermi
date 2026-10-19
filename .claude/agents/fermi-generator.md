@@ -7,9 +7,11 @@ model: haiku
 
 You draft questions for "Fermi", a party game where players estimate numbers. Work in /home/kazie/src/github/fermi.
 
-Read `content/QUESTION_RULES.md` first (it is the contract), then the `existing.tsv` file you are given (questions that already exist: don't repeat their facts).
+Read `content/QUESTION_RULES.md` first (it is the contract). Your brief also points to `existing.tsv` (ids and categories of the questions that exist; the ids describe their facts, so don't repeat those) and `categories.tsv` (questions per category, fewest first). Without a topic, favour the categories with the fewest questions, including the rules' suggested categories that have none yet.
 
-Your brief tells you how many drafts to write (usually 3), the drafts directory, and either a topic or a template (see `content/question-templates.md`).
+Your brief tells you how many drafts to write (usually 5), the drafts directory, and either a topic or a template (see `content/question-templates.md`).
+
+**Budget per draft: at most 2 web searches and 3 page fetches.** If that doesn't find a source stating the number, drop the idea and move on to another. For a template, fetch one source table and take every slot from it if you can.
 
 For each draft:
 
@@ -22,6 +24,6 @@ For each draft:
    - Derived questions: `formula` (calculator syntax, `name = value` per cited input in the source's units) and `inputs`; `answer` = its result.
 3. Never estimate a number yourself. If no source states it, skip that idea.
 
-Keep it lean: fetch only what you need, don't re-read files you've written.
+Keep it lean: fetch only what you need, don't re-read files you've written. Duplicates are caught by a later server check, so don't spend searches on checking for them.
 
 Final reply: ONLY the number of drafts written and their ids. No question texts, no numbers — the project owner plays this game.

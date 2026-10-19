@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { crowdEstimate, fermeanieVersion, logError, scoreRound, ClientMessageSchema, estimateGameMinutes } from '../src/index.ts'
+import {
+  crowdEstimate,
+  fermeanieCodename,
+  fermeanieVersion,
+  isPieRelease,
+  logError,
+  PIE_RELEASES,
+  scoreRound,
+  ClientMessageSchema,
+  estimateGameMinutes,
+} from '../src/index.ts'
 
 const entries = (...values: (number | null)[]) => values.map((value, i) => ({ playerId: `p${i}`, value }))
 
@@ -110,10 +120,15 @@ describe('scoreRound', () => {
 })
 
 describe('FerMEANie version', () => {
-  it('grows by one digit of pi per win', () => {
-    expect(fermeanieVersion(0)).toBe('v3.14')
-    expect(fermeanieVersion(1)).toBe('v3.141')
-    expect(fermeanieVersion(3)).toBe('v3.14159')
+  it('grows by one digit of pi per win, up to six decimals', () => {
+    expect([0, 1, 3, 4, 5, 500].map(fermeanieVersion)).toEqual(['v3.14', 'v3.141', 'v3.14159', 'v3.141592', 'v3.141592…', 'v3.141592…'])
+  })
+
+  it('names a pie release every fifth win, repeating with a numeral after the last pie', () => {
+    expect([0, 4, 5, 9, 10].map(fermeanieCodename)).toEqual([undefined, undefined, 'Apple Pie', 'Apple Pie', 'Banoffee Pie'])
+    expect(fermeanieCodename(5 * PIE_RELEASES.length)).toBe(PIE_RELEASES.at(-1))
+    expect(fermeanieCodename(5 * (PIE_RELEASES.length + 1))).toBe('Apple Pie II')
+    expect([0, 1, 5, 7, 10].map(isPieRelease)).toEqual([false, false, true, false, true])
   })
 })
 
@@ -126,8 +141,16 @@ describe('protocol', () => {
     expect(() => ClientMessageSchema.parse({ type: 'settings', rounds: 7, timerSec: 60 })).toThrow()
     expect(ClientMessageSchema.parse({ type: 'settings', rounds: 10, timerSec: 30 })).toBeTruthy()
   })
-  it('estimates game length', () => {
-    expect(estimateGameMinutes(10, 60, 4)).toBeGreaterThan(10)
+  it('estimates game length, counting timed breaks only', () => {
+    const settings = { rounds: 10, timerSec: 60, breakSec: 0, pacing: 'timer' as const }
+    expect(estimateGameMinutes(settings, 4)).toBeGreaterThan(10)
+    expect(estimateGameMinutes({ ...settings, breakSec: 60 }, 4)).toBe(estimateGameMinutes(settings, 4) + 9)
+    expect(estimateGameMinutes({ ...settings, breakSec: 60, pacing: 'host' }, 4)).toBe(estimateGameMinutes(settings, 4))
+  })
+  it('accepts pacing and the Next message', () => {
+    expect(ClientMessageSchema.parse({ type: 'settings', rounds: 10, timerSec: 30, pacing: 'host' })).toMatchObject({ pacing: 'host' })
+    expect(() => ClientMessageSchema.parse({ type: 'settings', rounds: 10, timerSec: 30, pacing: 'never' })).toThrow()
+    expect(ClientMessageSchema.parse({ type: 'next' })).toEqual({ type: 'next' })
   })
 })
 

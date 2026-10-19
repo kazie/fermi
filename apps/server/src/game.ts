@@ -5,27 +5,50 @@ import { randomUUID } from 'node:crypto'
 import {
   DEFAULT_BREAK_SEC,
   evaluateSheet,
-  fermeanieVersion,
+  fermeanieRelease,
   formatFactor,
   formatNumber,
+  isPieRelease,
+  MIN_PLAYERS,
   REVEAL_TIMING,
   SCOREBOARD_BEFORE_BREAK_MS,
   scoreRound,
   toRevealed,
   type ClientMessage,
+  type FermeanieRelease,
   type FinalView,
   type PlayerView,
   type Question,
   type RevealCard,
   type RevealView,
+  type RoomSettings,
   type RoomView,
   type ServerMessage,
 } from '@fermi/shared'
 import { nowIso, type DB } from './db.ts'
-import { LinePicker, type LinePool } from './lines.ts'
+import { LinePicker, type ChosenLine, type LinePool } from './lines.ts'
 import { countActive, markPlayed, markSeen, pickQuestion } from './questions/repo.ts'
 
 export const MAX_PLAYERS = 30
+
+/** Highest score first; ties by name. */
+const byStanding = (a: { score: number; name: string | null }, b: { score: number; name: string | null }) =>
+  b.score - a.score || (a.name ?? '').localeCompare(b.name ?? '')
+
+/**
+ * Who a quip may single out. The leader: ahead of every other player and of FerMEANie. The last:
+ * behind everyone else, in the game from the start (a newcomer starting on 0 isn't falling behind), and still here
+ * (someone who left isn't trailing). A leader who is away for a moment still leads.
+ */
+export function quipNames(players: { name: string; score: number; fromStart: boolean; here: boolean }[], fermeanieScore: number) {
+  const ranked = players.toSorted(byStanding)
+  const [first, second] = ranked
+  const [last, aboveLast] = [ranked.at(-1), ranked.at(-2)]
+  return {
+    leader: second && first.score > Math.max(second.score, fermeanieScore) ? first.name : undefined,
+    last: last && aboveLast && last.score < aboveLast.score && last.fromStart && last.here ? last.name : undefined,
+  }
+}
 /** Extra time after the deadline for last drafts in flight. */
 export const DEADLINE_GRACE_MS = 750
 export const HOST_HANDOVER_MS = 15_000
@@ -62,7 +85,17 @@ interface RoundState {
   endsAt: number
   participants: Set<string>
   sheets: Map<string, Sheet>
+  /** What FerMEANie says while the question is up. */
+  line: string
 }
+
+/**
+ * Timed breaks count down and take skip votes. With host pacing the break lasts until the host taps Next, and its
+ * line names whoever is host when it's shown.
+ */
+type BreakState =
+  | { index: number; startedAt: number; line: string; timed: { endsAt: number; votes: Set<string> } }
+  | { index: number; startedAt: number; hostWait: ChosenLine<'host_wait'>; timed?: undefined }
 
 interface GameState {
   id: string
@@ -70,7 +103,9 @@ interface GameState {
   /** Never two questions from the same template in one game. */
   usedTemplateIds: string[]
   lines: LinePicker
-  introLine: string
+  startedAt: number
+  /** The leader the last question's line could name (see quipNames), to spot a lead change. */
+  leader?: string
 }
 
 export interface RoomDeps {
@@ -90,10 +125,10 @@ export class Room {
   private keyToId = new Map<string, string>()
   private hostId: string | null = null
   private phase: RoomView['phase'] = 'lobby'
-  private settings = { rounds: 10, timerSec: 60, breakSec: DEFAULT_BREAK_SEC as number }
+  private settings: RoomSettings = { rounds: 10, timerSec: 60, breakSec: DEFAULT_BREAK_SEC, pacing: 'timer' }
   /** Big screens (TVs) watching: they get snapshots but never play. */
   private screens = new Set<Conn>()
-  private breakState: { index: number; startedAt: number; endsAt: number; votes: Set<string> } | null = null
+  private breakState: BreakState | null = null
   private fermeanieScore = 0
   private game: GameState | null = null
   private round: RoundState | null = null
@@ -134,7 +169,8 @@ export class Room {
     clearTimeout(p.dropTimer)
     p.conns.add(conn)
     this.lastActivity = this.now()
-    if (this.hostId === playerId) clearTimeout(this.hostTimer)
+    if (this.hostId === playerId) this.stopHostTimer()
+    this.ensureHost()
     this.broadcast()
   }
 
@@ -149,14 +185,18 @@ export class Room {
       return
     }
     if (this.hostId === playerId) {
-      clearTimeout(this.hostTimer)
-      this.hostTimer = setTimeout(() => this.handOverHost(), HOST_HANDOVER_MS)
+      this.stopHostTimer()
+      this.hostTimer = setTimeout(() => {
+        this.hostTimer = undefined
+        this.ensureHost()
+        this.broadcast()
+      }, HOST_HANDOVER_MS)
     }
     if (this.phase === 'lobby') {
       p.dropTimer = setTimeout(() => {
         if (p.conns.size === 0 && this.phase === 'lobby') {
           this.players.delete(p.id)
-          if (this.hostId === p.id) this.handOverHost()
+          this.ensureHost()
           this.broadcast()
         }
       }, LOBBY_DROP_MS)
@@ -191,12 +231,29 @@ export class Room {
     this.broadcast()
   }
 
-  private handOverHost() {
-    const current = this.hostId ? this.players.get(this.hostId) : undefined
-    if (current && current.conns.size) return
-    const next = [...this.players.values()].filter((p) => p.name !== null && p.conns.size > 0).sort((a, b) => a.joinedAt - b.joinedAt)[0]
-    this.hostId = next?.id ?? this.hostId
-    this.broadcast()
+  /**
+   * Makes sure someone hosts: if the host is gone (left, dropped, or never named) and isn't within their grace period
+   * after a disconnect, the earliest-joined connected player takes over. With nobody to take over, the next player to
+   * connect or join does. Callers broadcast.
+   */
+  private ensureHost() {
+    const host = this.hostId ? this.players.get(this.hostId) : undefined
+    if (host && host.name !== null && (host.conns.size > 0 || this.hostTimer !== undefined)) return
+    const next = this.connectedPlayers().sort((a, b) => a.joinedAt - b.joinedAt)[0]
+    if (next) this.hostId = next.id
+  }
+
+  private stopHostTimer() {
+    clearTimeout(this.hostTimer)
+    this.hostTimer = undefined
+  }
+
+  private breakLine(b: BreakState) {
+    return 'hostWait' in b ? this.game!.lines.say(b.hostWait, { host: this.hostName() }) : b.line
+  }
+
+  private hostName() {
+    return (this.hostId && this.players.get(this.hostId)?.name) || 'the host'
   }
 
   // ---------- messages ----------
@@ -218,22 +275,28 @@ export class Room {
           if (this.joinedPlayers().length >= MAX_PLAYERS) return fail(`This room is full (${MAX_PLAYERS} players)`)
           p.joinedAt = this.now()
           p.spectating = this.phase === 'question' || this.phase === 'reveal'
-          if (!this.hostId || !this.players.get(this.hostId)?.name) this.hostId = p.id
         }
         p.name = this.uniqueName(msg.name, p.id)
+        this.ensureHost()
         this.broadcast()
         return
       }
       case 'settings':
         if (!isHost) return fail('Only the host can change settings')
         if (this.phase !== 'lobby') return
-        this.settings = { rounds: msg.rounds, timerSec: msg.timerSec, breakSec: msg.breakSec ?? this.settings.breakSec }
+        this.settings = {
+          rounds: msg.rounds,
+          timerSec: msg.timerSec,
+          breakSec: msg.breakSec ?? this.settings.breakSec,
+          pacing: msg.pacing ?? this.settings.pacing,
+        }
         this.broadcast()
         return
       case 'start':
         if (!isHost) return fail('Only the host can start the game')
         if (this.phase !== 'lobby') return
         if (countActive(this.deps.db) === 0) return fail('There are no questions in the database yet')
+        if (this.connectedPlayers().length < MIN_PLAYERS) return fail(`Fermi needs at least ${MIN_PLAYERS} players`)
         this.startGame()
         return
       case 'draft':
@@ -262,12 +325,16 @@ export class Room {
         return
       }
       case 'skip_break': {
-        const b = this.breakState
-        if (this.phase !== 'break' || !b || p.name === null) return
-        b.votes.add(playerId)
+        const timed = this.breakState?.timed
+        if (this.phase !== 'break' || !timed || p.name === null) return
+        timed.votes.add(playerId)
         if (!this.maybeEndBreak()) this.broadcast()
         return
       }
+      case 'next':
+        if (!isHost) return fail('Only the host can move on')
+        if (this.phase === 'break' && this.hostPaced) this.endBreak()
+        return
       case 'play_again':
         if (!isHost) return fail('Only the host can start a new game')
         if (this.phase !== 'final') return
@@ -301,8 +368,7 @@ export class Room {
       p.spectating = false
     }
     this.fermeanieScore = 0
-    const picker = new LinePicker(lines, db, this.deps.rand)
-    this.game = { id, usedQuestionIds: [], usedTemplateIds: [], lines: picker, introLine: picker.pick('intro', { count: joined.length }) }
+    this.game = { id, usedQuestionIds: [], usedTemplateIds: [], lines: new LinePicker(lines, db, this.deps.rand), startedAt: this.now() }
     this.final = null
     db.prepare('INSERT INTO games (id, created_at, settings) VALUES (?, ?, ?)').run(id, nowIso(), JSON.stringify(this.settings))
     this.startRound(0)
@@ -335,11 +401,42 @@ export class Room {
       endsAt: startedAt + this.settings.timerSec * 1000,
       participants: new Set(ids),
       sheets: new Map(),
+      line: this.questionLine(index, participants.length),
     }
     this.reveal = null
     this.phase = 'question'
     this.schedule(this.settings.timerSec * 1000 + DEADLINE_GRACE_MS, () => this.endRound())
     this.broadcast()
+  }
+
+  /** Who a line may single out right now (see quipNames). */
+  private standings() {
+    const game = this.game!
+    return quipNames(
+      this.joinedPlayers().map((p) => ({ name: p.name!, score: p.score, fromStart: p.joinedAt <= game.startedAt, here: p.conns.size > 0 })),
+      this.fermeanieScore,
+    )
+  }
+
+  /** What FerMEANie says as a question appears: the intro, then the final round, a lead change or a quip. */
+  private questionLine(index: number, count: number): string {
+    const game = this.game!
+    if (index === 0) return game.lines.pick('intro', { count })
+    const names = this.standings()
+    const previous = game.leader
+    if (names.leader) game.leader = names.leader // a tie keeps the last leader, so Ada → tie → Bob is still a lead change
+    if (index === this.settings.rounds - 1) return game.lines.pick('final_round', names)
+    if (names.leader && previous && names.leader !== previous) return game.lines.pick('lead_change', { name: names.leader, previous })
+    return game.lines.pick('quip', names)
+  }
+
+  private get hostPaced() {
+    return this.settings.pacing === 'host'
+  }
+
+  /** A break follows this round: always with host pacing, otherwise if breaks are on. Never after the last round. */
+  private breakAfter(index: number) {
+    return index + 1 < this.settings.rounds && (this.hostPaced || this.settings.breakSec > 0)
   }
 
   private maybeEndEarly() {
@@ -383,8 +480,7 @@ export class Room {
     const fermeanieAt = cardsStart + cardsSorted.length * per
     const scoreboardAt = fermeanieAt + t.fermeanie
     // With a break coming, the scoreboard step is short: the break shows the scores anyway.
-    const breakNext = this.settings.breakSec > 0 && r.index + 1 < this.settings.rounds
-    const endsAt = scoreboardAt + (breakNext ? SCOREBOARD_BEFORE_BREAK_MS * k : t.scoreboard)
+    const endsAt = scoreboardAt + (this.breakAfter(r.index) ? SCOREBOARD_BEFORE_BREAK_MS * k : t.scoreboard)
 
     // lines
     const lines = game.lines
@@ -396,7 +492,7 @@ export class Room {
       if (p) p.dunces++
       dunced.push(res.playerId)
       const count = p?.dunces ?? 1
-      const key = count >= 2 ? 'dunce.repeat_offender' : `dunce.${res.dunce}`
+      const key = count >= 2 ? 'dunce.repeat_offender' : (`dunce.${res.dunce}` as const)
       dunceLines[res.playerId] = lines.pick(
         key,
         {
@@ -421,6 +517,10 @@ export class Room {
       verdict = lines.pick('defeated', { name: best ? name(best.playerId) : 'someone' })
     }
     const bull = ranked.find((x) => x.bonusKind === 'bullseye')
+    // everyone, not just the connected players maybeEndEarly waited for
+    const lockedEarly =
+      ids.length >= 2 && ids.every((id) => r.sheets.get(id)?.locked) && r.endsAt - start >= (this.settings.timerSec * 1000) / 2
+    const twins = sameAnswer(entries)
     const outlierIds = (score.crowd?.outliers ?? []).map((i) => entries[i].playerId)
 
     const scoresAfter: Record<string, number> = {}
@@ -459,6 +559,8 @@ export class Room {
         : null,
       fermeanie: score.fermeanie,
       lines: {
+        ...(lockedEarly ? { everyone: lines.pick('everyone_locked', {}) } : {}),
+        ...(twins.length ? { twins: lines.pick('twins', { names: joinNames(twins.map(name)) }) } : {}),
         ...(score.crowd?.method === 'median' && outlierIds.length
           ? { ruleChange: lines.pick('rule_change', { name: name(outlierIds[0]), count: outlierIds.length }) }
           : {}),
@@ -505,7 +607,7 @@ export class Room {
     this.fermeanieScore = rv.fermeanieScoreAfter
     const next = rv.index + 1
     if (next >= this.settings.rounds) this.finishGame()
-    else if (this.settings.breakSec > 0) this.startBreak(rv.index)
+    else if (this.breakAfter(rv.index)) this.startBreak(rv.index)
     else this.startRound(next)
   }
 
@@ -514,9 +616,15 @@ export class Room {
   private startBreak(index: number) {
     const startedAt = this.now()
     const ms = this.settings.breakSec * 1000 * (this.deps.timeScale ?? 1)
-    this.breakState = { index, startedAt, endsAt: startedAt + ms, votes: new Set() }
+    const { lines } = this.game!
+    if (this.hostPaced) {
+      this.breakState = { index, startedAt, hostWait: lines.choose('host_wait', { host: this.hostName() }) }
+    } else {
+      const line = lines.pick('break_time', { leader: this.standings().leader })
+      this.breakState = { index, startedAt, line, timed: { endsAt: startedAt + ms, votes: new Set<string>() } }
+    }
     this.phase = 'break'
-    this.schedule(ms, () => this.endBreak())
+    if (!this.hostPaced) this.schedule(ms, () => this.endBreak())
     this.broadcast()
   }
 
@@ -526,10 +634,10 @@ export class Room {
   }
 
   private maybeEndBreak(): boolean {
-    const b = this.breakState
-    if (this.phase !== 'break' || !b) return false
+    const timed = this.breakState?.timed
+    if (this.phase !== 'break' || !timed) return false
     const connected = new Set(this.connectedPlayers().map((p) => p.id))
-    const votes = [...b.votes].filter((id) => connected.has(id)).length
+    const votes = [...timed.votes].filter((id) => connected.has(id)).length
     if (votes < this.votesNeeded()) return false
     this.endBreak()
     return true
@@ -548,26 +656,28 @@ export class Room {
     const game = this.game!
     const ranking = this.joinedPlayers()
       .map((p) => ({ playerId: p.id, name: p.name!, score: p.score }))
-      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+      .sort(byStanding)
     const top = ranking[0]
     const fermeanieWon = this.fermeanieScore > (top?.score ?? 0)
-    const before = db.prepare('SELECT wins FROM fermeanie WHERE id = 1').get() as { wins: number }
-    db.prepare('UPDATE fermeanie SET games_played = games_played + 1, wins = wins + ? WHERE id = 1').run(fermeanieWon ? 1 : 0)
-    const wins = before.wins + (fermeanieWon ? 1 : 0)
-    const oldVersion = fermeanieVersion(before.wins)
-    const version = fermeanieVersion(wins)
+    const { wins, losses } = db
+      .prepare(
+        `UPDATE fermeanie SET games_played = games_played + 1, wins = wins + ?1,
+           loss_streak = CASE WHEN ?1 THEN 0 ELSE loss_streak + 1 END
+         WHERE id = 1 RETURNING wins, loss_streak AS losses`,
+      )
+      .get(fermeanieWon ? 1 : 0) as { wins: number; losses: number }
+    const release = fermeanieRelease(wins)
     const winner = top?.name ?? 'nobody'
+    const tied = !!top && this.fermeanieScore === top.score
     this.final = {
       gameId: game.id,
       ranking,
       winnerId: top?.playerId ?? null,
       fermeanieScore: this.fermeanieScore,
       fermeanieWon,
-      oldVersion,
-      version,
-      wins,
-      line: fermeanieWon ? game.lines.pick('game_win', { winner, version, wins }) : game.lines.pick('game_loss', { winner, version }),
-      ...(fermeanieWon ? { versionLine: game.lines.pick('version_upgrade', { oldVersion, version, wins }) } : {}),
+      ...release,
+      line: finalLine(game.lines, { ...release, winner, fermeanieWon, tied, losses }),
+      ...(fermeanieWon ? { versionLine: versionLine(game.lines, { ...release, winner }) } : {}),
     }
     db.prepare('UPDATE games SET finished_at = ?, final = ? WHERE id = ?').run(nowIso(), JSON.stringify(this.final), game.id)
     this.round = null
@@ -588,7 +698,7 @@ export class Room {
       p.spectating = false
       if (p.name !== null && p.conns.size === 0) this.players.delete(p.id)
     }
-    if (this.hostId && !this.players.has(this.hostId)) this.handOverHost()
+    this.ensureHost()
     this.broadcast()
   }
 
@@ -599,7 +709,7 @@ export class Room {
 
   dispose() {
     clearTimeout(this.timer)
-    clearTimeout(this.hostTimer)
+    this.stopHostTimer()
     for (const p of this.players.values()) clearTimeout(p.dropTimer)
   }
 
@@ -607,25 +717,32 @@ export class Room {
 
   private broadcast() {
     const serverNow = this.now()
-    const fv = this.fermeanieView()
-    const pool = countActive(this.deps.db)
+    const shared = this.sharedView()
     for (const p of this.players.values()) {
       if (!p.conns.size) continue
-      const msg: ServerMessage = { type: 'snapshot', room: this.view(p.id, fv, pool), serverNow }
+      const msg: ServerMessage = { type: 'snapshot', room: this.view(p.id, shared), serverNow }
       for (const c of p.conns) c.send(msg)
     }
     if (this.screens.size) {
-      const msg: ServerMessage = { type: 'snapshot', room: this.screenView(fv, pool), serverNow }
+      const msg: ServerMessage = { type: 'snapshot', room: this.screenView(shared), serverNow }
       for (const c of this.screens) c.send(msg)
     }
   }
 
   private fermeanieView() {
-    const row = this.deps.db.prepare('SELECT wins FROM fermeanie WHERE id = 1').get() as { wins: number }
-    return { score: this.fermeanieScore, version: fermeanieVersion(row.wins), wins: row.wins }
+    const { wins } = this.deps.db.prepare('SELECT wins FROM fermeanie WHERE id = 1').get() as { wins: number }
+    return { score: this.fermeanieScore, ...fermeanieRelease(wins) }
   }
 
-  view(forId: string, fv = this.fermeanieView(), poolSize = countActive(this.deps.db)): RoomView {
+  /** The parts of a view that are the same for everyone, worked out once per broadcast. */
+  private sharedView() {
+    return {
+      fermeanie: this.fermeanieView(),
+      poolSize: countActive(this.deps.db),
+    }
+  }
+
+  view(forId: string, shared = this.sharedView()): RoomView {
     const r = this.round
     const players: PlayerView[] = this.joinedPlayers()
       .sort((a, b) => a.joinedAt - b.joinedAt)
@@ -652,9 +769,8 @@ export class Room {
       settings: this.settings,
       screens: this.screens.size,
       players,
-      fermeanie: fv,
-      poolSize,
-      ...(this.game ? { introLine: this.game.introLine } : {}),
+      fermeanie: shared.fermeanie,
+      poolSize: shared.poolSize,
       ...(this.phase === 'question' && r
         ? {
             round: {
@@ -663,6 +779,7 @@ export class Room {
               question: { id: r.question.id, question: r.question.question, unit: r.question.unit, category: r.question.category },
               startedAt: r.startedAt,
               endsAt: r.endsAt,
+              line: r.line,
             },
             ...(r.participants.has(forId) ? { yourSheet: { text: mine?.text ?? '', locked: !!mine?.locked } } : {}),
           }
@@ -674,10 +791,15 @@ export class Room {
               index: this.breakState.index,
               total: this.settings.rounds,
               startedAt: this.breakState.startedAt,
-              endsAt: this.breakState.endsAt,
-              votes: this.breakState.votes.size,
-              needed: this.votesNeeded(),
-              youVoted: this.breakState.votes.has(forId),
+              line: this.breakLine(this.breakState),
+              ...(this.breakState.timed && {
+                timed: {
+                  endsAt: this.breakState.timed.endsAt,
+                  votes: this.breakState.timed.votes.size,
+                  needed: this.votesNeeded(),
+                  youVoted: this.breakState.timed.votes.has(forId),
+                },
+              }),
             },
           }
         : {}),
@@ -686,9 +808,35 @@ export class Room {
   }
 
   /** What a big screen sees: everything public, nothing personal (no own sheet, no votes of its own). */
-  screenView(fv = this.fermeanieView(), poolSize = countActive(this.deps.db)): RoomView {
-    return { ...this.view('', fv, poolSize), viewer: 'screen' }
+  screenView(shared = this.sharedView()): RoomView {
+    return { ...this.view('', shared), viewer: 'screen' }
   }
+}
+
+/** The players who gave the most common answer, if two or more did (ties: the first such answer). */
+function sameAnswer(entries: { playerId: string; value: number | null }[]): string[] {
+  const groups = new Map<number, string[]>()
+  for (const { playerId, value } of entries) if (value !== null) groups.set(value, [...(groups.get(value) ?? []), playerId])
+  const largest = [...groups.values()].reduce((a, b) => (b.length > a.length ? b : a), [])
+  return largest.length >= 2 ? largest : []
+}
+
+/** FerMEANie's verdict on the game. A tie goes to the humans; three losses in a row is humble pie. */
+function finalLine(
+  lines: LinePicker,
+  r: FermeanieRelease & { winner: string; fermeanieWon: boolean; tied: boolean; losses: number },
+): string {
+  const { winner, version, wins, losses } = r
+  if (r.fermeanieWon) return lines.pick('game_win', { winner, version, wins })
+  if (r.tied) return lines.pick('game_tie', { winner, version })
+  if (losses >= 3) return lines.pick('humble_pie', { winner, version, losses })
+  return lines.pick('game_loss', { winner, version })
+}
+
+/** After a win: a pie release every fifth win, release notes otherwise. */
+function versionLine(lines: LinePicker, { codename, version, wins, winner }: FermeanieRelease & { winner: string }): string {
+  if (codename && isPieRelease(wins)) return lines.pick('pie_release', { codename, version, wins })
+  return lines.pick('release_notes', { winner, version, wins })
 }
 
 function joinNames(names: string[]): string {

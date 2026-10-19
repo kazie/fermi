@@ -16,6 +16,7 @@ export function parseCli(argv: string[]) {
       'dry-run': { type: 'boolean' },
       texts: { type: 'boolean' },
       links: { type: 'boolean' },
+      categories: { type: 'boolean' },
     },
   })
   const [cmd, ...rest] = positionals

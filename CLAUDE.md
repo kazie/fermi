@@ -5,7 +5,7 @@ See README.md for what this is and how to run it.
 ## Spoilers: the owner plays this game
 
 **Never print question texts or answers** in chat, summaries or commands whose output lands in the main
-conversation. That covers `pnpm q get`, `pnpm q export`, `pnpm q list --texts`, reading the question
+conversation. That covers `pnpm q get`, `pnpm q export`, `pnpm q list --texts`, `pnpm q quote`, reading the question
 JSON in `.fermi-work/`, and querying the `questions` table. Do content work (generating, verifying,
 debugging a specific question) inside subagents, and report counts, IDs and categories only. Test
 fixtures in `apps/server/test` and `apps/client/src/fixtures` are fake and fine to read.

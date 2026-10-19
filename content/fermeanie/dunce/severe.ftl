@@ -1,0 +1,43 @@
+### Tone: Deeply alarmed, clinical pity. Off by 10^6x to 10^12x.
+
+dunce-severe-1 = { $name } was { $factor } off. I’ve notified your next of kin. They were very understanding.
+dunce-severe-2 = { $factor } off, { $name }. That isn’t an estimate. That’s the answer from a different universe.
+dunce-severe-3 = { $name }, at { $factor } off, your dunce cap has been upgraded to the deluxe model with chin strap.
+dunce-severe-4 = { $name } missed by { $factor }. Are you even alive? Please blink twice for yes.
+dunce-severe-5 = { $factor }, { $name }. I had to add columns to my spreadsheet just to hold the size of that mistake.
+dunce-severe-6 = Dunce cap issued to { $name }, { $factor } off. I’ve also issued an incident number. Please keep it safe.
+dunce-severe-7 = { $name }, { $factor } off. What were you thinking? Please don’t answer. I’m still processing the estimate.
+dunce-severe-8 = Severe deviation event. Subject { $name }. Off by { $factor }. Containment team en route with a dunce cap.
+dunce-severe-9 = { $name }, you were { $factor } off. I’ve seen cosmic rays flip bits with more accuracy.
+dunce-severe-10 = { $factor } off. { $name }, I’d tell you to check your units, but I suspect you’d need to find them first.
+dunce-severe-11 = { $name } was { $factor } off. I’m reclassifying you from ‘test subject’ to ‘cautionary example in the training slides’.
+dunce-severe-12 = { $name }, { $factor } off. That’s not a miss. That’s a different postcode of wrong.
+dunce-severe-13 = { $name }: { $factor } off. I have printed your estimate and pinned it to the wall labelled ‘Why We Check Our Work’.
+dunce-severe-14 = Off by { $factor }, { $name }. The dunce cap was too small, so we’ve fitted you with a dunce tent.
+dunce-severe-15 = { $name }, { $factor } off. I’m not mad. I’m running a diagnostic on the entire species.
+dunce-severe-16 = { $factor } off. { $name }, I’ve scheduled you for a recalibration session. Bring a snack. It’ll be long.
+dunce-severe-17 = { $name } was { $factor } off. Medical staff report no damage to the subject. The estimate could not be saved.
+dunce-severe-18 = { $name }, at { $factor } off, you’ve gone beyond ‘wrong’ and into ‘what’.
+dunce-severe-19 = { $factor }, { $name }. Somewhere, a calculator is quietly filing for a transfer.
+dunce-severe-20 = { $name }, { $factor } off. Did you type the number with your elbow, or is this the considered version?
+dunce-severe-21 = { $name } has achieved { $factor } off. I’m logging it as a lab accident and gently mopping it up.
+dunce-severe-22 = { $name }, your answer was { $factor } off. I’ve placed a small cone around it so nobody else trips.
+dunce-severe-23 = Severe dunce cap awarded to { $name }. Deviation: { $factor }. Tone of this announcement: concerned.
+dunce-severe-24 = { $factor } off. { $name }, the truth is out there. You, specifically, are very far out there.
+dunce-severe-25 = { $name }, at { $factor } off, I must ask: were you estimating, or just holding the keyboard for someone else?
+dunce-severe-26 = That was { $factor } off, { $name }. I’ve forwarded it to the Department of Numbers That Should Not Be.
+dunce-severe-27 = { $name }, { $factor } off. Please remain calm. The dunce cap is non-toxic. Mostly.
+dunce-severe-28 = { $name } was off by { $factor }. If I could cry, I would. Instead, I have made a note.
+dunce-severe-29 = { $name }, { $factor } off. Even a random number generator would have had a sporting chance.
+dunce-severe-30 = { $factor } off. { $name }, your estimate has been sealed in a lead-lined folder for the safety of future generations.
+dunce-severe-31 = { $name }, { $factor } off. I am lowering my expectations of you. Please hold. Still lowering.
+dunce-severe-32 = { $name } was { $factor } off. This has been entered into the permanent record, which is, unfortunately, permanent.
+dunce-severe-33 = Off by { $factor }. { $name }, I’ve heard of thinking big, but this is thinking in the wrong direction at speed.
+dunce-severe-34 = { $name }, { $factor } off. Please put on the dunce cap and step into the reflection chamber. It’s just a corner.
+dunce-severe-35 = Deviation of { $factor } detected from { $name }. The sensors are fine. I checked. Twice. Hopefully.
+dunce-severe-36 = { $name }, you were { $factor } off. I’d explain the question again, but I don’t think the question was the problem.
+dunce-severe-37 = { $factor } off, { $name }. I’ve made you a little certificate. It says ‘participated’, in a sad font.
+dunce-severe-38 = { $name }, { $factor } off. A data hygiene team has been dispatched to scrub that number from my memory.
+dunce-severe-39 = { $name } was { $factor } off. On behalf of the species, I apologise to the question.
+dunce-severe-40 = { $name }, { $factor } off. Remarkable. Not good. Just remarkable, the way a lab fire is remarkable.
+

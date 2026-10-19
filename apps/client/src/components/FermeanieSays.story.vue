@@ -4,7 +4,7 @@ import FermeanieSays from './FermeanieSays.vue'
 
 const chat = [
   'Congratulations, Ada. You are the best of the humans. That is like being the tallest blade of grass.',
-  'v3.1415 retired with honours. Now running v3.14159. I feel more irrational already.',
+  'Release notes for v3.14159: **Fixed** a bug where Ada was briefly competitive.',
 ]
 const chatStart = ref(0)
 const chatNow = ref(0)
@@ -16,7 +16,9 @@ onUnmounted(() => clearInterval(chatTick))
   <Story title="FermeanieSays" group="components">
     <Variant title="Smug" :init-state="() => ({ text: 'I’ll take those 1 200 points. For safekeeping. Forever.' })">
       <template #default="{ state }">
-        <div style="padding: 16px; max-width: 560px"><FermeanieSays :text="state.text" version="v3.14159" mood="smug" /></div>
+        <div style="padding: 16px; max-width: 560px">
+          <FermeanieSays :text="state.text" :release="{ version: 'v3.14159' }" mood="smug" />
+        </div>
       </template>
       <template #controls="{ state }"><HstText v-model="state.text" title="Text" /></template>
     </Variant>
@@ -31,13 +33,13 @@ onUnmounted(() => clearInterval(chatTick))
           text="Congratulations. You are the best of the humans. That is like being the tallest blade of grass."
           size="l"
           instant
-          version="v3.1415"
+          :release="{ version: 'v3.1415' }"
         />
       </div>
     </Variant>
     <Variant title="One bubble, several messages (loops)">
       <div style="padding: 16px; max-width: 560px">
-        <FermeanieSays :messages="chat" :start-at="chatStart" :now="chatNow" version="v3.14159" mood="smug" size="l" />
+        <FermeanieSays :messages="chat" :start-at="chatStart" :now="chatNow" :release="{ version: 'v3.14159' }" mood="smug" size="l" />
       </div>
     </Variant>
     <Variant title="Small (dunce / bullseye remark)">

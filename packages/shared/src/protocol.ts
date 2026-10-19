@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import type { CrowdStats } from './crowd.ts'
+import { MIN_CROWD, type CrowdStats } from './crowd.ts'
 import type { PublicQuestion, RevealedQuestion } from './question.ts'
-import type { DunceKind } from './scoring.ts'
+import type { DunceKind, FermeanieRelease } from './scoring.ts'
 import { LIMITS } from './calc/evaluate.ts'
 
 export const ROUND_OPTIONS = [5, 10, 15] as const
@@ -9,6 +9,15 @@ export const TIMER_OPTIONS = [30, 60, 90] as const
 /** Discussion break between rounds (seconds); 0 = off. */
 export const BREAK_OPTIONS = [0, 15, 30, 60] as const
 export const DEFAULT_BREAK_SEC = 30
+/** Players needed to start: FerMEANie sits out any round with fewer answers, and Fermi is a game for friends. */
+export const MIN_PLAYERS = MIN_CROWD
+
+/** How many more connected players the lobby needs before the game can start. */
+export const playersMissing = (players: { connected: boolean }[]) => Math.max(0, MIN_PLAYERS - players.filter((p) => p.connected).length)
+
+/** `timer`: breaks count down on their own. `host`: after each reveal, everyone waits until the host taps Next. */
+export const PACING_OPTIONS = ['timer', 'host'] as const
+export type Pacing = (typeof PACING_OPTIONS)[number]
 /** With a break coming, the reveal's scoreboard step is short: the break shows the scores anyway. */
 export const SCOREBOARD_BEFORE_BREAK_MS = 3000
 export const NAME_MAX = 24
@@ -32,8 +41,16 @@ export function revealDuration(players: number): number {
   return t.numberLine + t.truth + Math.min(t.cardsMaxTotal, players * t.cardEach) + t.fermeanie + t.scoreboard
 }
 
-export function estimateGameMinutes(rounds: number, timerSec: number, players: number, breakSec = 0): number {
-  const breaks = Math.max(0, rounds - 1) * breakSec * 1000
+export interface RoomSettings {
+  rounds: number
+  timerSec: number
+  breakSec: number
+  pacing: Pacing
+}
+
+/** Breaks count only when they're timed: with host pacing, nobody knows how long the talk takes. */
+export function estimateGameMinutes({ rounds, timerSec, breakSec, pacing }: RoomSettings, players: number): number {
+  const breaks = pacing === 'host' ? 0 : Math.max(0, rounds - 1) * breakSec * 1000
   return Math.max(1, Math.round((rounds * (timerSec * 1000 + revealDuration(Math.max(players, 2))) + breaks) / 60000))
 }
 
@@ -54,8 +71,11 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
     breakSec: z
       .union(BREAK_OPTIONS.map((n) => z.literal(n)) as [z.ZodLiteral<0>, z.ZodLiteral<15>, z.ZodLiteral<30>, z.ZodLiteral<60>])
       .optional(),
+    pacing: z.enum(PACING_OPTIONS).optional(),
   }),
   z.object({ type: z.literal('start') }),
+  /** Host pacing: end the break and start the next question. */
+  z.object({ type: z.literal('next') }),
   z.object({ type: z.literal('draft'), text: sheet }),
   z.object({ type: z.literal('lock'), text: sheet }),
   z.object({ type: z.literal('unlock') }),
@@ -82,10 +102,8 @@ export interface PlayerView {
   dunces: number
 }
 
-export interface FermeanieView {
+export interface FermeanieView extends FermeanieRelease {
   score: number
-  version: string
-  wins: number
 }
 
 export interface QuestionView {
@@ -94,6 +112,8 @@ export interface QuestionView {
   question: PublicQuestion
   startedAt: number
   endsAt: number
+  /** What FerMEANie says while the question is up: the intro in the first round, a quip after that. */
+  line: string
 }
 
 export interface RevealCard {
@@ -143,6 +163,10 @@ export interface RevealView {
     dunce: Record<string, string>
     /** When two or more players got the dunce cap this round. */
     dunceGroup?: string
+    /** Everyone locked in with at least half the time left. */
+    everyone?: string
+    /** Two or more players gave exactly the same answer. */
+    twins?: string
     /** steal / defeated / sits_out / everyone_way_off */
     verdict: string
     bullseye?: string
@@ -151,16 +175,15 @@ export interface RevealView {
   fermeanieScoreAfter: number
 }
 
-export interface FinalView {
+/** The end of a game. Its release is FerMEANie's after this game. */
+export interface FinalView extends FermeanieRelease {
   gameId: string
   ranking: { playerId: string; name: string; score: number }[]
   winnerId: string | null
   fermeanieScore: number
   fermeanieWon: boolean
-  oldVersion: string
-  version: string
-  wins: number
   line: string
+  /** After a win: the release notes, or the announcement of a new pie release. */
   versionLine?: string
 }
 
@@ -169,11 +192,13 @@ export interface BreakView {
   index: number
   total: number
   startedAt: number
-  endsAt: number
-  /** Players who voted to skip, and how many votes end the break early (a majority of connected players). */
-  votes: number
-  needed: number
-  youVoted: boolean
+  /** What FerMEANie says during the break. */
+  line: string
+  /**
+   * Timed breaks: the countdown, the players who voted to skip, and how many votes end the break early (a majority
+   * of connected players). Missing with host pacing: the break lasts until the host taps Next.
+   */
+  timed?: { endsAt: number; votes: number; needed: number; youVoted: boolean }
 }
 
 export interface RoomView {
@@ -181,7 +206,7 @@ export interface RoomView {
   you: string
   hostId: string | null
   phase: Phase
-  settings: { rounds: number; timerSec: number; breakSec: number }
+  settings: RoomSettings
   /** Big screens (TVs) watching this room. Phones can switch to controller mode when one is present. */
   screens: number
   /** Set when this snapshot is for a big screen rather than a player. */
@@ -190,7 +215,6 @@ export interface RoomView {
   fermeanie: FermeanieView
   /** Number of playable questions in the pool. */
   poolSize: number
-  introLine?: string
   round?: QuestionView
   /** Your own sheet for this round (restored on reconnect). */
   yourSheet?: { text: string; locked: boolean }

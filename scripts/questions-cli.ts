@@ -3,7 +3,7 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { normalizeText } from '../apps/server/src/questions/dedupe.ts'
+import { quoteExcerpt } from '../apps/server/src/questions/dedupe.ts'
 import { extractNumbers, quoteContainsNumber } from '../apps/server/src/questions/numbers.ts'
 import { prepareDraft } from '../apps/server/src/questions/prepare.ts'
 import { fetchPageText } from '../apps/server/src/questions/html.ts'
@@ -203,7 +203,9 @@ async function main() {
     }
     case 'stats': {
       const { json } = await call('GET', '/stats')
-      console.log(JSON.stringify(json, null, 2))
+      // --categories: active questions per category, fewest first (for steering generation)
+      if (opts.categories) for (const { category, n } of json.byCategory.toReversed()) console.log(`${n}\t${category}`)
+      else console.log(JSON.stringify(json, null, 2))
       return
     }
     case 'archive': {
@@ -223,13 +225,13 @@ async function main() {
       if (!url || !quote) die('usage: pnpm q quote <url> "<quote>" [number]')
       const text = await pageText(url)
       if (text === null) die(`could not fetch ${url}`)
-      const found = normalizeText(text).includes(normalizeText(quote))
-      console.log(`quote on page: ${found ? 'yes' : 'NO'}`)
+      const excerpt = quoteExcerpt(text, quote, 120)
+      console.log(`quote on page: ${excerpt === null ? 'NO' : `yes\n  ${excerpt}`}`)
       if (num)
         console.log(
           `number ${num} in quote: ${quoteContainsNumber(quote, Number(num)) ? 'yes' : 'NO'} (numbers read: ${extractNumbers(quote).slice(0, 12).join(', ')})`,
         )
-      if (!found) process.exitCode = 2
+      if (excerpt === null) process.exitCode = 2
       return
     }
     default:
@@ -244,9 +246,9 @@ async function main() {
   disputes                                            open disputes
   status <id> <active|retired|disputed> [--resolution "…"]
   check [--links]                                     re-validate the pool (and live sources)
-  stats
+  stats [--categories]                                pool counts (--categories: active questions per category, fewest first)
   archive <url>                                       find/create a Wayback snapshot → {archiveUrl, archivedAt}
-  quote <url> "<quote>" [number]                      verify a quote is on the page and contains the number
+  quote <url> "<quote>" [number]                      verify a quote is on the page and contains the number (⚠ prints page text)
 
   --server URL (default $FERMI_SERVER or http://localhost:3000); token from FERMI_ADMIN_TOKEN`)
   }

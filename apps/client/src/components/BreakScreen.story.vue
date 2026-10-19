@@ -8,6 +8,9 @@ const voted = breakRoom({ votes: 2, youVoted: true, left: 9 })
 const now = room.break!.startedAt + 7000
 const nowVoted = voted.break!.startedAt + 21_000
 const tv = asScreen(breakRoom({ votes: 2 }))
+const hostPaced = breakRoom({ hostPaced: true })
+const waiting = breakRoom({ hostPaced: true, host: false })
+const tvHostPaced = asScreen(breakRoom({ hostPaced: true }))
 </script>
 
 <template>
@@ -23,6 +26,18 @@ const tv = asScreen(breakRoom({ votes: 2 }))
     ></Variant>
     <Variant title="Big screen"
       ><div class="page"><BreakScreen :room="tv" :now="now" variant="tv" /></div
+    ></Variant>
+    <Variant title="Host pacing, you host"
+      ><div class="page"><BreakScreen :room="hostPaced" :now="now" @next="logEvent('next', {})" /></div
+    ></Variant>
+    <Variant title="Host pacing, waiting for the host"
+      ><div class="page"><BreakScreen :room="waiting" :now="now" /></div
+    ></Variant>
+    <Variant title="Host pacing, controller mode"
+      ><div class="page"><BreakScreen :room="hostPaced" :now="now" variant="compact" @next="logEvent('next', {})" /></div
+    ></Variant>
+    <Variant title="Host pacing, big screen"
+      ><div class="page"><BreakScreen :room="tvHostPaced" :now="now" variant="tv" /></div
     ></Variant>
   </Story>
 </template>

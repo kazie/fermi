@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue'
-import { NAME_MAX } from '@fermi/shared'
+import { escapeMarkup, NAME_MAX } from '@fermi/shared'
 import { S } from '@/lib/strings'
 import { pickWelcome } from '@/lib/welcome'
+import FerText from './FerText.vue'
 import FermeanieSays from './FermeanieSays.vue'
 
 const props = withDefaults(defineProps<{ code: string; midGame?: boolean; initialName?: string; quote?: string }>(), {
@@ -16,7 +17,8 @@ const fieldId = useId()
 // picked once per visit, so it doesn't change while typing
 const quote = props.quote ?? pickWelcome()
 const clean = computed(() => name.value.replace(/\s+/g, ' ').trim())
-const greeting = computed(() => S.welcomeName(clean.value || S.namePlaceholder))
+// the greeting is a FerMEANie line with markup: the name shows exactly as typed
+const greeting = computed(() => S.welcomeName(escapeMarkup(clean.value) || S.namePlaceholder))
 
 function submit() {
   if (clean.value) emit('join', clean.value)
@@ -40,7 +42,7 @@ function submit() {
       enterkeyhint="go"
       autofocus
     />
-    <p v-if="quote" class="quote">“{{ quote }}”</p>
+    <p v-if="quote" class="quote">“<FerText :text="quote" />”</p>
     <button class="btn btn-primary btn-block" type="submit" :disabled="!clean">{{ S.joinGame }}</button>
     <p v-if="midGame" class="muted">A game is in progress. You’ll be in from the next question.</p>
   </form>

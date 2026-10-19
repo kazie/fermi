@@ -3,7 +3,10 @@ import { asScreen, questionRoom, T0 } from '@/fixtures/rooms'
 import ScreenQuestion from './ScreenQuestion.vue'
 
 const first = asScreen(questionRoom({ n: 6 }))
-const later = asScreen({ ...questionRoom({ n: 6 }), round: { ...questionRoom().round!, index: 4 } })
+const later = asScreen({
+  ...questionRoom({ n: 6 }),
+  round: { ...questionRoom().round!, index: 4, line: 'Someone in this room is secretly good at this. I won’t say who. It’s Ada.' },
+})
 </script>
 
 <template>

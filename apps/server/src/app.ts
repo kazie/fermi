@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
-import { fermeanieVersion, KEY_RE, toRevealed } from '@fermi/shared'
+import { fermeanieRelease, KEY_RE, toRevealed } from '@fermi/shared'
 import type { DB } from './db.ts'
 import { RoomsFullError, type RoomRegistry } from './rooms.ts'
 import { hashKey, rateLimiter } from './keys.ts'
@@ -70,7 +70,7 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
       wins: number
       gamesPlayed: number
     }
-    return c.json({ ...row, version: fermeanieVersion(row.wins) })
+    return c.json({ ...row, ...fermeanieRelease(row.wins) })
   })
 
   // ---------- recap & sources (only for questions that have been revealed in a game) ----------
@@ -212,9 +212,7 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
   admin.get('/stats', (c) =>
     c.json({
       byStatus: db.prepare('SELECT status, COUNT(*) AS n FROM questions GROUP BY status').all(),
-      byCategory: db
-        .prepare("SELECT category, COUNT(*) AS n FROM questions WHERE status = 'active' GROUP BY category ORDER BY n DESC")
-        .all(),
+      byCategory: db.prepare("SELECT category, SUM(status = 'active') AS n FROM questions GROUP BY category ORDER BY n DESC").all(),
       rejections: (db.prepare('SELECT COUNT(*) AS n FROM question_rejections').get() as { n: number }).n,
       openDisputes: openDisputes(db).length,
     }),

@@ -1,3 +1,5 @@
+import { MIN_PLAYERS, type RoomSettings } from '@fermi/shared'
+
 // All user-facing copy in one place, so a translation can slot in later.
 export const S = {
   appName: 'Fermi',
@@ -10,6 +12,23 @@ export const S = {
   hostGameHint: 'You play and host from this device.',
   breakLabel: 'Break between rounds',
   skipBreak: 'Skip break',
+  nextQuestion: 'Next question',
+  nextWhenYouAre: 'Tap Next when everyone’s ready.',
+  nextWhenHostIs: (host: string) => `Next question when ${host} is ready.`,
+  waitingForName: (name: string) => `Waiting for ${name}…`,
+  theHost: 'the host',
+  pacing: 'Pacing',
+  pacingTimer: 'Timed breaks',
+  pacingHost: 'Host taps Next',
+  /** What happens between rounds, as a sentence (lobby) or a short status (big screen). */
+  betweenRounds: ({ pacing, breakSec }: RoomSettings) =>
+    pacing === 'host'
+      ? 'After each round, everyone talks it over until the host taps Next.'
+      : breakSec
+        ? 'Between rounds there’s a break to talk; a majority can skip it.'
+        : 'No breaks: once it starts, it runs.',
+  betweenRoundsShort: ({ pacing, breakSec }: RoomSettings) =>
+    pacing === 'host' ? 'the host taps Next between rounds' : breakSec ? `${breakSec} s breaks` : 'no breaks',
   lookUp: 'Look at the big screen',
   controllerView: 'Controller',
   fullView: 'Full view',
@@ -26,6 +45,7 @@ export const S = {
   start: 'Start game',
   playAgain: 'Play again',
   waitingForHost: 'Waiting for the host…',
+  needPlayers: (missing: number) => `FerMEANie needs at least ${MIN_PLAYERS} test subjects to be the average of. Invite ${missing} more.`,
   rounds: 'Rounds',
   timer: 'Seconds per question',
   connecting: 'Connecting…',

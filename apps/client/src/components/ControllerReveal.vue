@@ -2,12 +2,13 @@
 import { computed } from 'vue'
 import { formatFactor, type PlayerView, type RevealView } from '@fermi/shared'
 import { describeOff, flippedCount, revealStage } from '@/lib/reveal'
+import type { Release } from '@/lib/version'
 import { S } from '@/lib/strings'
 import AnswerCard from './AnswerCard.vue'
 import FermeanieSays from './FermeanieSays.vue'
 
 /** The reveal on a phone while a big screen shows the full show: just your own part of it. */
-const props = defineProps<{ reveal: RevealView; players: PlayerView[]; you: string; now: number; version?: string }>()
+const props = defineProps<{ reveal: RevealView; players: PlayerView[]; you: string; now: number; release?: Release }>()
 
 const stage = computed(() => revealStage(props.reveal, props.now))
 const order = ['numberLine', 'truth', 'cards', 'fermeanie', 'scoreboard'] as const
@@ -55,7 +56,7 @@ const stolen = computed(() => atLeast('fermeanie') && !!fer.value?.beatsAll)
       :messages="[reveal.lines.ruleChange, reveal.lines.dunceGroup, reveal.lines.verdict]"
       :start-at="reveal.timeline.fermeanieAt"
       :now="now"
-      :version="version"
+      :release="release"
       :mood="fer?.beatsAll ? 'smug' : 'sulk'"
       size="s"
     />

@@ -11,7 +11,9 @@ const t = reactive({ steal: steal.timeline.endsAt - T0 - 500, dunce: dunce.cards
 <template>
   <Story title="ControllerReveal (phone with a big screen)" group="screens">
     <Variant title="Your card flipped, then the steal">
-      <div class="page"><ControllerReveal :reveal="steal" :players="players(4)" you="p0" :now="T0 + t.steal" version="v3.14159" /></div>
+      <div class="page">
+        <ControllerReveal :reveal="steal" :players="players(4)" you="p0" :now="T0 + t.steal" :release="{ version: 'v3.14159' }" />
+      </div>
       <template #controls
         ><HstSlider v-model="t.steal" title="Time (ms)" :min="0" :max="steal.timeline.endsAt - T0" :step="100"
       /></template>

@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { formatCompact, formatFactor, type PlayerView, type RevealView } from '@fermi/shared'
 import { describeOff, flippedCount, revealStage, STEAL, stealPlan } from '@/lib/reveal'
+import type { Release } from '@/lib/version'
 import AnswerCard from './AnswerCard.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import LogNumberLine from './LogNumberLine.vue'
@@ -16,11 +17,11 @@ const props = withDefaults(
     you: string
     now: number
     fermeanieBefore: number
-    version?: string
+    release?: Release
     /** Disable auto-scrolling (stories). */
     noScroll?: boolean
   }>(),
-  { version: '', noScroll: false },
+  { release: undefined, noScroll: false },
 )
 
 const stage = computed(() => revealStage(props.reveal, props.now))
@@ -123,6 +124,7 @@ watch([stage, flipped], async () => {
       <p v-else-if="mine && atLeast('cards') && flipped > reveal.cards.indexOf(mine)" class="center you-were">
         You were <strong>{{ describeOff(mine.factor, mine.direction, formatFactor) }}</strong>
       </p>
+      <FermeanieSays v-if="reveal.lines.everyone && !atLeast('cards')" :text="reveal.lines.everyone" mood="smug" size="s" />
     </section>
 
     <div class="grid">
@@ -142,7 +144,10 @@ watch([stage, flipped], async () => {
           :you="c.playerId === you"
           :unit="reveal.question.unit"
         />
-        <FermeanieSays v-if="reveal.lines.bullseye && flipped === reveal.cards.length" :text="reveal.lines.bullseye" mood="sulk" size="s" />
+        <template v-if="flipped === reveal.cards.length">
+          <FermeanieSays v-if="reveal.lines.twins" :text="reveal.lines.twins" mood="smug" size="s" />
+          <FermeanieSays v-if="reveal.lines.bullseye" :text="reveal.lines.bullseye" mood="sulk" size="s" />
+        </template>
       </section>
 
       <div class="area-fer">
@@ -169,7 +174,7 @@ watch([stage, flipped], async () => {
               :messages="ferMessages"
               :start-at="reveal.timeline.fermeanieAt"
               :now="now"
-              :version="version"
+              :release="release"
               :mood="ferMood"
               :gloat="stealing"
             />

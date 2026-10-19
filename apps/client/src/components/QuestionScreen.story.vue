@@ -11,15 +11,14 @@ const lastRoom = questionRoom({ text: '2.5M' })
 const firstRoom = questionRoom()
 type State = ReturnType<typeof playingState>
 
-// players lock in one by one (round 2, so FerMEANie watches from the side panel)
+// players lock in one by one, and FerMEANie glances at each (a later round, with a quip)
 const base = questionRoom({ n: 6, text: SHEETS.good })
 const step = ref(0)
 const tick = setInterval(() => (step.value = (step.value + 1) % 8), 1600)
 onUnmounted(() => clearInterval(tick))
 const lockingRoom = computed(() => ({
   ...base,
-  introLine: undefined,
-  round: { ...base.round!, index: 1 },
+  round: { ...base.round!, index: 1, line: 'Fun fact: Ada is winning. Less fun fact: for everyone else.' },
   players: base.players.map((p, i) => ({ ...p, lockedIn: i < step.value, typing: i >= step.value })),
 }))
 const onLock = (state: State, t: string) => {

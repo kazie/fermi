@@ -1,29 +1,27 @@
 // FerMEANie's line pool: random picks without repeats within a game, and dunce lines
 // steered away from ones a player has already been insulted with.
 
-import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { FluentNumber, readFluentDir, type FluentLine } from '@fermi/shared/fluent'
+import { loadLinePool, type LineArgs, type LineCategory, type LinePool } from '@fermi/shared/lines'
+import { escapeMarkup } from '@fermi/shared'
 import { nowIso, type DB } from './db.ts'
 
-export type LinePool = Record<string, string[] | Record<string, string[]>>
+const CONTENT_DIR = fileURLToPath(new URL('../../../content/fermeanie/', import.meta.url))
 
-export const CONTENT_DIR = new URL('../../../content/', import.meta.url)
+export type { LinePool }
 
 let cached: LinePool | undefined
+/** Every line in content/fermeanie/, checked; throws, naming the file and line, if anything is wrong. */
 export function loadLines(): LinePool {
-  cached ??= JSON.parse(readFileSync(new URL('fermeanie-lines.json', CONTENT_DIR), 'utf8')) as LinePool
+  cached ??= loadLinePool(readFluentDir(CONTENT_DIR))
   return cached
 }
 
-export function linesAt(pool: LinePool, key: string): string[] {
-  const [a, b] = key.split('.')
-  const v = pool[a]
-  if (!v) return []
-  if (Array.isArray(v)) return v
-  return b ? (v[b] ?? []) : []
-}
-
-export function fill(template: string, vars: Record<string, string | number>): string {
-  return template.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m))
+/** A line picked for a category, with the values it was picked for; `say` can update them. */
+export interface ChosenLine<K extends LineCategory> {
+  msg: FluentLine
+  vars: LineArgs<K>
 }
 
 export class LinePicker {
@@ -38,12 +36,22 @@ export class LinePicker {
     this.rand = rand
   }
 
-  /** @param playerId when given, prefer lines this player hasn't seen before (across games). */
-  pick(key: string, vars: Record<string, string | number> = {}, playerId?: string): string {
-    const lines = linesAt(this.pool, key)
-    if (!lines.length) return ''
-    let options = lines.map((text, i) => ({ text, id: `${key}#${i}` })).filter((l) => !this.used.has(l.id))
-    if (!options.length) options = lines.map((text, i) => ({ text, id: `${key}#${i}` }))
+  /**
+   * Lines using an optional variable that wasn't given are skipped; every category has a line that needs none.
+   * @param playerId when given, prefer lines this player hasn't seen before (across games).
+   */
+  pick<K extends LineCategory>(key: K, vars: LineArgs<K>, playerId?: string): string {
+    return this.say(this.choose(key, vars, playerId))
+  }
+
+  /** Picks a line (as `pick` does) to `say` later, perhaps with newer values, such as a host who has changed. */
+  choose<K extends LineCategory>(key: K, vars: LineArgs<K>, playerId?: string): ChosenLine<K> {
+    const args: Record<string, string | number | undefined> = vars
+    const candidates = this.pool.categories[key]
+      .filter((msg) => msg.variables.every((name) => args[name] !== undefined))
+      .map((msg) => ({ msg, id: `${key}#${msg.id}` }))
+    let options = candidates.filter((line) => !this.used.has(line.id))
+    if (!options.length) options = candidates
 
     if (playerId && this.db) {
       const seen = new Map(
@@ -71,6 +79,24 @@ export class LinePicker {
         .prepare('INSERT OR REPLACE INTO player_lines (player_id, line_key, seen_at) VALUES (?, ?, ?)')
         .run(playerId, choice.id, nowIso())
     }
-    return fill(choice.text, vars)
+    return { msg: choice.msg, vars }
+  }
+
+  /**
+   * The line as text. `update` replaces values; a value left out or undefined keeps the one the line was picked for,
+   * so every variable the line uses is always there.
+   * Numbers become FluentNumbers without digit grouping (the game formats big numbers itself), and text is escaped so
+   * a name like "**Bob**" shows as typed instead of as markup.
+   */
+  say<K extends LineCategory>({ msg, vars }: ChosenLine<K>, update: Partial<LineArgs<K>> = {}): string {
+    const picked: Record<string, string | number | undefined> = vars
+    const updated = update as Record<string, string | number | undefined> // a Partial of a generic loses its value types
+    const args = Object.fromEntries(
+      msg.variables.map((name) => {
+        const v = (updated[name] ?? picked[name])!
+        return [name, typeof v === 'number' ? new FluentNumber(v, { useGrouping: false }) : escapeMarkup(v)]
+      }),
+    )
+    return this.pool.bundle.formatPattern(msg.value, args)
   }
 }
