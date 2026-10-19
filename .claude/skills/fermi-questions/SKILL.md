@@ -1,6 +1,6 @@
 ---
 name: fermi-questions
-description: Generate, independently verify and ingest new Fermi questions into the running game server (or re-check disputed ones with --recheck). Cheap by design (Sonnet orchestrates, Haiku drafts, script checks, Sonnet verifies). Run it from a fresh session, e.g. `claude -p "/fermi-questions 5"` from cron. Never reveals questions or answers to the user.
+description: Generate, independently verify and ingest new Fermi questions into the running game server (or re-check disputed ones with --recheck). Cheap by design (Sonnet orchestrates, Haiku drafts, script checks, Sonnet verifies). Run it from a fresh Sonnet session, e.g. `claude -p --model sonnet "/fermi-questions 5"` from cron. Never reveals questions or answers to the user.
 argument-hint: '[count=6, max 15] [topic…] | --template <id> [count] | --recheck'
 model: sonnet
 ---
@@ -24,7 +24,10 @@ agents and one script:
   `.check.json` files or `existing.tsv` in this conversation. Report counts only.
 - Run this from a fresh session if you can. A long coding session makes every orchestration turn
   expensive. Don't `/loop` it inside one session either: the context grows every round. For steady
-  growth, schedule fresh runs instead (`claude -p "/fermi-questions 5"` from cron).
+  growth, schedule fresh runs instead (`claude -p --model sonnet "/fermi-questions 5"` from cron).
+- The `model: sonnet` above only covers the turn that invokes the skill. Every later turn, woken by an
+  agent finishing, runs on the session's own model. If that isn't Sonnet, say once at the start that
+  the user can run `/model sonnet` first, or `claude -p --model sonnet`, to keep the whole run cheap.
 
 Arguments: `$ARGUMENTS`
 

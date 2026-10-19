@@ -140,11 +140,12 @@ and a Wayback Machine snapshot. Derived answers store their formula in calculato
 ```
 
 For steady growth, schedule fresh runs rather than looping inside one session, e.g. from cron:
-`cd ~/fermi && claude -p "/fermi-questions 5"`. The server must be running.
+`cd ~/fermi && claude -p --model sonnet "/fermi-questions 5"`. The server must be running.
 
 The pipeline is built to be cheap and crash-safe:
 
-1. The skill itself runs on **Sonnet** (pinned in its frontmatter) and only coordinates: it never searches, fetches
+1. The skill itself should run on **Sonnet**. Its frontmatter pin only covers the turn that invokes it, so pass
+   `--model sonnet` (or run `/model sonnet` first) to keep the later turns cheap too. It only coordinates: it never searches, fetches
    or reads drafts.
 2. `fermi-generator` (**Haiku**, pinned in `.claude/agents/`) writes 5 drafts per agent, saving each file as soon as
    it's done, with at most 2 searches and 3 page fetches per draft. It favours the categories with the fewest
