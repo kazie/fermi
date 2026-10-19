@@ -37,17 +37,18 @@ Arguments: `$ARGUMENTS`
 
 ## 0. Setup
 
-1. Check `pnpm q stats >/dev/null 2>&1`. If it fails, tell the user to start the server (`pnpm dev` or
-   the container, with `FERMI_ADMIN_TOKEN` in `.env`) and stop.
-2. Set `B=.fermi-work/b-$(date +%Y%m%d-%H%M)` and run
-   `mkdir -p $B/drafts $B/verified && pnpm q list > $B/existing.tsv && pnpm q stats --categories > $B/categories.tsv`.
-   These hold ids, categories and counts only, no question texts: generators don't need the texts, because
-   the `prepare` step below catches duplicates on the server. If either command fails, stop and report it.
-3. **Leftovers first.** For each older `.fermi-work/*/drafts/` directory, list its `*.json` drafts
-   (not `.check.json`) that have no file with the same name in that batch's `verified/`:
-   - drafts older than 7 days: delete them, since their access dates would be stale;
-   - otherwise: process that directory through steps 2–3 below before generating anything new, and
-     count its successes towards N.
+Run every command as a plain `pnpm q …` call, with literal paths: no shell variables, `$(…)`,
+redirects, pipes or `&&`. Headless runs (`claude -p`) only allow plain `pnpm q` commands, and deny anything
+else without asking. `$B` below stands for the batch path that `pnpm q batch` prints. Write it out in full.
+
+1. `pnpm q batch`. If it fails because the server can't be reached, tell the user to start the server
+   (`pnpm dev` or the container, with `FERMI_ADMIN_TOKEN` in `.env`) and stop.
+   It prints `batch <path>`; that path is `$B`. It writes `$B/existing.tsv` and `$B/categories.tsv`, which
+   hold ids, categories and counts only, no question texts: generators don't need the texts, because the
+   `prepare` step below catches duplicates on the server. It also deletes unverified drafts older than 7 days
+   from earlier batches, since their access dates would be stale.
+2. **Leftovers first.** For each `leftover <dir> <n> pending` line it prints, process `<dir>/drafts`
+   through steps 2–3 below before generating anything new. Count its successes towards N.
 
 ## 1. Draft (Haiku)
 
@@ -90,7 +91,7 @@ One line, from the agents' counts and `pnpm q stats` (it prints counts only), e.
 
 ## --recheck
 
-1. `pnpm q disputes > .fermi-work/recheck.tsv 2>/dev/null`. This lists IDs and messages only.
+1. `pnpm q disputes .fermi-work/recheck.tsv`. This writes IDs and messages only.
 2. Give the IDs, in chunks of 3, to `fermi-verifier` agents with this brief:
 
    > Recheck these disputed questions: <ids>. For each, read the dispute (`.fermi-work/recheck.tsv`) and

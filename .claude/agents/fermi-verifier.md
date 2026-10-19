@@ -14,7 +14,7 @@ You get a list of draft files. Next to each `<id>.json` is `<id>.check.json`, th
 - **Fun**: would friends enjoy estimating it? Template questions: is this slot a good one?
 - **Similar questions** listed under `similar` in the check: same fact → reject; really different → add `distinctFrom` + `distinctReason`.
 
-Then for each draft:
+Then for each draft. `<batch>/verified/` already exists, so don't `mkdir`. Run shell commands as one plain `pnpm q …` call each, with relative paths from the repo root: no `cd`, `&&`, pipes or redirects. Headless runs deny anything else.
 
 - Good (fix small things in place if needed): set `verification` to `{ "verifiedAt": "<now ISO>", "verdict": "approved", "notes": "<what you checked, 1–2 sentences>" }`, save it as `<batch>/verified/<id>.json`, and run `pnpm q add <that file> --batch <batch>`. If it comes back invalid, fix and retry once.
 - Bad: `pnpm q reject --question "<question text>" --reason "<short reason>"`.

@@ -7,6 +7,7 @@ import { quoteExcerpt } from '../apps/server/src/questions/dedupe.ts'
 import { extractNumbers, quoteContainsNumber } from '../apps/server/src/questions/numbers.ts'
 import { prepareDraft } from '../apps/server/src/questions/prepare.ts'
 import { fetchPageText } from '../apps/server/src/questions/html.ts'
+import { createBatch, sweepLeftovers } from './batch.ts'
 import { parseCli } from './cli-args.ts'
 
 const ROOT = new URL('../', import.meta.url)
@@ -170,8 +171,35 @@ async function main() {
     }
     case 'disputes': {
       const { json } = await call('GET', '/disputes')
-      for (const d of json.disputes) console.log(`${d.questionId}\t${d.at}\t${d.message}`)
-      console.error(`${json.disputes.length} open disputes`)
+      const lines = json.disputes.map(
+        (d: { questionId: string; at: string; message: string }) => `${d.questionId}\t${d.at}\t${d.message}\n`,
+      )
+      if (rest[0]) writeFileSync(rest[0], lines.join(''))
+      else process.stdout.write(lines.join(''))
+      console.error(`${json.disputes.length} open disputes${rest[0] ? ` → ${rest[0]}` : ''}`)
+      return
+    }
+    case 'batch': {
+      // Set up a /fermi-questions batch: ids/categories only (no texts), then sweep older batches for leftovers.
+      const { json: list } = await call('GET', '/questions')
+      const { json: stats } = await call('GET', '/stats')
+      const workDir = '.fermi-work'
+      const dir = createBatch(workDir, new Date())
+      writeFileSync(
+        join(dir, 'existing.tsv'),
+        list.questions.map((q: { id: string; category: string; status: string }) => `${q.id}\t${q.category}\t${q.status}\n`).join(''),
+      )
+      writeFileSync(
+        join(dir, 'categories.tsv'),
+        stats.byCategory
+          .toReversed()
+          .map(({ category, n }: { category: string; n: number }) => `${n}\t${category}\n`)
+          .join(''),
+      )
+      const { deleted, leftovers } = sweepLeftovers(workDir, new Date(), dir)
+      console.log(`batch ${dir}`)
+      for (const l of leftovers) console.log(`leftover ${l.dir} ${l.pending} pending`)
+      console.log(`${list.questions.length} questions in pool; ${deleted} stale drafts deleted; ${leftovers.length} batches with leftovers`)
       return
     }
     case 'status': {
@@ -238,12 +266,13 @@ async function main() {
       console.log(`pnpm q <command>
 
   add <file.json…> [--batch id] [--replaces old-id] [--dry-run]   insert via the ingest checks
+  batch                                               new .fermi-work batch (ids/categories, no texts) + leftover sweep
   prepare <dir>                                       archive + quote + dry-run checks for drafts (no LLM)
   list [--texts]                                      ids/categories (texts with --texts; never answers)
   get <id>                                            full question JSON (spoilers!)
   export [file] / import <file>                       backup and restore
   reject --question "…" --reason "…"                  remember a rejected candidate
-  disputes                                            open disputes
+  disputes [file]                                     open disputes (to a file if given)
   status <id> <active|retired|disputed> [--resolution "…"]
   check [--links]                                     re-validate the pool (and live sources)
   stats [--categories]                                pool counts (--categories: active questions per category, fewest first)
