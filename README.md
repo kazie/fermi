@@ -133,14 +133,27 @@ and a Wayback Machine snapshot. Derived answers store their formula in calculato
 ### Generating with Claude Code
 
 ```
-/fermi-questions 6                                # try to add about 6 new questions (max 15 per run)
+/fermi-questions 6                                # try to add about 6 new questions (max 25 per run)
 /fermi-questions 5 space food                     # with a topic focus
 /fermi-questions --template visitors-per-year 6   # many questions from one source family
 /fermi-questions --recheck                        # re-verify disputed questions
 ```
 
-For steady growth, schedule fresh runs rather than looping inside one session, e.g. from cron:
-`cd ~/fermi && claude -p --model sonnet "/fermi-questions 5"`. The server must be running.
+For steady growth, let `pnpm grow` run unattended. It starts parallel headless runs (`claude -p --model sonnet
+--permission-mode dontAsk`), each on a different topic so they don't draft the same questions:
+
+```
+pnpm grow                          # 3 workers × 4 runs, each taking the emptiest free category
+pnpm grow --workers 2 history art  # work through these topics, 2 at a time
+```
+
+A run that adds nothing, for example at the usage limit, is retried after 20 minutes. Only report lines are printed.
+Runs bill the Claude account whose config dir is in `FERMI_CLAUDE_CONFIG_DIR` (in `.env`, e.g. `~/.claude-personal`);
+`pnpm grow` won't start without it, so it can never fall back to whichever account the shell defaults to.
+The server must be running, and `.claude/settings.local.json` must allow the pipeline's tools (`pnpm q`, the two
+agents, WebSearch, WebFetch, writes in `.fermi-work/` and `date`), since headless runs can't ask. Runs can safely
+overlap: each works in its own batch folder, and a run only takes over another batch's drafts once that batch has been
+quiet for 45 minutes. If you script runs by hand, `flock` keeps them one at a time.
 
 The pipeline is built to be cheap and crash-safe:
 
@@ -165,20 +178,21 @@ whole conversation.
 `pnpm q` is a thin client for the admin API, authenticated with `FERMI_ADMIN_TOKEN`. Use `--server URL` to target a
 deployment. Commands marked ⚠ print question texts or answers: don't run them if you want to play.
 
-| Command                                                          |                                                                          |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `pnpm q add file.json… [--batch id] [--replaces id] [--dry-run]` | Insert, with all checks                                                  |
-| `pnpm q prepare <dir>`                                           | Archive sources, check quotes, dry-run ingest for a directory of drafts  |
-| `pnpm q list`                                                    | IDs, categories and statuses                                             |
-| `pnpm q list --texts` ⚠                                          | The same, with question texts (never answers)                            |
-| `pnpm q get <id>` ⚠                                              | A question's full JSON                                                   |
-| `pnpm q stats [--categories]`                                    | Pool counts; `--categories` lists active questions per category          |
-| `pnpm q disputes`                                                | Open disputes                                                            |
-| `pnpm q check [--links]`                                         | Re-validate the pool and live sources (a server-side job; the CLI polls) |
-| `pnpm q status <id> active\|retired\|disputed`                   | Change a question's status                                               |
-| `pnpm q archive <url>`                                           | Find or create a Wayback snapshot                                        |
-| `pnpm q quote <url> "<quote>" [n]` ⚠                             | Check a quote is on the page and contains `n`; prints the text around it |
-| `pnpm q export [file]` ⚠ / `pnpm q import <file>`                | Backup and restore (see below)                                           |
+| Command                                                          |                                                                             |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `pnpm q add file.json… [--batch id] [--replaces id] [--dry-run]` | Insert, with all checks                                                     |
+| `pnpm q prepare <dir>`                                           | Archive sources, check quotes, dry-run ingest for a directory of drafts     |
+| `pnpm q list`                                                    | IDs, categories and statuses                                                |
+| `pnpm q list --texts` ⚠                                          | The same, with question texts (never answers)                               |
+| `pnpm q get <id>` ⚠                                              | A question's full JSON                                                      |
+| `pnpm q stats [--categories]`                                    | Pool counts; `--categories` lists active questions per category             |
+| `pnpm q disputes [file]`                                         | Open disputes (to a file if given)                                          |
+| `pnpm q batch`                                                   | New `.fermi-work` batch plus a sweep of earlier batches (used by the skill) |
+| `pnpm q check [--links]`                                         | Re-validate the pool and live sources (a server-side job; the CLI polls)    |
+| `pnpm q status <id> active\|retired\|disputed`                   | Change a question's status                                                  |
+| `pnpm q archive <url>`                                           | Find or create a Wayback snapshot                                           |
+| `pnpm q quote <url> "<quote>" [n]` ⚠                             | Check a quote is on the page and contains `n`; prints the text around it    |
+| `pnpm q export [file]` ⚠ / `pnpm q import <file>`                | Backup and restore (see below)                                              |
 
 `import` **merges**: it keeps statuses and flags, skips ids the target already has, de-duplicates the rest, merges
 rejections, and is safe to run repeatedly.
@@ -197,15 +211,16 @@ rotation once two different players have disputed it, until `/fermi-questions --
 
 ## Self-hosting
 
-| Variable            | Default                                        | What it does                                                                  |
-| ------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------- |
-| `FERMI_ADMIN_TOKEN` | none                                           | Bearer token for the question admin API. Required to add questions.           |
-| `FERMI_DB`          | `./data/fermi.db` (`/data/fermi.db` in Docker) | Where the SQLite database lives                                               |
-| `PORT`              | `3000`                                         | The server's port                                                             |
-| `HOST`              | `0.0.0.0`                                      | The address the server listens on                                             |
-| `FERMI_SERVER`      | `http://localhost:3000`                        | Where `pnpm q` sends requests                                                 |
-| `FERMI_TRUST_PROXY` | off                                            | Set to `1` behind a reverse proxy, so rate limits see the real client address |
-| `FERMI_TIME_SCALE`  | `1`                                            | Speeds up reveals and breaks; for tests only                                  |
+| Variable                  | Default                                        | What it does                                                                     |
+| ------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------- |
+| `FERMI_ADMIN_TOKEN`       | none                                           | Bearer token for the question admin API. Required to add questions.              |
+| `FERMI_CLAUDE_CONFIG_DIR` | none                                           | Claude config dir of the account `pnpm grow` runs bill. Required by `pnpm grow`. |
+| `FERMI_DB`                | `./data/fermi.db` (`/data/fermi.db` in Docker) | Where the SQLite database lives                                                  |
+| `PORT`                    | `3000`                                         | The server's port                                                                |
+| `HOST`                    | `0.0.0.0`                                      | The address the server listens on                                                |
+| `FERMI_SERVER`            | `http://localhost:3000`                        | Where `pnpm q` sends requests                                                    |
+| `FERMI_TRUST_PROXY`       | off                                            | Set to `1` behind a reverse proxy, so rate limits see the real client address    |
+| `FERMI_TIME_SCALE`        | `1`                                            | Speeds up reveals and breaks; for tests only                                     |
 
 - **Fully self-hosted.** The game loads nothing from other servers: no CDNs, web fonts, analytics or icon services. It
   works with access to the game server alone, even on a closed LAN. The server's `Content-Security-Policy` makes

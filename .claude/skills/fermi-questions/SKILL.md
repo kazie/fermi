@@ -1,7 +1,7 @@
 ---
 name: fermi-questions
-description: Generate, independently verify and ingest new Fermi questions into the running game server (or re-check disputed ones with --recheck). Cheap by design (Sonnet orchestrates, Haiku drafts, script checks, Sonnet verifies). Run it from a fresh Sonnet session, e.g. `claude -p --model sonnet "/fermi-questions 5"` from cron. Never reveals questions or answers to the user.
-argument-hint: '[count=6, max 15] [topic…] | --template <id> [count] | --recheck'
+description: Generate, independently verify and ingest new Fermi questions into the running game server (or re-check disputed ones with --recheck). Cheap by design (Sonnet orchestrates, Haiku drafts, script checks, Sonnet verifies). Run it from a fresh Sonnet session, or unattended and in parallel with `pnpm grow`. Never reveals questions or answers to the user.
+argument-hint: '[count=6, max 25] [topic…] | --template <id> [count] | --recheck'
 model: sonnet
 ---
 
@@ -24,14 +24,16 @@ agents and one script:
   `.check.json` files or `existing.tsv` in this conversation. Report counts only.
 - Run this from a fresh session if you can. A long coding session makes every orchestration turn
   expensive. Don't `/loop` it inside one session either: the context grows every round. For steady
-  growth, schedule fresh runs instead (`claude -p --model sonnet "/fermi-questions 5"` from cron).
+  growth, use `pnpm grow`, which runs fresh headless sessions in parallel.
+- Other runs may be working in `.fermi-work/` at the same time. Only touch your own batch `$B` and the
+  leftover batches `pnpm q batch` claimed for you.
 - The `model: sonnet` above only covers the turn that invokes the skill. Every later turn, woken by an
   agent finishing, runs on the session's own model. If that isn't Sonnet, say once at the start that
   the user can run `/model sonnet` first, or `claude -p --model sonnet`, to keep the whole run cheap.
 
 Arguments: `$ARGUMENTS`
 
-- `N`: questions to try to add (default 6; **cap 15**). Other words give an optional topic focus.
+- `N`: questions to try to add (default 6; **cap 25**). Other words give an optional topic focus.
 - `--template <id> [N]`: a template batch from `content/question-templates.md` (default 6 slots).
 - `--recheck`: see the last section.
 
@@ -47,17 +49,21 @@ else without asking. `$B` below stands for the batch path that `pnpm q batch` pr
    hold ids, categories and counts only, no question texts: generators don't need the texts, because the
    `prepare` step below catches duplicates on the server. It also deletes unverified drafts older than 7 days
    from earlier batches, since their access dates would be stale.
-2. **Leftovers first.** For each `leftover <dir> <n> pending` line it prints, process `<dir>/drafts`
-   through steps 2–3 below before generating anything new. Count its successes towards N.
+2. **Leftovers.** Each `leftover <dir> <n> pending` line is a batch whose run died; `pnpm q batch` has
+   claimed it for you, so no other run will touch it. Put `<dir>/drafts` through steps 2–3 alongside
+   your own drafts, and count its successes towards N.
 
 ## 1. Draft (Haiku)
 
 Split what is still needed into chunks of **5 drafts** (template chunks: 6), with about 10% spare. Spawn
-`fermi-generator` agents, **at most 2 at a time**, each with a brief like:
+`fermi-generator` agents, **up to 4 at a time**, each with a brief like:
 
 > Write 5 drafts into `$B/drafts/`. Existing ids and categories: `$B/existing.tsv`; questions per
 > category: `$B/categories.tsv`. Topic: <topic, or "any: favour the categories with the fewest
 > questions">.
+
+When the topic is several category names (e.g. `space history`), give each chunk **one** of them, in
+turn. A combined topic lets the generator pick whichever is easier, and the other one gets nothing.
 
 When the run has no topic, make every third chunk a template chunk:
 
@@ -66,14 +72,20 @@ When the run has no topic, make every third chunk a template chunk:
 
 For `--template`, every chunk is for that template.
 
-## 2. Mechanical checks (no LLM)
+## 2. Mechanical checks (no LLM), as each generator finishes
 
-`pnpm q prepare $B/drafts`. This archives sources, confirms each quote is on the live page or the
-snapshot, and dry-runs ingest. Read only its last line (`x/y drafts passed`) and the ✓/✗ ids it prints.
+Don't wait for all generators. Each time one finishes, run `pnpm q prepare $B/drafts` (and the same for
+any leftover batch). It skips drafts that are already verified and only re-checks drafts changed since
+their last check, so repeated calls are cheap. It archives sources, confirms each quote is on the live page
+or the snapshot, and dry-runs ingest. Read only its last line (`x/y drafts passed`) and the ✓/✗ ids it
+prints. A `… <id>: not ready` line is a draft still being written: it's checked on a later call. Run one
+`prepare` at a time (never two in parallel); a second call waits for the first anyway.
 
-## 3. Judge and ingest (Sonnet)
+## 3. Judge and ingest (Sonnet), as soon as drafts pass
 
-Pass only the ✓ drafts to `fermi-verifier`, in chunks of **5**, one agent each, at most 2 at a time:
+Keep a list of the ids you've already sent to verifiers. After each `prepare`, pass the ✓ ids you haven't
+sent yet to `fermi-verifier`, in chunks of **up to 5**, one agent each, **up to 4 at a time**. Don't hold
+back a smaller chunk waiting for more drafts.
 
 > Batch `$B`. Check and ingest these drafts: `$B/drafts/<id>.json`, … (their `.check.json` files are next
 > to them, with the page text around each quote).
@@ -85,7 +97,8 @@ Stop once N have been added or the drafts run out. If you're short, run **one** 
 
 ## 4. Report
 
-One line, from the agents' counts and `pnpm q stats` (it prints counts only), e.g.:
+One line, from the agents' counts and `pnpm q stats` (it prints counts only). It must start with
+`+<n> added`, because `pnpm grow` reads that to track progress. For example:
 
 `+5 added (geography 2, food 1, space 2) · 2 failed checks · 1 rejected · pool: 61 active`
 

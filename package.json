@@ -22,7 +22,8 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "check": "pnpm format:check && pnpm lint && pnpm type-check && pnpm test"
+    "check": "pnpm format:check && pnpm lint && pnpm type-check && pnpm test",
+    "grow": "node scripts/grow.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

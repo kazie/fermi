@@ -1,11 +1,11 @@
 // pnpm q <command> — thin client for the question admin API, plus source-checking helpers.
 // Never prints answers unless you ask for a full question (`get`, `export`).
 
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { quoteExcerpt } from '../apps/server/src/questions/dedupe.ts'
 import { extractNumbers, quoteContainsNumber } from '../apps/server/src/questions/numbers.ts'
-import { prepareDraft } from '../apps/server/src/questions/prepare.ts'
+import { prepareDraft, type DraftCheck } from '../apps/server/src/questions/prepare.ts'
 import { fetchPageText } from '../apps/server/src/questions/html.ts'
 import { createBatch, sweepLeftovers } from './batch.ts'
 import { parseCli } from './cli-args.ts'
@@ -138,26 +138,82 @@ async function main() {
       return
     }
     case 'prepare': {
-      // Mechanical checks for every draft in a directory; writes <id>.check.json next to each.
+      // Mechanical checks for every draft in a directory; writes <id>.check.json next to each. Drafts already verified
+      // are left out, and drafts checked since their last edit just repeat that result, so it's cheap to call after
+      // every generator. Three at a time keeps Wayback's Save Page Now happy.
       const dir = rest[0]
       if (!dir) die('usage: pnpm q prepare <drafts-dir>')
-      const files = readdirSync(dir).filter((f) => f.endsWith('.json') && !f.endsWith('.check.json'))
-      let ok = 0
-      for (const f of files) {
-        const path = join(dir, f)
-        const draft = JSON.parse(readFileSync(path, 'utf8'))
-        const { draft: updated, check } = await prepareDraft(draft, {
-          pageText,
-          archive,
-          dryRun: async (d) => (await call('POST', '/questions', { questions: [d], dryRun: true })).json.results[0],
-        })
-        writeFileSync(path, JSON.stringify(updated, null, 2))
-        writeFileSync(path.replace(/\.json$/, '.check.json'), JSON.stringify(check, null, 2))
-        if (check.ok) ok++
-        console.log(
-          `${check.ok ? '✓' : '✗'} ${check.id}${check.ok ? (check.ingest === 'needs_review' ? ' (needs_review)' : '') : `: ${check.problems.length} problem(s)`}`,
-        )
+      const verified = join(dir, '..', 'verified')
+      const files = readdirSync(dir).filter((f) => f.endsWith('.json') && !f.endsWith('.check.json') && !existsSync(join(verified, f)))
+      // One prepare per folder at a time: two would archive and write the same drafts. Wait for the other (it may be
+      // a parallel call from the same run); a lock older than 15 minutes is from a crashed prepare.
+      const lock = join(dir, '.prepare.lock')
+      for (;;) {
+        try {
+          writeFileSync(lock, String(process.pid), { flag: 'wx' })
+          break
+        } catch {
+          if (Date.now() - (statSync(lock, { throwIfNoEntry: false })?.mtimeMs ?? 0) > 15 * 60 * 1000) rmSync(lock, { force: true })
+          else await new Promise((r) => setTimeout(r, 2000))
+        }
       }
+      process.on('exit', () => rmSync(lock, { force: true }))
+      const dryRun = async (d: unknown) => (await call('POST', '/questions', { questions: [d], dryRun: true })).json.results[0]
+      const check = async (path: string): Promise<DraftCheck> => {
+        const checkPath = path.replace(/\.json$/, '.check.json')
+        if (!existsSync(checkPath) || statSync(checkPath).mtimeMs < statSync(path).mtimeMs) {
+          const prepared = await prepareDraft(JSON.parse(readFileSync(path, 'utf8')), { pageText, archive, dryRun })
+          writeFileSync(path, JSON.stringify(prepared.draft, null, 2))
+          writeFileSync(checkPath, JSON.stringify(prepared.check, null, 2))
+          return prepared.check
+        }
+        const cached: DraftCheck = JSON.parse(readFileSync(checkPath, 'utf8'))
+        if (!cached.ok) return cached
+        // A passed draft may since have been rejected by a verifier, or duplicated by a newer question: ask the server
+        // again (cheap). The check file is only rewritten when it flips, so quiet batches stay quiet.
+        const res = await dryRun(JSON.parse(readFileSync(path, 'utf8')))
+        if (res.status === 'valid' || res.status === 'needs_review') return { ...cached, ingest: res.status }
+        const flipped: DraftCheck = {
+          ...cached,
+          ok: false,
+          ingest: res.status,
+          problems: [...cached.problems, `now ${res.status}`, ...(res.errors ?? [])],
+          similar: res.matches?.map((m: { id: string; question: string; reasons: string[] }) => ({
+            id: m.id,
+            question: m.question,
+            reasons: m.reasons,
+          })),
+        }
+        writeFileSync(checkPath, JSON.stringify(flipped, null, 2))
+        return flipped
+      }
+      let ok = 0
+      let next = 0
+      const work = async () => {
+        while (next < files.length) {
+          const path = join(dir, files[next++])
+          let c: DraftCheck
+          try {
+            c = await check(path)
+          } catch (e) {
+            // Usually a draft a generator is still writing: leave it for the next call. Only the error's name is
+            // printed, since JSON.parse messages quote the draft. A draft still unreadable after 10 minutes is dropped.
+            const id = basename(path, '.json')
+            if (!existsSync(path)) continue
+            if (Date.now() - statSync(path).mtimeMs < 10 * 60 * 1000) {
+              console.log(`… ${id}: not ready (${(e as Error).name}), checked on a later call`)
+              continue
+            }
+            c = { id, ok: false, quotes: {}, excerpts: {}, ingest: 'unreadable', problems: [`could not be read (${(e as Error).name})`] }
+            writeFileSync(path.replace(/\.json$/, '.check.json'), JSON.stringify(c, null, 2))
+          }
+          if (c.ok) ok++
+          console.log(
+            `${c.ok ? '✓' : '✗'} ${c.id}${c.ok ? (c.ingest === 'needs_review' ? ' (needs_review)' : '') : `: ${c.problems.length} problem(s)`}`,
+          )
+        }
+      }
+      await Promise.all([work(), work(), work()])
       console.log(`\n${ok}/${files.length} drafts passed the mechanical checks`)
       return
     }
@@ -184,7 +240,8 @@ async function main() {
       const { json: list } = await call('GET', '/questions')
       const { json: stats } = await call('GET', '/stats')
       const workDir = '.fermi-work'
-      const dir = createBatch(workDir, new Date())
+      const heartbeat = process.env.FERMI_HEARTBEAT ?? '' // set by `pnpm grow`
+      const dir = createBatch(workDir, new Date(), heartbeat)
       writeFileSync(
         join(dir, 'existing.tsv'),
         list.questions.map((q: { id: string; category: string; status: string }) => `${q.id}\t${q.category}\t${q.status}\n`).join(''),
@@ -196,7 +253,7 @@ async function main() {
           .map(({ category, n }: { category: string; n: number }) => `${n}\t${category}\n`)
           .join(''),
       )
-      const { deleted, leftovers } = sweepLeftovers(workDir, new Date(), dir)
+      const { deleted, leftovers } = sweepLeftovers(workDir, new Date(), dir, heartbeat)
       console.log(`batch ${dir}`)
       for (const l of leftovers) console.log(`leftover ${l.dir} ${l.pending} pending`)
       console.log(`${list.questions.length} questions in pool; ${deleted} stale drafts deleted; ${leftovers.length} batches with leftovers`)
