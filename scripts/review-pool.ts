@@ -40,6 +40,7 @@ const result = await reviewPool(
     limit,
     dryRun: values['dry-run'],
     retryUnresolved: values['retry-unresolved'],
+    onProgress: (msg) => console.error(`${new Date().toTimeString().slice(0, 8)} ${msg}`),
   },
 )
 if (values.show) {

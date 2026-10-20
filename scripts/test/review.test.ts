@@ -188,6 +188,21 @@ describe('reviewPool', () => {
     expect(r.reworded).toEqual([{ id: 'a', newId: '(dry run)', issue: 'needs-context' }])
   })
 
+  it('reports progress with counts only', async () => {
+    const pool = Array.from({ length: SCREEN_CHUNK + 5 }, (_, i) => q(`q${i}`))
+    const f = fake(pool, { q3: 'obscure' }, { q3: { action: 'retire', reason: 'x' } })
+    const msgs: string[] = []
+    await reviewPool(f.deps, { rules: 'rules', onProgress: (m) => msgs.push(m) })
+    expect(msgs).toEqual([
+      '45 question(s) to review',
+      `screened ${SCREEN_CHUNK}/45 · 1 flagged`,
+      'screened 45/45 · 1 flagged',
+      'deciding on 1 flagged question(s)',
+      'decided 1/1 · 0 kept, 0 reworded, 1 retired, 0 unresolved',
+    ])
+    expect(msgs.join()).not.toContain('Question')
+  })
+
   it('screens in chunks and respects --limit', async () => {
     const pool = Array.from({ length: SCREEN_CHUNK + 5 }, (_, i) => q(`q${i}`))
     const f = fake(pool, {}, {})

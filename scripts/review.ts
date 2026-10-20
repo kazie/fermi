@@ -52,6 +52,8 @@ export interface ReviewOptions {
   dryRun?: boolean
   /** Also look again at questions flagged UNRESOLVED_FLAG. */
   retryUnresolved?: boolean
+  /** Progress after each model call: counts only, never question text. */
+  onProgress?: (msg: string) => void
 }
 
 type Flagged = { id: string; issue: string; note: string }
@@ -210,6 +212,8 @@ export async function reviewPool(deps: ReviewDeps, opts: ReviewOptions): Promise
   const todo = (await deps.pool()).filter((q) => q._status === 'active' && !done(q))
   const queue = opts.limit ? todo.slice(0, opts.limit) : todo
   const byId = new Map(queue.map((q) => [q.id, q]))
+  const progress = opts.onProgress ?? (() => {})
+  progress(`${queue.length} question(s) to review${todo.length > queue.length ? ` (of ${todo.length}; --limit)` : ''}`)
 
   // 1. Screen (Haiku)
   const flagged: Flagged[] = []
@@ -225,7 +229,9 @@ export async function reviewPool(deps: ReviewDeps, opts: ReviewOptions): Promise
     const fine = chunk.filter((q) => !hits.has(q.id)).map((q) => q.id)
     result.passed += fine.length
     await flag(REVIEW_FLAG, fine)
+    progress(`screened ${Math.min(i + SCREEN_CHUNK, queue.length)}/${queue.length} · ${flagged.length} flagged`)
   }
+  if (flagged.length && !result.limit) progress(`deciding on ${flagged.length} flagged question(s)`)
 
   // 2. Decide (Sonnet) and 3. apply
   for (let i = 0; i < flagged.length; i += EDIT_CHUNK) {
@@ -285,6 +291,11 @@ export async function reviewPool(deps: ReviewDeps, opts: ReviewOptions): Promise
     }
     await flag(REVIEW_FLAG, reviewed)
     await flag(UNRESOLVED_FLAG, stuck)
+    if (!result.limit)
+      progress(
+        `decided ${Math.min(i + EDIT_CHUNK, flagged.length)}/${flagged.length} · ${result.kept.length} kept, ` +
+          `${result.reworded.length} reworded, ${result.retired.length} retired, ${result.unresolved.length} unresolved`,
+      )
   }
   return result
 }
