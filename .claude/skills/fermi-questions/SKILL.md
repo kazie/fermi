@@ -1,6 +1,6 @@
 ---
 name: fermi-questions
-description: Generate, independently verify and ingest new Fermi questions into the running game server (or re-check disputed ones with --recheck). Cheap by design (Sonnet orchestrates, Haiku drafts, script checks, Sonnet verifies). Run it from a fresh Sonnet session, or unattended and in parallel with `pnpm grow`. Never reveals questions or answers to the user.
+description: Generate, independently verify and ingest new Fermi questions into the running game server (or re-check disputed ones with --recheck). Cheap by design (Sonnet orchestrates, Haiku drafts, script checks, Sonnet verifies). Run it from a fresh Sonnet session; for unattended growth, `pnpm grow` runs the same steps as a script. Never reveals questions or answers to the user.
 argument-hint: '[count=6, max 25] [topic…] | --template <id> [count] | --recheck'
 model: sonnet
 ---
@@ -24,7 +24,7 @@ agents and one script:
   `.check.json` files or `existing.tsv` in this conversation. Report counts only.
 - Run this from a fresh session if you can. A long coding session makes every orchestration turn
   expensive. Don't `/loop` it inside one session either: the context grows every round. For steady
-  growth, use `pnpm grow`, which runs fresh headless sessions in parallel.
+  growth, use `pnpm grow`, which runs these steps as a script, with no orchestrating session at all.
 - Other runs may be working in `.fermi-work/` at the same time. Only touch your own batch `$B` and the
   leftover batches `pnpm q batch` claimed for you.
 - The `model: sonnet` above only covers the turn that invokes the skill. Every later turn, woken by an
@@ -97,8 +97,8 @@ Stop once N have been added or the drafts run out. If you're short, run **one** 
 
 ## 4. Report
 
-One line, from the agents' counts and `pnpm q stats` (it prints counts only). It must start with
-`+<n> added`, because `pnpm grow` reads that to track progress. For example:
+One line, from the agents' counts and `pnpm q stats` (it prints counts only), starting with `+<n> added`. For
+example:
 
 `+5 added (geography 2, food 1, space 2) · 2 failed checks · 1 rejected · pool: 61 active`
 

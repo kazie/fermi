@@ -1,8 +1,8 @@
 // pnpm q <command> — thin client for the question admin API, plus source-checking helpers.
 // Never prints answers unless you ask for a full question (`get`, `export`).
 
-import { existsSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { quoteExcerpt } from '../apps/server/src/questions/dedupe.ts'
 import { extractNumbers, quoteContainsNumber } from '../apps/server/src/questions/numbers.ts'
@@ -60,6 +60,32 @@ function readQuestions(files: string[]): unknown[] {
   })
 }
 
+/** Ingests questions and prints one line per result, with similar questions for the verifier to compare. */
+async function addQuestions(questions: unknown[], opts: { batchId?: string; replaces?: string; dryRun?: boolean }) {
+  const { json } = await call('POST', '/questions', { questions, ...opts })
+  if (json.error) die(json.error)
+  const counts: Record<string, number> = {}
+  for (const r of json.results) {
+    counts[r.status] = (counts[r.status] ?? 0) + 1
+    if (r.status === 'added' || r.status === 'valid') console.log(`✓ ${r.status.padEnd(12)}${r.id}`)
+    else if (r.status === 'invalid') console.log(`✗ invalid     ${r.id ?? '(no id)'}\n    - ${r.errors.join('\n    - ')}`)
+    else {
+      console.log(`${r.status === 'duplicate' ? '✗ duplicate  ' : '? needs_review'} ${r.id}`)
+      for (const m of r.matches) {
+        console.log(
+          `    ~ ${m.id} (similarity ${m.similarity}; ${m.reasons.join(', ')}${m.rejectionReason ? `; rejected because: ${m.rejectionReason}` : ''})`,
+        )
+        console.log(`      "${m.question}"`)
+      }
+    }
+  }
+  console.log(
+    `\n${Object.entries(counts)
+      .map(([k, v]) => `${v} ${k}`)
+      .join(', ')}`,
+  )
+}
+
 async function main() {
   switch (cmd) {
     case 'add': {
@@ -68,29 +94,21 @@ async function main() {
       const dryRun = !!opts['dry-run']
       const files = rest
       if (!files.length) die('usage: pnpm q add <file.json…> [--batch id] [--replaces old-id]')
-      const questions = readQuestions(files)
-      const { json } = await call('POST', '/questions', { questions, batchId, replaces, dryRun })
-      if (json.error) die(json.error)
-      const counts: Record<string, number> = {}
-      for (const r of json.results) {
-        counts[r.status] = (counts[r.status] ?? 0) + 1
-        if (r.status === 'added' || r.status === 'valid') console.log(`✓ ${r.status.padEnd(12)}${r.id}`)
-        else if (r.status === 'invalid') console.log(`✗ invalid     ${r.id ?? '(no id)'}\n    - ${r.errors.join('\n    - ')}`)
-        else {
-          console.log(`${r.status === 'duplicate' ? '✗ duplicate  ' : '? needs_review'} ${r.id}`)
-          for (const m of r.matches) {
-            console.log(
-              `    ~ ${m.id} (similarity ${m.similarity}; ${m.reasons.join(', ')}${m.rejectionReason ? `; rejected because: ${m.rejectionReason}` : ''})`,
-            )
-            console.log(`      "${m.question}"`)
-          }
-        }
-      }
-      console.log(
-        `\n${Object.entries(counts)
-          .map(([k, v]) => `${v} ${k}`)
-          .join(', ')}`,
-      )
+      await addQuestions(readQuestions(files), { batchId, replaces, dryRun })
+      return
+    }
+    case 'approve': {
+      // The verifier's "good": stamp the draft verified, save it to <batch>/verified and ingest it, so the verifier
+      // doesn't have to write the whole file out again.
+      const [path] = rest
+      const notes = opts.notes
+      if (!path || !notes) die('usage: pnpm q approve <batch>/drafts/<id>.json --notes "…" [--batch id]')
+      const draft = JSON.parse(readFileSync(path, 'utf8'))
+      draft.verification = { verifiedAt: new Date().toISOString(), verdict: 'approved', notes }
+      const out = join(dirname(path), '..', 'verified', basename(path))
+      mkdirSync(dirname(out), { recursive: true })
+      writeFileSync(out, JSON.stringify(draft, null, 2))
+      await addQuestions([draft], { batchId: opts.batch })
       return
     }
     case 'list': {
@@ -228,9 +246,9 @@ async function main() {
       return
     }
     case 'reject': {
-      const question = opts.question
+      const question = opts.draft ? (JSON.parse(readFileSync(opts.draft, 'utf8')).question as string) : opts.question
       const reason = opts.reason
-      if (!question || !reason) die('usage: pnpm q reject --question "…" --reason "…"')
+      if (!question || !reason) die('usage: pnpm q reject (--draft <file> | --question "…") --reason "…"')
       await call('POST', '/rejections', { question, reason })
       console.log('✓ rejection recorded')
       return
@@ -332,7 +350,8 @@ async function main() {
   list [--texts]                                      ids/categories (texts with --texts; never answers)
   get <id>                                            full question JSON (spoilers!)
   export [file] / import <file>                       backup and restore
-  reject --question "…" --reason "…"                  remember a rejected candidate
+  approve <draft.json> --notes "…" [--batch id]       mark a draft verified, save it to verified/ and ingest it
+  reject (--draft <file> | --question "…") --reason "…"   remember a rejected candidate
   disputes [file]                                     open disputes (to a file if given)
   status <id> <active|retired|disputed> [--resolution "…"]
   check [--links]                                     re-validate the pool (and live sources)

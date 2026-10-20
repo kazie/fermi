@@ -12,6 +12,8 @@ export function parseCli(argv: string[]) {
       replaces: { type: 'string' },
       question: { type: 'string' },
       reason: { type: 'string' },
+      draft: { type: 'string' },
+      notes: { type: 'string' },
       resolution: { type: 'string' },
       'dry-run': { type: 'boolean' },
       texts: { type: 'boolean' },

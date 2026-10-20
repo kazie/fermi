@@ -114,6 +114,24 @@ describe('archive', () => {
     expect(post.init?.method).toBe('POST')
     expect((post.init?.headers as Record<string, string>).authorization).toBe('LOW acc:sec')
   })
+  it('waits for a free capture on the account before starting one', async () => {
+    let checks = 0
+    const order: string[] = []
+    const { f } = fakeFetch((url) => {
+      if (url.includes('/wayback/available')) return noRecent
+      if (url.endsWith('/save/status/user')) {
+        order.push('user')
+        return json({ available: ++checks < 3 ? 0 : 1 })
+      }
+      if (url === 'https://web.archive.org/save') {
+        order.push('save')
+        return json({ job_id: 'job-1' })
+      }
+      return json({ status: 'success', timestamp: '20261019120500', original_url: 'https://x.org/' })
+    })
+    await archive('https://x.org/', opts(f, { keys: 'acc:sec' }))
+    expect(order).toEqual(['user', 'user', 'user', 'save'])
+  })
   it('retries a failed SPN2 job', async () => {
     let jobs = 0
     const { f } = fakeFetch((url) => {

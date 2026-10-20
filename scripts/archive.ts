@@ -31,7 +31,9 @@ const DAY = 86_400_000
 /** A slot held longer than this belongs to a crashed process. A capture times out well before. */
 export const SLOT_STALE_MS = 5 * 60 * 1000
 const SPN2_POLL_MS = 5000
-const SPN2_MAX_POLLS = 36
+const SPN2_MAX_POLLS = 60
+/** How long to wait for the account to have a free capture before trying anyway. */
+const SPN2_CAPACITY_WAIT_MS = 5 * 60 * 1000
 
 /** Archive options from the environment: FERMI_ARCHIVE_KEYS, FERMI_ARCHIVE_SLOTS (default 3, the logged-in limit for a new account). */
 export function archiveOptionsFromEnv(workDir: string): ArchiveOptions {
@@ -110,6 +112,15 @@ async function saveAnonymous(url: string, f: typeof fetch): Promise<Snapshot> {
 async function saveWithKeys(url: string, keys: string, f: typeof fetch, wait: (ms: number) => Promise<unknown>): Promise<Snapshot> {
   const headers = { accept: 'application/json', authorization: `LOW ${keys}` }
   const fail = (msg: string) => new Error(`Save Page Now failed: ${msg}`)
+  // Captures this process gave up on may still be running at archive.org and count against the account's limit:
+  // wait until it has a free one, or SPN2 answers `user-session-limit`.
+  for (let waited = 0; waited < SPN2_CAPACITY_WAIT_MS; waited += SPN2_POLL_MS) {
+    const user = (await f('https://web.archive.org/save/status/user', { headers, signal: AbortSignal.timeout(30_000) })
+      .then((r) => r.json())
+      .catch(() => ({}))) as { available?: number }
+    if (typeof user.available !== 'number' || user.available > 0) break
+    await wait(SPN2_POLL_MS)
+  }
   const res = await f('https://web.archive.org/save', {
     method: 'POST',
     headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' },
@@ -136,7 +147,7 @@ async function saveWithKeys(url: string, keys: string, f: typeof fetch, wait: (m
     }
     if (s.status === 'error') throw fail(s.status_ext ?? s.message ?? 'capture error')
   }
-  throw fail('capture still pending after 3 minutes')
+  throw fail('capture still pending after 5 minutes')
 }
 
 /** Find or create a Wayback snapshot. Throws (never exits), so `prepare` can record the failure and carry on. */

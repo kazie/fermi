@@ -16,6 +16,17 @@ describe('pnpm q argument parsing', () => {
       opts: { resolution: 'fixed it' },
     })
   })
+  it('parses the verifier flags', () => {
+    expect(parseCli(['approve', 'b/drafts/x.json', '--batch', 'b', '--notes', 'checked both'])).toMatchObject({
+      cmd: 'approve',
+      rest: ['b/drafts/x.json'],
+      opts: { batch: 'b', notes: 'checked both' },
+    })
+    expect(parseCli(['reject', '--draft', 'b/drafts/x.json', '--reason', 'weak source']).opts).toEqual({
+      draft: 'b/drafts/x.json',
+      reason: 'weak source',
+    })
+  })
   it('rejects unknown flags', () => {
     expect(() => parseCli(['add', '--dryrun', 'a.json'])).toThrow()
   })

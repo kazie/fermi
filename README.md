@@ -139,15 +139,20 @@ and a Wayback Machine snapshot. Derived answers store their formula in calculato
 /fermi-questions --recheck                        # re-verify disputed questions
 ```
 
-For steady growth, let `pnpm grow` run unattended. It starts parallel headless runs (`claude -p --model sonnet
---permission-mode dontAsk`), each on a different topic so they don't draft the same questions:
+For steady growth, let `pnpm grow` run unattended. It runs the same pipeline as the skill, but as a script
+(`scripts/pipeline.ts`), so no Sonnet session is paid just to coordinate: it starts the generator and verifier agents
+directly as headless sessions (`claude -p --agent …`), runs `pnpm q prepare` in between, and counts what was added from
+the pool itself. Parallel workers each take a different topic, so they don't draft the same questions. Each run prints
+one line with counts, categories and its API-equivalent cost (from the sessions' `total_cost_usd`), and the end of the
+run prints the total:
 
 ```
 pnpm grow                          # 3 workers × 4 runs, each taking the emptiest free category
 pnpm grow --workers 2 history art  # work through these topics, 2 at a time
 ```
 
-A run that adds nothing, for example at the usage limit, is retried after 20 minutes. Only report lines are printed.
+At a usage limit, a worker sleeps until the reset time the limit message names, then carries on. Any other failed run is
+retried after 20 minutes, and a worker gives up after 9 failures in a row. Only report and limit lines are printed.
 Runs bill the Claude account whose config dir is in `FERMI_CLAUDE_CONFIG_DIR` (in `.env`, e.g. `~/.claude-personal`);
 `pnpm grow` won't start without it, so it can never fall back to whichever account the shell defaults to.
 The server must be running, and `.claude/settings.local.json` must allow the pipeline's tools (`pnpm q`, the two
@@ -170,7 +175,8 @@ The pipeline is built to be cheap and crash-safe:
    archived is tried again on the next two `prepare` calls. With free archive.org keys in `FERMI_ARCHIVE_KEYS`,
    captures use the logged-in API, which queues them instead of refusing them, so far fewer fail.
 4. `fermi-verifier` (**Sonnet**) makes the judgement calls from that page text: does the number mean exactly what the
-   question asks, is it fair, is it fun. Then it ingests.
+   question asks, is it fair, is it fun. Then it ingests with `pnpm q approve`, which stamps and saves the draft, so
+   the verifier never re-types a whole file (output tokens are its biggest cost).
 
 Templates ([`content/question-templates.md`](content/question-templates.md)) turn one source table into many
 questions; a game never asks two from the same template. The skill only ever reports counts, so the person running it
@@ -186,6 +192,8 @@ deployment. Commands marked ⚠ print question texts or answers: don't run them 
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `pnpm q add file.json… [--batch id] [--replaces id] [--dry-run]` | Insert, with all checks                                                     |
 | `pnpm q prepare <dir>`                                           | Archive sources, check quotes, dry-run ingest for a directory of drafts     |
+| `pnpm q approve <draft> --notes "…" [--batch id]`                | The verifier's OK: stamp the draft verified, save it and ingest it          |
+| `pnpm q reject (--draft <file> \| --question "…") --reason "…"`  | Remember a rejected candidate                                               |
 | `pnpm q list`                                                    | IDs, categories and statuses                                                |
 | `pnpm q list --texts` ⚠                                          | The same, with question texts (never answers)                               |
 | `pnpm q get <id>` ⚠                                              | A question's full JSON                                                      |

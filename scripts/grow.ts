@@ -1,8 +1,8 @@
 // pnpm grow [--workers 3] [--rounds 4] [--count 15] [topic…]
-// Grows the question pool unattended: parallel headless `/fermi-questions` runs, each on its own topic, so they don't
-// draft the same questions. Given topics are worked through as a queue; without topics, every run takes the category
+// Grows the question pool unattended: parallel runs of the question pipeline (scripts/pipeline.ts: Haiku drafts,
+// a script checks, Sonnet verifies), each on its own topic, so they don't draft the same questions. Given topics are worked through as a queue; without topics, every run takes the category
 // with the fewest questions that no other worker is on. A run that fails (the usage limit, say) is retried after a
-// pause; one that reports `+0 added` has run out of new questions there, so the worker moves on. Prints only each
+// pause; one that adds nothing has run out of new questions there, so the worker moves on. Prints only each
 // run's report line, never question texts.
 // Runs bill the Claude account in FERMI_CLAUDE_CONFIG_DIR (from .env), never whatever the shell defaults to.
 
@@ -14,6 +14,8 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
 import { CATEGORIES } from '../packages/shared/src/question.ts'
+import { limitReset } from './grow-report.ts'
+import { formatReport, parseAgentOutput, runPipeline, type AgentName, type AgentResult } from './pipeline.ts'
 
 const ROOT = new URL('../', import.meta.url).pathname
 const envFile = new URL('../.env', import.meta.url)
@@ -85,56 +87,76 @@ async function nextTopic(): Promise<string | undefined> {
   return topic
 }
 
-/**
- * One headless run; returns how many questions it added, or null if it failed or reported nothing. While it runs, a
- * heartbeat file is touched every minute; its batch records the path, so other runs know it's alive (scripts/batch.ts).
- */
-function run(topic: string) {
-  const aliveDir = join(ROOT, '.fermi-work', '.alive')
-  mkdirSync(aliveDir, { recursive: true })
-  const heartbeat = join(aliveDir, `${process.pid}-${randomBytes(3).toString('hex')}`)
-  writeFileSync(heartbeat, '')
-  const beat = setInterval(() => utimesSync(heartbeat, new Date(), new Date()), 60_000)
-  return new Promise<{ added: number | null; report: string }>((resolve) => {
+/** One headless agent session; its output is only read for cost and usage limits, never printed. */
+function runAgent(agent: AgentName, brief: string, heartbeat: string): Promise<AgentResult> {
+  const [model, effort] = agent === 'fermi-generator' ? ['haiku', ['--effort', 'low']] : ['sonnet', []]
+  return new Promise((resolve) => {
     const child = spawn(
       'claude',
       [
         '-p',
+        '--agent',
+        agent,
         '--model',
-        'sonnet',
-        '--effort',
-        'low',
+        model as string,
+        ...(effort as string[]),
         '--permission-mode',
         'dontAsk',
         '--output-format',
         'json',
-        `/fermi-questions ${count} ${topic}`,
+        brief,
       ],
       { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, CLAUDE_CONFIG_DIR: configDir, FERMI_HEARTBEAT: heartbeat } },
     )
     let out = ''
     child.stdout.on('data', (d) => (out += d))
-    child.on('error', (e) => resolve({ added: null, report: `could not start claude (${e.message})` }))
-    child.on('close', () => {
-      let json: { is_error?: boolean; subtype?: string; result?: string } = {}
-      try {
-        json = JSON.parse(out)
-      } catch {
-        /* no JSON: the run died */
-      }
-      // Only the report line may be printed: anything else in the result could hold question texts.
-      const report = (json.result ?? '')
-        .split('\n')
-        .map((l) => l.trim())
-        .find((l) => /^\+\d+ added/.test(l))
-      if (json.is_error || !report) {
-        resolve({ added: null, report: `no report (${json.is_error ? 'error' : (json.subtype ?? 'no output')})` })
-      } else resolve({ added: parseInt(report.slice(1)), report })
+    child.on('error', () => resolve({ costUsd: 0, limit: null }))
+    child.on('close', () => resolve(parseAgentOutput(out)))
+  })
+}
+
+/** `pnpm q <args>`; its stdout is only parsed for ids, categories and counts. */
+function cli(args: string[], heartbeat: string): Promise<string> {
+  return new Promise((resolve, reject) =>
+    execFile(
+      'node',
+      ['scripts/questions-cli.ts', ...args],
+      { cwd: ROOT, env: { ...process.env, FERMI_HEARTBEAT: heartbeat }, maxBuffer: 64 * 1024 * 1024 },
+      (err, stdout) => (err ? reject(new Error(`pnpm q ${args[0]} failed`)) : resolve(stdout)),
+    ),
+  )
+}
+
+/** Total spent by all runs, for the closing line. */
+let spent = 0
+
+/**
+ * One batch for one topic (scripts/pipeline.ts). Returns how many questions it added, or null if it failed. While it
+ * runs, a heartbeat file is touched every minute; its batch records the path, so other runs know it's alive
+ * (scripts/batch.ts).
+ */
+async function run(topic: string): Promise<{ added: number | null; report: string; limitUntil?: number | null }> {
+  const aliveDir = join(ROOT, '.fermi-work', '.alive')
+  mkdirSync(aliveDir, { recursive: true })
+  const heartbeat = join(aliveDir, `${process.pid}-${randomBytes(3).toString('hex')}`)
+  writeFileSync(heartbeat, '')
+  const beat = setInterval(() => utimesSync(heartbeat, new Date(), new Date()), 60_000)
+  try {
+    const r = await runPipeline(topic, count, {
+      runAgent: (agent, brief) => runAgent(agent, brief, heartbeat),
+      cli: (args) => cli(args, heartbeat),
     })
-  }).finally(() => {
+    spent += r.cost['fermi-generator'] + r.cost['fermi-verifier']
+    if (r.limit) {
+      return { added: null, report: `${formatReport(r)} · stopped: ${r.limit}`, limitUntil: limitReset(r.limit, new Date()) }
+    }
+    return { added: r.added, report: formatReport(r) }
+  } catch (e) {
+    return { added: null, report: (e as Error).message }
+  } finally {
     clearInterval(beat)
     rmSync(heartbeat, { force: true })
-  })
+  }
 }
 
 const log = (w: number, msg: string) => console.log(`${new Date().toTimeString().slice(0, 5)} [w${w}] ${msg}`)
@@ -161,8 +183,16 @@ async function worker(w: number) {
     if (!topic) return
     try {
       log(w, `${topic}: running`)
-      const { added, report } = await run(topic)
+      const { added, report, limitUntil } = await run(topic)
       log(w, `${topic}: ${report}`)
+      if (limitUntil) {
+        // A usage limit isn't a failure: put the topic back and sleep until it lifts.
+        if (!auto) queue.unshift(topic)
+        inUse.delete(topic)
+        log(w, `usage limit; sleeping until ${new Date(limitUntil).toTimeString().slice(0, 5)}`)
+        await sleep(limitUntil - Date.now())
+        continue
+      }
       if (added === null) {
         // Failed or limited: put the topic back so it's retried (by whichever worker gets to it first). Released now,
         // not in `finally`, which only runs after fail()'s 20-minute wait.
@@ -184,4 +214,4 @@ await categoryCounts() // fail fast if the server is down
 console.log(`account: ${configDir.replace(homedir(), '~')} · ${workers} workers · topics: ${auto ? 'auto' : positionals.join(', ')}`)
 await Promise.all(Array.from({ length: workers }, (_, i) => sleep(i * 30_000).then(() => worker(i + 1))))
 const counts = await categoryCounts().catch(() => null)
-if (counts) console.log(`pool: ${[...counts.values()].reduce((a, b) => a + b, 0)} active`)
+if (counts) console.log(`pool: ${[...counts.values()].reduce((a, b) => a + b, 0)} active · spent $${spent.toFixed(2)}`)
