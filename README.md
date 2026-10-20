@@ -188,23 +188,26 @@ whole conversation.
 `pnpm q` is a thin client for the admin API, authenticated with `FERMI_ADMIN_TOKEN`. Use `--server URL` to target a
 deployment. Commands marked ⚠ print question texts or answers: don't run them if you want to play.
 
-| Command                                                          |                                                                             |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `pnpm q add file.json… [--batch id] [--replaces id] [--dry-run]` | Insert, with all checks                                                     |
-| `pnpm q prepare <dir>`                                           | Archive sources, check quotes, dry-run ingest for a directory of drafts     |
-| `pnpm q approve <draft> --notes "…" [--batch id]`                | The verifier's OK: stamp the draft verified, save it and ingest it          |
-| `pnpm q reject (--draft <file> \| --question "…") --reason "…"`  | Remember a rejected candidate                                               |
-| `pnpm q list`                                                    | IDs, categories and statuses                                                |
-| `pnpm q list --texts` ⚠                                          | The same, with question texts (never answers)                               |
-| `pnpm q get <id>` ⚠                                              | A question's full JSON                                                      |
-| `pnpm q stats [--categories]`                                    | Pool counts; `--categories` lists active questions per category             |
-| `pnpm q disputes [file]`                                         | Open disputes (to a file if given)                                          |
-| `pnpm q batch`                                                   | New `.fermi-work` batch plus a sweep of earlier batches (used by the skill) |
-| `pnpm q check [--links]`                                         | Re-validate the pool and live sources (a server-side job; the CLI polls)    |
-| `pnpm q status <id> active\|retired\|disputed`                   | Change a question's status                                                  |
-| `pnpm q archive <url>`                                           | Find or create a Wayback snapshot                                           |
-| `pnpm q quote <url> "<quote>" [n]` ⚠                             | Check a quote is on the page and contains `n`; prints the text around it    |
-| `pnpm q export [file]` ⚠ / `pnpm q import <file>`                | Backup and restore (see below)                                              |
+| Command                                                          |                                                                                            |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `pnpm q add file.json… [--batch id] [--replaces id] [--dry-run]` | Insert, with all checks                                                                    |
+| `pnpm q prepare <dir>`                                           | Archive sources, check quotes, dry-run ingest for a directory of drafts                    |
+| `pnpm q approve <draft> --notes "…" [--batch id]`                | The verifier's OK: stamp the draft verified, save it and ingest it                         |
+| `pnpm q reject (--draft <file> \| --question "…") --reason "…"`  | Remember a rejected candidate                                                              |
+| `pnpm q reword <id> --question "…" [--unit "…"] --reason "…"`    | Replace a question with a clearer wording of the same fact (`<id>-v2`)                     |
+| `pnpm q flag <flag> <id…> [--remove]`                            | Add or remove a flag, e.g. `reviewed:v1`, on questions                                     |
+| `pnpm q purge [--yes]`                                           | Delete retired versions replaced by a newer one and never played (preview without `--yes`) |
+| `pnpm q list [--all]`                                            | IDs, categories and statuses (retired ones only with `--all`)                              |
+| `pnpm q list --texts` ⚠                                          | The same, with question texts (never answers)                                              |
+| `pnpm q get <id>` ⚠                                              | A question's full JSON                                                                     |
+| `pnpm q stats [--categories]`                                    | Pool counts; `--categories` lists active questions per category                            |
+| `pnpm q disputes [file]`                                         | Open disputes (to a file if given)                                                         |
+| `pnpm q batch`                                                   | New `.fermi-work` batch plus a sweep of earlier batches (used by the skill)                |
+| `pnpm q check [--links]`                                         | Re-validate the pool and live sources (a server-side job; the CLI polls)                   |
+| `pnpm q status <id> active\|retired\|disputed`                   | Change a question's status                                                                 |
+| `pnpm q archive <url>`                                           | Find or create a Wayback snapshot                                                          |
+| `pnpm q quote <url> "<quote>" [n]` ⚠                             | Check a quote is on the page and contains `n`; prints the text around it                   |
+| `pnpm q export [file]` ⚠ / `pnpm q import <file>`                | Backup and restore (see below)                                                             |
 
 `import` **merges**: it keeps statuses and flags, skips ids the target already has, de-duplicates the rest, merges
 rejections, and is safe to run repeatedly.
@@ -217,6 +220,21 @@ Every insert goes through `apps/server/src/questions/ingest.ts`:
 - **Duplicates:** text similarity, the same source passage, or the same answer with related wording. Grey-zone
   matches return `409 needs_review` and can be cleared with `distinctFrom` + `distinctReason`. Rejected candidates are
   remembered.
+
+**Quality review.** `pnpm review` checks the pool the way a player sees it (category, question and unit only): would a
+stranger know what's being asked, is the subject well known, is it unambiguous? Haiku screens about 40 questions per
+call; Sonnet looks only at the flagged ones, with their sources, and keeps, rewords (`pnpm q reword`: same fact, new
+id, the old one retired) or retires them. Every finished question gets the flag `reviewed:v1`, so later runs only look
+at new questions; bump `REVIEW_FLAG` in `scripts/review.ts` to review everything again after a rules change. It
+prints only ids, issue codes, counts and cost (about $0.25 per 100 questions). `--dry-run` decides without changing
+anything; `--limit N` caps how many questions it screens; `--show` also prints each flagged question's wording before
+and after (a spoiler for those questions; answers are never printed). A decision that can't be applied (the
+rewording is too long or gives away the answer, or ingest refuses it) flags the question `review-unresolved:v1`, so
+it isn't paid for again on every run; `--retry-unresolved` looks at those again.
+
+**Retired questions** are never asked, but they stay in the database: they keep the generator from writing the same
+question again, and keep `/q/<id>` links from old games working. `pnpm q purge` deletes only those that are safe to
+drop: versions replaced by a newer one (which still guards the same fact) and never played.
 
 Players can **dispute** an answer from the recap or `/q/:id` page. The first dispute only flags a question; it leaves
 rotation once two different players have disputed it, until `/fermi-questions --recheck` resolves it.

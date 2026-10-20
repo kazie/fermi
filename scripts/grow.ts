@@ -6,33 +6,18 @@
 // run's report line, never question texts.
 // Runs bill the Claude account in FERMI_CLAUDE_CONFIG_DIR (from .env), never whatever the shell defaults to.
 
-import { execFile, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
 import { CATEGORIES } from '../packages/shared/src/question.ts'
+import { claudeConfigDir, ROOT, runClaude, runCli } from './claude.ts'
 import { limitReset } from './grow-report.ts'
 import { formatReport, parseAgentOutput, runPipeline, type AgentName, type AgentResult } from './pipeline.ts'
 
-const ROOT = new URL('../', import.meta.url).pathname
-const envFile = new URL('../.env', import.meta.url)
-if (existsSync(envFile)) process.loadEnvFile(envFile)
-
-const configDir = process.env.FERMI_CLAUDE_CONFIG_DIR?.replace(/^~(?=\/|$)/, homedir())
-if (!configDir) {
-  console.error(
-    '✗ FERMI_CLAUDE_CONFIG_DIR is not set. Put the Claude config dir of the account these runs should bill in .env,\n' +
-      '  e.g. FERMI_CLAUDE_CONFIG_DIR=~/.claude-personal. There is no default, so a run can never bill an account by accident.',
-  )
-  process.exit(1)
-}
-if (!existsSync(configDir)) {
-  console.error(`✗ FERMI_CLAUDE_CONFIG_DIR points to ${configDir}, which doesn't exist.`)
-  process.exit(1)
-}
+const configDir = claudeConfigDir()
 const RETRY_MS = 20 * 60 * 1000
 const MAX_FAILURES = 9
 
@@ -61,21 +46,17 @@ const inUse = new Set<string>()
 /** Topics whose run came back with `+0 added`: nothing new left there for now. */
 const exhausted = new Set<string>()
 
-function categoryCounts(): Promise<Map<string, number>> {
-  return new Promise((resolve, reject) =>
-    execFile('node', ['scripts/questions-cli.ts', 'stats', '--categories'], { cwd: ROOT }, (err, stdout) => {
-      if (err) return reject(new Error('pnpm q stats failed: is the server running?'))
-      // every category, empty ones included, fewest first (the server fills in the empty ones)
-      resolve(
-        new Map(
-          stdout
-            .trim()
-            .split('\n')
-            .map((line) => line.split('\t').reverse() as [string, string])
-            .map(([c, n]) => [c, Number(n)]),
-        ),
-      )
-    }),
+async function categoryCounts(): Promise<Map<string, number>> {
+  const out = await runCli(['stats', '--categories']).catch(() => {
+    throw new Error('pnpm q stats failed: is the server running?')
+  })
+  // every category, empty ones included, fewest first (the server fills in the empty ones)
+  return new Map(
+    out
+      .trim()
+      .split('\n')
+      .map((line) => line.split('\t').reverse() as [string, string])
+      .map(([c, n]) => [c, Number(n)]),
   )
 }
 
@@ -89,42 +70,9 @@ async function nextTopic(): Promise<string | undefined> {
 
 /** One headless agent session; its output is only read for cost and usage limits, never printed. */
 function runAgent(agent: AgentName, brief: string, heartbeat: string): Promise<AgentResult> {
-  const [model, effort] = agent === 'fermi-generator' ? ['haiku', ['--effort', 'low']] : ['sonnet', []]
-  return new Promise((resolve) => {
-    const child = spawn(
-      'claude',
-      [
-        '-p',
-        '--agent',
-        agent,
-        '--model',
-        model as string,
-        ...(effort as string[]),
-        '--permission-mode',
-        'dontAsk',
-        '--output-format',
-        'json',
-        brief,
-      ],
-      { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, CLAUDE_CONFIG_DIR: configDir, FERMI_HEARTBEAT: heartbeat } },
-    )
-    let out = ''
-    child.stdout.on('data', (d) => (out += d))
-    child.on('error', () => resolve({ costUsd: 0, limit: null }))
-    child.on('close', () => resolve(parseAgentOutput(out)))
-  })
-}
-
-/** `pnpm q <args>`; its stdout is only parsed for ids, categories and counts. */
-function cli(args: string[], heartbeat: string): Promise<string> {
-  return new Promise((resolve, reject) =>
-    execFile(
-      'node',
-      ['scripts/questions-cli.ts', ...args],
-      { cwd: ROOT, env: { ...process.env, FERMI_HEARTBEAT: heartbeat }, maxBuffer: 64 * 1024 * 1024 },
-      (err, stdout) => (err ? reject(new Error(`pnpm q ${args[0]} failed`)) : resolve(stdout)),
-    ),
-  )
+  const model = agent === 'fermi-generator' ? ['--model', 'haiku', '--effort', 'low'] : ['--model', 'sonnet']
+  const args = ['-p', '--agent', agent, ...model, '--permission-mode', 'dontAsk', '--output-format', 'json', brief]
+  return runClaude(args, configDir, { FERMI_HEARTBEAT: heartbeat }).then(parseAgentOutput)
 }
 
 /** Total spent by all runs, for the closing line. */
@@ -144,7 +92,7 @@ async function run(topic: string): Promise<{ added: number | null; report: strin
   try {
     const r = await runPipeline(topic, count, {
       runAgent: (agent, brief) => runAgent(agent, brief, heartbeat),
-      cli: (args) => cli(args, heartbeat),
+      cli: (args) => runCli(args, { FERMI_HEARTBEAT: heartbeat }),
     })
     spent += r.cost['fermi-generator'] + r.cost['fermi-verifier']
     if (r.limit) {

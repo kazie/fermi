@@ -5,7 +5,7 @@ import type { DB } from '../db.ts'
 import { normalizeText } from './dedupe.ts'
 import { fetchPageText } from './html.ts'
 import { checkQuestion } from './ingest.ts'
-import { addDispute, allQuestions, setFlags } from './repo.ts'
+import { addDispute, allQuestions, getQuestion, setFlags } from './repo.ts'
 
 export const LINK_CONCURRENCY = 6
 
@@ -40,7 +40,9 @@ export async function checkPool(db: DB, opts: { links?: boolean; fetchImpl?: typ
     if (!parsed.success) issues.push(...parsed.error.issues.map((i) => `schema ${i.path.join('.')}: ${i.message}`))
     // recheckAfter in the past is expected here: it is what flags a question as due.
     issues.push(...checkQuestion(q, new Date()).filter((e) => !e.startsWith('recheckAfter')))
-    const newFlags = flags.filter((f) => !f.startsWith('source-changed') && !f.startsWith('dead-link') && f !== 'recheck-due')
+    // Only check's own flags are recomputed; the rest (e.g. `reviewed:v1`) are kept, read again right before writing.
+    const own = (f: string) => f.startsWith('source-changed') || f.startsWith('dead-link') || f === 'recheck-due'
+    const newFlags: string[] = []
     if (q.recheckAfter && q.recheckAfter <= today) {
       newFlags.push('recheck-due')
       issues.push(`recheck due since ${q.recheckAfter}`)
@@ -60,7 +62,9 @@ export async function checkPool(db: DB, opts: { links?: boolean; fetchImpl?: typ
         }
       })
     }
-    setFlags(db, q.id, newFlags)
+    // The link fetches above can take minutes, so other flags may have changed meanwhile: merge with the current ones.
+    const current = getQuestion(db, q.id)?.flags ?? flags
+    setFlags(db, q.id, [...current.filter((f) => !own(f)), ...newFlags])
     if (status === 'active' && ((changed && q.timeSensitive) || newFlags.includes('recheck-due'))) {
       addDispute(db, q.id, null, changed ? 'auto: time-sensitive source changed' : 'auto: recheck due')
       report.disputed.push(q.id)

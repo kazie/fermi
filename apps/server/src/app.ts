@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { CATEGORIES, fermeanieRelease, KEY_RE, toRevealed } from '@fermi/shared'
-import type { DB } from './db.ts'
+import { tx, type DB } from './db.ts'
 import { RoomsFullError, type RoomRegistry } from './rooms.ts'
 import { hashKey, rateLimiter } from './keys.ts'
 import { randomUUID } from 'node:crypto'
@@ -18,7 +18,9 @@ import {
   listTexts,
   loadCandidates,
   openDisputes,
+  purgeReplaced,
   resolveDisputes,
+  setFlags,
   setStatus,
 } from './questions/repo.ts'
 
@@ -122,8 +124,10 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
     questions: z.array(z.unknown()).min(1).max(200),
     batchId: z.string().max(80).optional(),
     replaces: z.string().optional(),
-    /** Merge from an export: questions may carry _status/_flags. */
+    /** Merge from an export: questions may carry _status/_flags/_replacedBy. */
     import: z.boolean().optional(),
+    /** With replaces: a new wording of the same fact (see IngestOptions.reword). */
+    reword: z.boolean().optional(),
     /** Validate and dedupe only; insert nothing. */
     dryRun: z.boolean().optional(),
   })
@@ -134,13 +138,23 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
     const candidates = loadCandidates(db) // once per request, not once per question
     const results = body.data.questions.map((raw) => {
       if (!body.data.import)
-        return ingestQuestion(db, raw, { batchId: body.data.batchId, replaces: body.data.replaces, dryRun: body.data.dryRun, candidates })
-      const { _status, _flags, ...q } = (raw ?? {}) as { _status?: string; _flags?: string[] }
+        return ingestQuestion(db, raw, {
+          batchId: body.data.batchId,
+          replaces: body.data.replaces,
+          reword: body.data.reword,
+          dryRun: body.data.dryRun,
+          candidates,
+        })
+      const { _status, _flags, _replacedBy, ...q } = (raw ?? {}) as { _status?: string; _flags?: string[]; _replacedBy?: unknown }
       const status = _status === 'disputed' || _status === 'retired' || _status === 'active' ? _status : undefined
       return ingestQuestion(db, q, {
         batchId: body.data.batchId,
         candidates,
-        import: { status, flags: Array.isArray(_flags) ? _flags : [] },
+        import: {
+          status,
+          flags: Array.isArray(_flags) ? _flags : [],
+          replacedBy: typeof _replacedBy === 'string' ? _replacedBy : undefined,
+        },
       })
     })
     if (body.data.replaces && !body.data.dryRun && results[0].status === 'added')
@@ -179,6 +193,41 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
     setStatus(db, id, body.data.status)
     if (body.data.status !== 'disputed') resolveDisputes(db, id, body.data.resolution ?? body.data.status)
     return c.json({ ok: true })
+  })
+
+  // Deletes retired questions that a newer version replaced and nobody played (see purgeReplaced). Only a preview
+  // unless the body says { confirm: true }.
+  admin.post('/questions/purge', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { confirm?: unknown }
+    const confirm = body?.confirm === true
+    return c.json({ ids: purgeReplaced(db, { confirm }), deleted: confirm })
+  })
+
+  // Free-form markers on many questions at once, e.g. `reviewed:v1` from `pnpm review`. Unknown ids are skipped and
+  // reported, not an error. `pnpm q check` only replaces its own flags.
+  const FlagsBody = z.object({
+    ids: z.array(z.string()).min(1).max(1000),
+    add: z.array(z.string().min(1).max(100)).optional(),
+    remove: z.array(z.string()).optional(),
+  })
+  admin.post('/questions/flags', async (c) => {
+    const body = FlagsBody.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) return c.json({ error: 'Expected { ids, add?, remove? }' }, 400)
+    const { ids, add = [], remove = [] } = body.data
+    const missing: string[] = []
+    let updated = 0
+    tx(db, () => {
+      for (const id of ids) {
+        const q = getQuestion(db, id)
+        if (!q) {
+          missing.push(id)
+          continue
+        }
+        setFlags(db, id, [...new Set([...q.flags.filter((f) => !remove.includes(f)), ...add])])
+        updated++
+      }
+    })
+    return c.json({ updated, missing })
   })
 
   const RejectBody = z.object({ question: z.string().min(5).max(500), reason: z.string().min(3).max(1000) })

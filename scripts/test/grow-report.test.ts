@@ -15,6 +15,10 @@ describe('usage limits', () => {
     expect(limitReset('resets 12am', at(22, 0))).toBe(new Date(2026, 9, 21, 0, 2).getTime())
     expect(limitReset('resets 16:30', at(10, 0))).toBe(at(16, 32).getTime())
   })
+  it('reads the older epoch format', () => {
+    expect(limitMessage('{"result":"Claude AI usage limit reached|1792461600"}')).toBe('Claude AI usage limit reached|1792461600')
+    expect(limitReset('Claude AI usage limit reached|1792461600', new Date())).toBe(1792461600 * 1000 + 2 * 60 * 1000)
+  })
   it('gives no time for a limit that names a date', () => {
     expect(limitReset('weekly limit · resets Oct 23, 4pm', new Date())).toBeNull()
   })

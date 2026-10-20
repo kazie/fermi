@@ -16,6 +16,12 @@ here and are the verifier's job.
   (parts × rivets per part, population × share × frequency…), and an answer that surprises a little.
 - **It spans orders of magnitude.** Scoring is in "times off", so it works best when a naive guess
   could plausibly be anywhere from 10× too low to 10× too high.
+- **It stands on its own.** Players see only the category, the question and the unit, never the sources. Someone
+  who has never seen the source must know exactly what is being asked: name the work or franchise in `fiction` ("In
+  Star Wars, how long is the Millennium Falcon?"), say what an unfamiliar thing is, and spell out jargon and
+  acronyms. Read the question as a stranger at a party would.
+- **The subject is well known.** Ask about things most adults have heard of: famous places, works, objects, animals,
+  events. If the question needs a clause explaining what its subject is, a better-known subject is usually better.
 - **The wording is exact, and matches exactly what the source measures.** The Eiffel Tower is famous
   for _rivets_, not bolts. If the source counts "registered cars" don't ask about "cars". If it is
   "average distance" to the Moon, say "average".
@@ -155,7 +161,8 @@ Shown at the reveal, 1–4 sentences:
 
 ## 6. Duplicates
 
-Before writing a question, list what exists (`pnpm q list --texts`, which shows texts only and no answers).
+Before writing a question, list what exists (`pnpm q list --texts --all`, which shows texts only and no answers;
+`--all` includes retired questions, which count as duplicates too).
 A question is a duplicate if it asks about the **same fact**, however it is worded ("bolts in the Eiffel
 Tower" = "rivets holding the Eiffel Tower together"). A different fact about the same subject is fine
 (the Eiffel Tower's steps vs its rivets).

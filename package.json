@@ -23,7 +23,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "check": "pnpm format:check && pnpm lint && pnpm type-check && pnpm test",
-    "grow": "node scripts/grow.ts"
+    "grow": "node scripts/grow.ts",
+    "review": "node scripts/review-pool.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

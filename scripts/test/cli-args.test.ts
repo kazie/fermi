@@ -27,6 +27,10 @@ describe('pnpm q argument parsing', () => {
       reason: 'weak source',
     })
   })
+  it('parses list --all and purge --yes', () => {
+    expect(parseCli(['list', '--all']).opts).toEqual({ all: true })
+    expect(parseCli(['purge', '--yes']).opts).toEqual({ yes: true })
+  })
   it('rejects unknown flags', () => {
     expect(() => parseCli(['add', '--dryrun', 'a.json'])).toThrow()
   })

@@ -3,10 +3,21 @@ import type { Question } from '@fermi/shared'
 import { ingestQuestion, checkQuestion, localeIssues } from '../src/questions/ingest.ts'
 import { extractNumbers, quoteContainsNumber } from '../src/questions/numbers.ts'
 import { normalizeText, textSimilarity } from '../src/questions/dedupe.ts'
-import { addRejection, getQuestion } from '../src/questions/repo.ts'
+import {
+  addDispute,
+  addRejection,
+  exportAll,
+  getQuestion,
+  loadCandidates,
+  markPlayed,
+  purgeReplaced,
+  setStatus,
+} from '../src/questions/repo.ts'
 import { derivedQuestion, makeQuestion, testDb } from './fixtures.ts'
 
 const NOW = new Date('2026-10-17T00:00:00Z')
+const replacedBy = (db: ReturnType<typeof testDb>, id: string) =>
+  (db.prepare('SELECT replaced_by FROM questions WHERE id = ?').get(id) as { replaced_by: string | null }).replaced_by
 
 describe('number extraction from quotes', () => {
   it.each([
@@ -284,6 +295,84 @@ describe('ingestQuestion', () => {
     const fixed = makeQuestion({ id: 'new-version', explanation: 'Corrected explanation: 2.5 million rivets, 18,038 parts.' })
     expect(ingestQuestion(db, fixed, { now: NOW, replaces: 'old-version' }).status).toBe('added')
     expect(getQuestion(db, 'old-version')?.status).toBe('retired')
+  })
+  it('purges replaced, unplayed versions and keeps everything else', () => {
+    const db = testDb()
+    const add = (q: Question, replaces?: string) => expect(ingestQuestion(db, q, { now: NOW, replaces }).status).toBe('added')
+    add(makeQuestion({ id: 'v1' }))
+    add(makeQuestion({ id: 'v2' }), 'v1')
+    const other = { question: 'How many steps lead to the top of the Eiffel Tower?', answer: 1665, unit: 'steps' }
+    const steps = (id: string) => {
+      const q = makeQuestion({ id, ...other })
+      q.sources[0] = { ...q.sources[0], url: 'https://example.org/steps', quote: 'There are 1,665 steps.' }
+      return q
+    }
+    add(steps('played-v1'))
+    add(steps('played-v2'), 'played-v1')
+    markPlayed(db, 'played-v1')
+    const lone = makeQuestion({ id: 'lone', question: 'How many lighthouses does Norway have?', answer: 212, unit: 'lighthouses' })
+    lone.sources[0] = { ...lone.sources[0], url: 'https://example.org/lighthouses', quote: 'Norway has 212 lighthouses.' }
+    add(lone)
+    setStatus(db, 'lone', 'retired')
+    addDispute(db, 'v1', 'p1', 'wrong?')
+
+    expect(purgeReplaced(db)).toEqual(['v1']) // preview
+    expect(getQuestion(db, 'v1')).toBeDefined()
+    expect(purgeReplaced(db, { confirm: true })).toEqual(['v1'])
+    expect(getQuestion(db, 'v1')).toBeUndefined()
+    expect(db.prepare("SELECT COUNT(*) AS n FROM question_sources WHERE question_id = 'v1'").get()).toEqual({ n: 0 })
+    expect(db.prepare("SELECT COUNT(*) AS n FROM disputes WHERE question_id = 'v1'").get()).toEqual({ n: 0 })
+    expect(getQuestion(db, 'played-v1')?.status).toBe('retired')
+    expect(getQuestion(db, 'lone')?.status).toBe('retired')
+    // the fact is still guarded by its current version
+    expect(ingestQuestion(db, makeQuestion({ id: 'again' }), { now: NOW }).status).toBe('duplicate')
+  })
+
+  it('purging the middle of a chain points the played start at the current version', () => {
+    const db = testDb()
+    ingestQuestion(db, makeQuestion({ id: 'c1' }), { now: NOW })
+    ingestQuestion(db, makeQuestion({ id: 'c2' }), { now: NOW, replaces: 'c1' })
+    ingestQuestion(db, makeQuestion({ id: 'c3' }), { now: NOW, replaces: 'c2' })
+    markPlayed(db, 'c1')
+    expect(purgeReplaced(db, { confirm: true })).toEqual(['c2'])
+    expect(db.prepare("SELECT replaced_by FROM questions WHERE id = 'c1'").get()).toEqual({ replaced_by: 'c3' })
+  })
+
+  it('a reword keeps old data but only works on active questions', () => {
+    const db = testDb()
+    const old = makeQuestion({ id: 'r1', validAsOf: '2015', timeSensitive: true, recheckAfter: '2026-10-18' })
+    expect(ingestQuestion(db, old, { now: new Date('2026-10-01T00:00:00Z') }).status).toBe('invalid') // too old for new questions
+    expect(ingestQuestion(db, old, { now: NOW, import: {} }).status).toBe('added')
+    const later = new Date('2026-11-01T00:00:00Z') // recheckAfter has passed too
+    expect(ingestQuestion(db, { ...old, id: 'r1-v2' }, { now: later, replaces: 'r1' }).status).toBe('invalid')
+    expect(ingestQuestion(db, { ...old, id: 'r1-v2' }, { now: later, replaces: 'r1', reword: true }).status).toBe('added')
+    // r1 is now retired: it can't be reworded again
+    const again = ingestQuestion(db, { ...old, id: 'r1-v3' }, { now: later, replaces: 'r1', reword: true })
+    expect(again.status === 'invalid' && again.errors.join()).toMatch(/r1 is retired; only active questions/)
+  })
+
+  it('an export restores with its replacements, so the current version is not taken for a duplicate', () => {
+    const src = testDb()
+    ingestQuestion(src, makeQuestion({ id: 'e1' }), { now: NOW })
+    ingestQuestion(src, makeQuestion({ id: 'e2' }), { now: NOW, replaces: 'e1' })
+    const dst = testDb()
+    const candidates = loadCandidates(dst) // as the import endpoint does: once per request
+    for (const raw of exportAll(src)) {
+      const { _status, _flags, _replacedBy, ...q } = raw
+      const r = ingestQuestion(dst, q, { now: NOW, candidates, import: { status: _status, flags: _flags, replacedBy: _replacedBy } })
+      expect(r.status).toBe('added')
+    }
+    expect(replacedBy(dst, 'e1')).toBe('e2')
+    expect(getQuestion(dst, 'e2')?.status).toBe('active')
+  })
+
+  it('a corrected question can be corrected again', () => {
+    const db = testDb()
+    ingestQuestion(db, makeQuestion({ id: 'v1' }), { now: NOW })
+    expect(ingestQuestion(db, makeQuestion({ id: 'v2' }), { now: NOW, replaces: 'v1' }).status).toBe('added')
+    expect(ingestQuestion(db, makeQuestion({ id: 'v3' }), { now: NOW, replaces: 'v2' }).status).toBe('added')
+    // a brand-new draft of the same fact is still caught, by the current version
+    expect(ingestQuestion(db, makeQuestion({ id: 'again' }), { now: NOW }).status).toBe('duplicate')
   })
 
   it('normalises text for comparison', () => {

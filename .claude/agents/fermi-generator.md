@@ -22,8 +22,9 @@ For each draft:
    - `"verification": { "verifiedAt": "<now ISO>", "verdict": "approved", "notes": "UNVERIFIED DRAFT" }`.
    - Template drafts include `"template": { "id": "<template-id>", "slot": "<slot value>" }`.
    - Derived questions: `formula` (calculator syntax, `name = value` per cited input in the source's units) and `inputs`; `answer` = its result.
-3. Keep it international, metric and recent (rules §1): prefer global or European sources, skip US-only statistics, and drop ideas whose only data is more than 5 years old.
-4. Never estimate a number yourself. If no source states it, skip that idea.
+3. Pick well-known subjects, and write a question that stands on its own: players see only the category, question and unit (name the work in `fiction`, explain unfamiliar terms).
+4. Keep it international, metric and recent (rules §1): prefer global or European sources, skip US-only statistics, and drop ideas whose only data is more than 5 years old.
+5. Never estimate a number yourself. If no source states it, skip that idea.
 
 Keep it lean: fetch only what you need, don't re-read files you've written. Duplicates are caught by a later server check, so don't spend searches on checking for them.
 

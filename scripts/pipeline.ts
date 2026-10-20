@@ -178,13 +178,31 @@ export function formatReport(r: PipelineResult) {
   )
 }
 
-/** Reads a `claude -p --output-format json` result: its cost and any usage limit it hit. */
-export function parseAgentOutput(out: string): AgentResult {
-  let json: { total_cost_usd?: number; result?: string } = {}
+/**
+ * Reads a `claude -p --output-format json` result: its reply, cost and any usage limit it hit. A limit only counts
+ * when the session failed: a reply that merely mentions a limit that resets (a question about speed limits, say) is
+ * not one, and its text must never be printed as if it were.
+ */
+export function parseAgentOutput(out: string): AgentResult & { text: string } {
+  let json: { total_cost_usd?: number; result?: string; is_error?: boolean } = {}
+  let parsed = true
   try {
     json = JSON.parse(out)
   } catch {
-    /* no JSON: the session died */
+    parsed = false // no JSON: the session died
   }
-  return { costUsd: json.total_cost_usd ?? 0, limit: limitMessage(json.result ?? '') ?? limitMessage(out) }
+  const result = json.result ?? ''
+  // Some CLI versions report a limit as an ordinary result: a short reply that is little more than the limit message.
+  const inResult = limitMessage(result)
+  const limitOnly =
+    inResult !== null &&
+    !/^\s*[[{]/.test(result) && // JSON is a real reply
+    /\b(?:usage|session|weekly) limit\b|hit your (?:\w+ )?limit/i.test(inResult) &&
+    inResult.length >= result.trim().length * 0.6
+  const failed = !parsed || json.is_error === true || !result || limitOnly
+  return {
+    text: failed ? '' : result,
+    costUsd: json.total_cost_usd ?? 0,
+    limit: failed ? (inResult ?? limitMessage(out)) : null,
+  }
 }

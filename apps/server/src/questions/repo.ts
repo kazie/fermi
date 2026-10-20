@@ -1,5 +1,5 @@
 import type { Question } from '@fermi/shared'
-import { nowIso, type DB } from '../db.ts'
+import { nowIso, tx, type DB } from '../db.ts'
 import { normalizeText, normalizeUrl, type Candidate } from './dedupe.ts'
 
 export type QuestionStatus = 'active' | 'disputed' | 'retired'
@@ -52,7 +52,13 @@ export function setFlags(db: DB, id: string, flags: string[]) {
 }
 
 export function loadCandidates(db: DB, excludeId?: string): Candidate[] {
-  const rows = db.prepare('SELECT id, data, status, norm_text, answer, unit, template_id, template_slot FROM questions').all() as {
+  // A version that was replaced by a corrected one is the same fact as its replacement, which is checked anyway:
+  // leaving it out lets a question be corrected or reworded more than once.
+  const rows = db
+    .prepare(
+      "SELECT id, data, status, norm_text, answer, unit, template_id, template_slot FROM questions WHERE NOT (status = 'retired' AND replaced_by IS NOT NULL)",
+    )
+    .all() as {
     template_id: string | null
     template_slot: string | null
     id: string
@@ -129,11 +135,42 @@ export function listTexts(db: DB) {
   }[]
 }
 
+/**
+ * Deletes retired questions that were replaced by a newer version and never played. The newer version covers the
+ * same fact in the duplicate check, and nobody has a `/q/<id>` link to them. Other retired questions are kept: they
+ * stop the generator from recreating them. Anything that pointed at a deleted version (a played predecessor in a
+ * chain) is pointed at its replacement instead. Returns the ids (deleted, or that would be without `confirm`).
+ */
+export function purgeReplaced(db: DB, { confirm = false } = {}): string[] {
+  const select = db.prepare(
+    "SELECT id, replaced_by FROM questions WHERE status = 'retired' AND replaced_by IS NOT NULL AND id NOT IN (SELECT question_id FROM played_questions) ORDER BY id",
+  )
+  if (!confirm) return (select.all() as { id: string }[]).map((r) => r.id)
+  const repoint = db.prepare('UPDATE questions SET replaced_by = ? WHERE replaced_by = ?')
+  const deletes = [
+    'DELETE FROM disputes WHERE question_id = ?',
+    'DELETE FROM player_seen WHERE question_id = ?',
+    'DELETE FROM questions WHERE id = ?',
+  ].map((sql) => db.prepare(sql)) // question_sources go with the question (ON DELETE CASCADE)
+  return tx(db, () => {
+    const rows = select.all() as { id: string; replaced_by: string }[]
+    for (const r of rows) {
+      repoint.run(r.replaced_by, r.id)
+      for (const d of deletes) d.run(r.id)
+    }
+    return rows.map((r) => r.id)
+  })
+}
+
 export function exportAll(db: DB) {
-  return (db.prepare('SELECT id, data, status, flags FROM questions ORDER BY created_at').all() as unknown as Row[]).map((r) => ({
+  const rows = db.prepare('SELECT id, data, status, flags, replaced_by FROM questions ORDER BY created_at').all() as unknown as (Row & {
+    replaced_by: string | null
+  })[]
+  return rows.map((r) => ({
     ...JSON.parse(r.data),
     _status: r.status,
     _flags: JSON.parse(r.flags),
+    ...(r.replaced_by ? { _replacedBy: r.replaced_by } : {}),
   }))
 }
 

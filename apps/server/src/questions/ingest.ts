@@ -30,8 +30,13 @@ export interface IngestOptions {
   dryRun?: boolean
   /** Preloaded duplicate candidates (shared across a batch; inserted questions are appended). */
   candidates?: Candidate[]
-  /** Merging from another database: keep status/flags, skip known ids, don't refuse overdue rechecks. */
-  import?: { status?: QuestionStatus; flags?: string[] }
+  /** Merging from another database: keep status/flags/replacement, skip known ids, don't refuse overdue rechecks. */
+  import?: { status?: QuestionStatus; flags?: string[]; replacedBy?: string }
+  /**
+   * A new wording of `replaces` (`pnpm q reword`): the same fact and data, so the rules that judge the data (overdue
+   * recheck, data age, locale) aren't applied again, and only an active question can be reworded.
+   */
+  reword?: boolean
 }
 
 const DAY = 86_400_000
@@ -136,8 +141,10 @@ export function ingestQuestion(db: DB, input: unknown, opts: IngestOptions = {})
     return { status: 'invalid', id: rawId, errors: parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`) }
   }
   const q = parsed.data
-  // Imports keep questions that predate a rule (overdue rechecks, locale rules); `pnpm q check` still flags them.
-  const legacy = new Set(opts.import ? ['recheckAfter is already in the past', ...localeIssues(q, opts.now)] : [])
+  // Imports and rewordings keep questions that predate a rule (overdue rechecks, locale rules); `pnpm q check` still
+  // flags them.
+  const keepsData = opts.import || opts.reword
+  const legacy = new Set(keepsData ? ['recheckAfter is already in the past', ...localeIssues(q, opts.now)] : [])
   const errors = checkQuestion(q, opts.now).filter((e) => !legacy.has(e))
   if (errors.length) return { status: 'invalid', id: q.id, errors }
 
@@ -150,8 +157,14 @@ export function ingestQuestion(db: DB, input: unknown, opts: IngestOptions = {})
         id: q.id,
         errors: [`id ${q.id} already exists${opts.replaces ? '' : ' (pick another id, or pass replaces)'}`],
       } as const
-    if (opts.replaces && !getQuestion(db, opts.replaces))
-      return { status: 'invalid', id: q.id, errors: [`replaces: unknown question ${opts.replaces}`] } as const
+    const replaced = opts.replaces ? getQuestion(db, opts.replaces) : undefined
+    if (opts.replaces && !replaced) return { status: 'invalid', id: q.id, errors: [`replaces: unknown question ${opts.replaces}`] } as const
+    if (opts.reword && replaced?.status !== 'active')
+      return {
+        status: 'invalid',
+        id: q.id,
+        errors: [`reword: ${opts.replaces ?? '(no replaces)'} is ${replaced?.status ?? 'missing'}; only active questions can be reworded`],
+      } as const
 
     const candidates = (opts.candidates ?? loadCandidates(db)).filter((c) => c.id !== opts.replaces)
     const incoming = {
@@ -170,13 +183,15 @@ export function ingestQuestion(db: DB, input: unknown, opts: IngestOptions = {})
 
     if (opts.dryRun) return { status: 'valid', id: q.id } as const
     insertQuestion(db, q, opts.batchId)
-    opts.candidates?.push({ id: q.id, question: q.question, status: 'active', ...incoming })
+    // A replaced version isn't a duplicate candidate (see loadCandidates), so its replacement can follow it in.
+    if (!(opts.import?.status === 'retired' && opts.import.replacedBy))
+      opts.candidates?.push({ id: q.id, question: q.question, status: opts.import?.status ?? 'active', ...incoming })
     if (opts.import) {
       const flags = [...(opts.import.flags ?? [])]
       if (q.recheckAfter && q.recheckAfter <= (opts.now ?? new Date()).toISOString().slice(0, 10) && !flags.includes('recheck-due'))
         flags.push('recheck-due')
       if (flags.length) setFlags(db, q.id, flags)
-      if (opts.import.status && opts.import.status !== 'active') setStatus(db, q.id, opts.import.status)
+      if (opts.import.status && opts.import.status !== 'active') setStatus(db, q.id, opts.import.status, opts.import.replacedBy)
     }
     if (opts.replaces) setStatus(db, opts.replaces, 'retired', q.id)
     return { status: 'added', id: q.id } as const

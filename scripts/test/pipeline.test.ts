@@ -63,9 +63,18 @@ describe('pipeline parsing', () => {
     expect(parsePrepare(out)).toEqual({ passed: ['a', 'b'], failed: ['c'] })
   })
   it('reads cost and limits from a session result', () => {
-    expect(parseAgentOutput('{"total_cost_usd":0.42,"result":"done"}')).toEqual({ costUsd: 0.42, limit: null })
+    expect(parseAgentOutput('{"total_cost_usd":0.42,"result":"done"}')).toEqual({ text: 'done', costUsd: 0.42, limit: null })
     expect(parseAgentOutput('{"is_error":true,"result":"You\'ve hit your session limit · resets 4:20am"}').limit).toMatch(/resets 4:20am/)
-    expect(parseAgentOutput('not json')).toEqual({ costUsd: 0, limit: null })
+    expect(parseAgentOutput('not json')).toEqual({ text: '', costUsd: 0, limit: null })
+  })
+  it('takes a short limit-only result for a limit, even when it is not marked as an error', () => {
+    const r = parseAgentOutput(JSON.stringify({ is_error: false, result: 'Claude AI usage limit reached|1792461600' }))
+    expect(r.limit).toBe('Claude AI usage limit reached|1792461600')
+    expect(r.text).toBe('')
+  })
+  it('does not mistake a reply that mentions a limit for a usage limit', () => {
+    const reply = JSON.stringify({ result: '[{"note":"unclear which speed limit resets at the border"}]', total_cost_usd: 0.01 })
+    expect(parseAgentOutput(reply).limit).toBeNull()
   })
 })
 

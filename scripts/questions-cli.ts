@@ -61,7 +61,7 @@ function readQuestions(files: string[]): unknown[] {
 }
 
 /** Ingests questions and prints one line per result, with similar questions for the verifier to compare. */
-async function addQuestions(questions: unknown[], opts: { batchId?: string; replaces?: string; dryRun?: boolean }) {
+async function addQuestions(questions: unknown[], opts: { batchId?: string; replaces?: string; dryRun?: boolean; reword?: boolean }) {
   const { json } = await call('POST', '/questions', { questions, ...opts })
   if (json.error) die(json.error)
   const counts: Record<string, number> = {}
@@ -84,6 +84,12 @@ async function addQuestions(questions: unknown[], opts: { batchId?: string; repl
       .map(([k, v]) => `${v} ${k}`)
       .join(', ')}`,
   )
+}
+
+/** `abc` → `abc-v2`, `abc-v2` → `abc-v3`. */
+function nextVersionId(id: string) {
+  const m = /^(.*)-v(\d+)$/.exec(id)
+  return m ? `${m[1]}-v${Number(m[2]) + 1}` : `${id}-v2`
 }
 
 async function main() {
@@ -111,12 +117,57 @@ async function main() {
       await addQuestions([draft], { batchId: opts.batch })
       return
     }
+    case 'reword': {
+      // A clearer wording of the same fact: a new version (`<id>-v2`, `-v3`…) that replaces the old one.
+      const [id] = rest
+      const { question, unit, reason } = opts
+      if (!id || !question || !reason) die('usage: pnpm q reword <id> --question "…" [--unit "…"] --reason "…"')
+      const { status, json } = await call('GET', `/questions/${id}`)
+      if (status !== 200) die(json.error)
+      const old = json.question
+      const notes = `Reworded: ${reason}. Before: ${old.verification.notes}`.slice(0, 2000)
+      let newId = nextVersionId(old.id)
+      while ((await call('GET', `/questions/${newId}`)).status === 200) newId = nextVersionId(newId)
+      const q = {
+        ...old,
+        id: newId,
+        question,
+        ...(unit ? { unit } : {}),
+        verification: { verifiedAt: new Date().toISOString(), verdict: 'approved', notes },
+      }
+      await addQuestions([q], { replaces: id, reword: true })
+      return
+    }
+    case 'purge': {
+      // Deletes retired questions that were replaced by a newer version and never played. Preview unless --yes.
+      const { json } = await call('POST', '/questions/purge', { confirm: !!opts.yes })
+      if (json.error) die(json.error)
+      for (const id of json.ids) console.log(id)
+      if (json.deleted) console.log(`\n✓ deleted ${json.ids.length} replaced, unplayed question(s)`)
+      else
+        console.log(
+          `\n${json.ids.length} replaced, unplayed question(s) would be deleted. Back up first (pnpm q export backup.json), then: pnpm q purge --yes`,
+        )
+      return
+    }
+    case 'flag': {
+      // One flag on many questions in one request (e.g. a screened chunk from `pnpm review`). Unknown ids are skipped.
+      const [flag, ...ids] = rest
+      if (!flag || !ids.length) die('usage: pnpm q flag <flag> <id…> [--remove]')
+      const { status, json } = await call('POST', '/questions/flags', opts.remove ? { ids, remove: [flag] } : { ids, add: [flag] })
+      if (status !== 200) die(json.error)
+      console.log(`✓ ${opts.remove ? 'removed' : 'added'} ${flag} on ${json.updated} question(s)`)
+      if (json.missing.length) console.log(`  skipped unknown: ${json.missing.join(', ')}`)
+      return
+    }
     case 'list': {
       const { json } = await call('GET', '/questions')
       const texts = opts.texts
-      for (const q of json.questions)
+      const shown = opts.all ? json.questions : json.questions.filter((q: { status: string }) => q.status !== 'retired')
+      for (const q of shown)
         console.log(texts ? `${q.id}\t${q.category}\t${q.status}\t${q.question}` : `${q.id}\t${q.category}\t${q.status}`)
-      console.error(`${json.questions.length} questions`)
+      const hidden = json.questions.length - shown.length
+      console.error(`${shown.length} questions${hidden ? ` (${hidden} retired hidden; --all to show)` : ''}`)
       return
     }
     case 'get': {
@@ -347,10 +398,13 @@ async function main() {
   add <file.json…> [--batch id] [--replaces old-id] [--dry-run]   insert via the ingest checks
   batch                                               new .fermi-work batch (ids/categories, no texts) + leftover sweep
   prepare <dir>                                       archive + quote + dry-run checks for drafts (no LLM)
-  list [--texts]                                      ids/categories (texts with --texts; never answers)
+  list [--texts] [--all]                              ids/categories (texts with --texts; never answers; retired only with --all)
   get <id>                                            full question JSON (spoilers!)
   export [file] / import <file>                       backup and restore
   approve <draft.json> --notes "…" [--batch id]       mark a draft verified, save it to verified/ and ingest it
+  reword <id> --question "…" [--unit "…"] --reason "…"   replace a question with a clearer wording of the same fact
+  purge [--yes]                                       delete retired questions replaced by a newer version and never played (preview without --yes)
+  flag <flag> <id…> [--remove]                        add or remove a flag (e.g. reviewed:v1) on questions
   reject (--draft <file> | --question "…") --reason "…"   remember a rejected candidate
   disputes [file]                                     open disputes (to a file if given)
   status <id> <active|retired|disputed> [--resolution "…"]

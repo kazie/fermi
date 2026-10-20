@@ -60,6 +60,19 @@ describe('admin API', () => {
     expect(stats.rejections).toBe(1)
   })
 
+  it('adds and removes flags on many questions, skipping unknown ids', async () => {
+    const r = await post('/api/admin/questions/flags', { ids: ['http-eiffel', 'nope'], add: ['reviewed:v1', 'x'] })
+    expect(await r.json()).toEqual({ updated: 1, missing: ['nope'] })
+    await post('/api/admin/questions/flags', { ids: ['http-eiffel'], remove: ['x'] })
+    const q = (await (await fetch(`http://${base}/api/admin/questions/http-eiffel`, { headers: auth })).json()) as any
+    expect(q.flags).toEqual(['reviewed:v1'])
+  })
+
+  it('previews a purge unless confirmed', async () => {
+    const r = await post('/api/admin/questions/purge', {})
+    expect(((await r.json()) as any).deleted).toBe(false)
+  })
+
   it('hides unplayed questions from the public lookup', async () => {
     expect((await fetch(`http://${base}/api/questions/http-eiffel`)).status).toBe(404)
   })
