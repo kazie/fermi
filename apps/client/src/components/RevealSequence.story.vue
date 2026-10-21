@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onUnmounted, reactive, ref } from 'vue'
 import { players, reveals, T0 } from '@/fixtures/rooms'
-import { STEAL, stealPlan } from '@/lib/reveal'
+import { STEAL } from '@fermi/shared'
+import { stealPlan } from '@/lib/reveal'
 import RevealSequence from './RevealSequence.vue'
 
 const variants = [

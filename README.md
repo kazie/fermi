@@ -239,7 +239,8 @@ question again, and keep `/q/<id>` links from old games working. `pnpm q purge` 
 drop: versions replaced by a newer one (which still guards the same fact) and never played.
 
 Players can **dispute** an answer from the recap or `/q/:id` page. The first dispute only flags a question; it leaves
-rotation once two different players have disputed it, until `/fermi-questions --recheck` resolves it.
+rotation once two different players who were dealt it have disputed it, until `/fermi-questions --recheck` resolves it.
+Disputes from anyone else are kept for the recheck but don't count.
 
 ## Self-hosting
 

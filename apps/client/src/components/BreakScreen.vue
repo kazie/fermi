@@ -50,7 +50,7 @@ const me = computed(() => props.room.players.find((p) => p.id === props.room.you
       <h2 v-else>Discuss! {{ canAdvance ? S.nextWhenYouAre : S.nextWhenHostIs(hostName) }}</h2>
     </header>
 
-    <FermeanieSays :text="br.line" :size="variant === 'compact' ? 's' : 'm'" mood="smug" />
+    <FermeanieSays :text="br.line" :start-at="br.startedAt" :now="now" :size="variant === 'compact' ? 's' : 'm'" mood="smug" />
 
     <section v-if="variant !== 'compact' && reveal" class="recap card">
       <p class="q">{{ reveal.question.question }}</p>

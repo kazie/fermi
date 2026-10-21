@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { formatCompact, formatFactor, type PlayerView, type RevealView } from '@fermi/shared'
-import { describeOff, flippedCount, revealStage, STEAL, stealPlan } from '@/lib/reveal'
+import { formatCompact, formatFactor, revealChat, STEAL, type PlayerView, type RevealView } from '@fermi/shared'
+import { describeOff, flippedCount, revealStage, stealPlan } from '@/lib/reveal'
 import type { Release } from '@/lib/version'
 import AnswerCard from './AnswerCard.vue'
 import FermeanieSays from './FermeanieSays.vue'
@@ -66,8 +66,9 @@ const haul = computed(() => {
     .reduce((n, c) => n + c.stolen, 0)
 })
 const verdictIn = computed(() => !plan.value || ferT.value >= plan.value.doneAt)
-// One bubble that chats: rule change, then the group dunce remark, then the verdict.
-const ferMessages = computed(() => [props.reveal.lines.ruleChange, props.reveal.lines.dunceGroup, props.reveal.lines.verdict])
+// One bubble that chats (twins, bullseye, rule change, group dunce, verdict) from `timeline.chatAt`, after the steal
+// has landed. The server makes the stage long enough for all of it.
+const ferMessages = computed(() => revealChat(props.reveal.lines))
 
 // Single-column layout (phones): the cards and FerMEANie's panel can't both be on screen.
 const narrow = ref(false)
@@ -124,7 +125,14 @@ watch([stage, flipped], async () => {
       <p v-else-if="mine && atLeast('cards') && flipped > reveal.cards.indexOf(mine)" class="center you-were">
         You were <strong>{{ describeOff(mine.factor, mine.direction, formatFactor) }}</strong>
       </p>
-      <FermeanieSays v-if="reveal.lines.everyone && !atLeast('cards')" :text="reveal.lines.everyone" mood="smug" size="s" />
+      <FermeanieSays
+        v-if="reveal.lines.everyone && !atLeast('cards')"
+        :text="reveal.lines.everyone"
+        :start-at="reveal.timeline.startedAt"
+        :now="now"
+        mood="smug"
+        size="s"
+      />
     </section>
 
     <div class="grid">
@@ -144,10 +152,6 @@ watch([stage, flipped], async () => {
           :you="c.playerId === you"
           :unit="reveal.question.unit"
         />
-        <template v-if="flipped === reveal.cards.length">
-          <FermeanieSays v-if="reveal.lines.twins" :text="reveal.lines.twins" mood="smug" size="s" />
-          <FermeanieSays v-if="reveal.lines.bullseye" :text="reveal.lines.bullseye" mood="sulk" size="s" />
-        </template>
       </section>
 
       <div class="area-fer">
@@ -172,7 +176,7 @@ watch([stage, flipped], async () => {
           <div data-steal-to>
             <FermeanieSays
               :messages="ferMessages"
-              :start-at="reveal.timeline.fermeanieAt"
+              :start-at="reveal.timeline.chatAt"
               :now="now"
               :release="release"
               :mood="ferMood"

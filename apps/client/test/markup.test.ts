@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { plain, spoken } from '@/lib/markup.ts'
+import { plainText as plain } from '@fermi/shared'
+import { spoken } from '@/lib/markup.ts'
 import { breakRoom } from '@/fixtures/rooms.ts'
 import BreakScreen from '../src/components/BreakScreen.vue'
+import FermeanieSays from '../src/components/FermeanieSays.vue'
 import FerText from '../src/components/FerText.vue'
 import NameForm from '../src/components/NameForm.vue'
 
@@ -59,6 +61,7 @@ describe('name form greeting', () => {
   it('shows a typed name exactly as typed, never as markup', async () => {
     const form = mount(NameForm, { props: { code: 'ABCD', quote: 'Hello.' } })
     await form.find('input').setValue('**Bob**')
-    expect(form.text()).toContain('**Bob**')
+    // what she will type (after her "typing…" beat): the stars are text, not bold markers
+    expect(plain(form.findComponent(FermeanieSays).props('text') ?? '')).toContain('**Bob**')
   })
 })

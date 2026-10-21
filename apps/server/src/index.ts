@@ -140,6 +140,10 @@ if (import.meta.main) {
   if (existsSync(envFile)) process.loadEnvFile(envFile)
   const s = startServer()
   s.ready.then((port) => {
+    // Rooms catch their own errors (Room.guard). A stray rejected promise is only logged; a true uncaught exception
+    // still crashes, so a supervisor restarts the server in a known state. Only once listening, so a startup failure
+    // (port taken) crashes too.
+    process.on('unhandledRejection', (e) => console.error('[fermi] unhandled rejection', e))
     console.log(`[fermi] listening on http://localhost:${port}`)
     if (!process.env.FERMI_ADMIN_TOKEN) console.log('[fermi] FERMI_ADMIN_TOKEN not set: the question admin API is disabled')
   })

@@ -60,3 +60,18 @@ export function parseMarkup(line: string): MarkupSegment[] {
 export function escapeMarkup(value: string): string {
   return value.replace(/[\\*~|]/g, '\\$&')
 }
+
+/** `parseMarkup` that never throws: the server checks every line, and anything that slips through shows as plain text. */
+export function safeParseMarkup(line: string): MarkupSegment[] {
+  try {
+    return parseMarkup(line)
+  } catch {
+    return [{ text: line }]
+  }
+}
+
+/** A line's visible text, without markers (redacted parts included): what the typewriter counts. */
+export const plainText = (line: string) =>
+  safeParseMarkup(line)
+    .map((s) => s.text)
+    .join('')

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, watch } from 'vue'
-import { STEAL } from '@/lib/reveal'
+import { STEAL } from '@fermi/shared'
 
 /**
  * The points flying from the drained cards into FerMEANie's eye. An overlay inside `root`, which must

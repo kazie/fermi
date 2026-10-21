@@ -139,7 +139,7 @@ describe('identity and abuse protection', () => {
     for (const s of [a2, b, bad]) s.ws.close()
   })
 
-  it('hides a question while it is being played, and needs two reporters to disable it', async () => {
+  it('hides a question while it is being played, and needs two players who played it to disable it', async () => {
     const q = makeQuestion({ id: 'live-q', question: 'How many lamp posts line a fictional test avenue?', unit: 'posts', answer: 777 })
     q.sources[0] = { ...q.sources[0], url: 'https://example.org/lamps', quote: 'There are 777 lamp posts.' }
     expect((await post('/api/admin/questions', { questions: [q] })).status).toBe(201)
@@ -168,11 +168,16 @@ describe('identity and abuse protection', () => {
 
     const dispute = (key: string) =>
       post('/api/questions/live-q/dispute', { message: 'This looks wrong to me', key }, { 'content-type': 'application/json' })
-    expect((await dispute(KEY_A)).status).toBe(201)
-    expect((await dispute(KEY_A)).status).toBe(200) // same reporter again: no effect
     const status = () => (srv.db.prepare("SELECT status FROM questions WHERE id = 'live-q'").get() as { status: string }).status
-    expect(status()).toBe('active')
+    // made-up keys (or keys that never got this question) are recorded but don't count
+    expect((await dispute(KEY_A)).status).toBe(201)
     expect((await dispute(KEY_B)).status).toBe(201)
+    expect(status()).toBe('active')
+    const cleo = 'c'.repeat(43)
+    expect((await dispute(cleo)).status).toBe(201)
+    expect((await dispute(cleo)).status).toBe(200) // same reporter again: no effect
+    expect(status()).toBe('active')
+    expect((await dispute('x'.repeat(43))).status).toBe(201) // a bench player, also dealt this question
     expect(status()).toBe('disputed')
     for (const id of paused) srv.db.prepare("UPDATE questions SET status = 'active' WHERE id = ?").run(id)
     srv.db.prepare("UPDATE questions SET status = 'retired' WHERE id = 'live-q'").run()

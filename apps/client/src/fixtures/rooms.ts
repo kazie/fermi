@@ -2,11 +2,14 @@
 // so a story's numbers are what the server would send.
 
 import {
+  chatDelay,
   crowdEstimate,
   evaluateSheet,
   fermeanieRelease,
+  fermeanieStageMs,
   REVEAL_TIMING,
   scoreRound,
+  stolenCards,
   type FinalView,
   type PlayerView,
   type RevealedQuestion,
@@ -149,6 +152,21 @@ export function revealFor(
   for (const r of score.results) {
     if (r.dunce) dunce[r.playerId] = `${name(r.playerId)}, I’ve filed your answer under ‘phenomena’, between black holes and printer jams.`
   }
+  const lines: RevealView['lines'] = {
+    dunce,
+    verdict: !score.fermeanie
+      ? 'Two answers. That is not a swarm, that is a queue. I abstain.'
+      : score.fermeanie.beatsAll
+        ? `I’ll take those ${score.fermeanie.points} points. For safekeeping. Forever.`
+        : `${name(sorted[sorted.length - 1].playerId)} beat the swarm. I’ve updated your file from ‘test subject’ to ‘test subject, irritating’.`,
+    ...(crowd?.method === 'median'
+      ? { ruleChange: `The median is robust to outliers. That is a polite way of saying it is robust to ${name(outlierIds[0])}.` }
+      : {}),
+    ...opts.lines,
+  }
+  // like the server: FerMEANie's stage lasts as long as the steal and her chat need
+  const stolen = stolenCards(score.fermeanie, score.results)
+  const stage = fermeanieStageMs(lines, stolen)
   return {
     index: 2,
     total: 10,
@@ -157,8 +175,9 @@ export function revealFor(
       startedAt: T0,
       truthAt,
       fermeanieAt,
-      scoreboardAt: fermeanieAt + t.fermeanie,
-      endsAt: fermeanieAt + t.fermeanie + t.scoreboard,
+      chatAt: fermeanieAt + chatDelay(stolen),
+      scoreboardAt: fermeanieAt + stage,
+      endsAt: fermeanieAt + stage + t.scoreboard,
     },
     cards: sorted.map((r, i) => ({
       ...r,
@@ -176,18 +195,7 @@ export function revealFor(
       outlierIds,
     },
     fermeanie: score.fermeanie,
-    lines: {
-      dunce,
-      verdict: !score.fermeanie
-        ? 'Two answers. That is not a swarm, that is a queue. I abstain.'
-        : score.fermeanie.beatsAll
-          ? `I’ll take those ${score.fermeanie.points} points. For safekeeping. Forever.`
-          : `${name(sorted[sorted.length - 1].playerId)} beat the swarm. I’ve updated your file from ‘test subject’ to ‘test subject, irritating’.`,
-      ...(crowd?.method === 'median'
-        ? { ruleChange: `The median is robust to outliers. That is a polite way of saying it is robust to ${name(outlierIds[0])}.` }
-        : {}),
-      ...opts.lines,
-    },
+    lines,
     scoresAfter,
     fermeanieScoreAfter: score.fermeanie?.points ?? 0,
   }

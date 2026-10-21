@@ -3,9 +3,11 @@
 
 import { randomUUID } from 'node:crypto'
 import {
+  chatDelay,
   DEFAULT_BREAK_SEC,
   evaluateSheet,
   fermeanieRelease,
+  fermeanieStageMs,
   formatFactor,
   formatNumber,
   isPieRelease,
@@ -13,6 +15,7 @@ import {
   REVEAL_TIMING,
   SCOREBOARD_BEFORE_BREAK_MS,
   scoreRound,
+  stolenCards,
   toRevealed,
   type ClientMessage,
   type FermeanieRelease,
@@ -160,7 +163,24 @@ export class Room {
     return id
   }
 
+  // Every public entry point runs through `guard`, so a bug in one room can't take the server down.
   connect(playerId: string, conn: Conn, seenKey = playerId) {
+    this.guard('connect', () => this.onConnect(playerId, conn, seenKey))
+  }
+  disconnect(playerId: string, conn: Conn) {
+    this.guard('disconnect', () => this.onDisconnect(playerId, conn))
+  }
+  connectScreen(conn: Conn) {
+    this.guard('screen connect', () => this.onConnectScreen(conn))
+  }
+  disconnectScreen(conn: Conn) {
+    this.guard('screen disconnect', () => this.onDisconnectScreen(conn))
+  }
+  handle(playerId: string, msg: ClientMessage, conn?: Conn) {
+    this.guard(msg.type, () => this.onMessage(playerId, msg, conn))
+  }
+
+  private onConnect(playerId: string, conn: Conn, seenKey: string) {
     let p = this.players.get(playerId)
     if (!p) {
       p = { id: playerId, seenKey, name: null, conns: new Set(), score: 0, dunces: 0, spectating: false, joinedAt: this.now() }
@@ -169,12 +189,13 @@ export class Room {
     clearTimeout(p.dropTimer)
     p.conns.add(conn)
     this.lastActivity = this.now()
+    this.joinRound(p)
     if (this.hostId === playerId) this.stopHostTimer()
     this.ensureHost()
     this.broadcast()
   }
 
-  disconnect(playerId: string, conn: Conn) {
+  private onDisconnect(playerId: string, conn: Conn) {
     const p = this.players.get(playerId)
     if (!p) return
     p.conns.delete(conn)
@@ -186,20 +207,28 @@ export class Room {
     }
     if (this.hostId === playerId) {
       this.stopHostTimer()
-      this.hostTimer = setTimeout(() => {
-        this.hostTimer = undefined
-        this.ensureHost()
-        this.broadcast()
-      }, HOST_HANDOVER_MS)
+      this.hostTimer = setTimeout(
+        () =>
+          this.guard('host handover', () => {
+            this.hostTimer = undefined
+            this.ensureHost()
+            this.broadcast()
+          }),
+        HOST_HANDOVER_MS,
+      )
     }
     if (this.phase === 'lobby') {
-      p.dropTimer = setTimeout(() => {
-        if (p.conns.size === 0 && this.phase === 'lobby') {
-          this.players.delete(p.id)
-          this.ensureHost()
-          this.broadcast()
-        }
-      }, LOBBY_DROP_MS)
+      p.dropTimer = setTimeout(
+        () =>
+          this.guard('lobby drop', () => {
+            if (p.conns.size === 0 && this.phase === 'lobby') {
+              this.players.delete(p.id)
+              this.ensureHost()
+              this.broadcast()
+            }
+          }),
+        LOBBY_DROP_MS,
+      )
     }
     this.broadcast()
     if (this.phase === 'question') this.maybeEndEarly()
@@ -219,13 +248,13 @@ export class Room {
     return [...this.players.values()].filter((p) => p.name !== null && p.conns.size > 0)
   }
 
-  connectScreen(conn: Conn) {
+  private onConnectScreen(conn: Conn) {
     this.screens.add(conn)
     this.lastActivity = this.now()
     this.broadcast()
   }
 
-  disconnectScreen(conn: Conn) {
+  private onDisconnectScreen(conn: Conn) {
     this.screens.delete(conn)
     this.lastActivity = this.now()
     this.broadcast()
@@ -258,7 +287,7 @@ export class Room {
 
   // ---------- messages ----------
 
-  handle(playerId: string, msg: ClientMessage, conn?: Conn) {
+  private onMessage(playerId: string, msg: ClientMessage, conn?: Conn) {
     const p = this.players.get(playerId)
     if (!p) return
     this.lastActivity = this.now()
@@ -409,6 +438,18 @@ export class Room {
     this.broadcast()
   }
 
+  /**
+   * A player who was in the game but offline when the question started (a phone that locked during the break) plays it
+   * after all when they reconnect before the deadline. Players who joined mid-round (`spectating`) wait for the next one.
+   */
+  private joinRound(p: Player) {
+    const r = this.round
+    if (this.phase !== 'question' || !r || p.name === null || p.spectating || r.participants.has(p.id)) return
+    if (this.now() >= r.endsAt) return
+    r.participants.add(p.id)
+    markSeen(this.deps.db, [p.seenKey], r.question.id)
+  }
+
   /** Who a line may single out right now (see quipNames). */
   private standings() {
     const game = this.game!
@@ -478,9 +519,6 @@ export class Room {
     const cardsStart = truthAt + t.truth
     const per = cardsSorted.length ? Math.min(t.cardEach, t.cardsMaxTotal / cardsSorted.length) : 0
     const fermeanieAt = cardsStart + cardsSorted.length * per
-    const scoreboardAt = fermeanieAt + t.fermeanie
-    // With a break coming, the scoreboard step is short: the break shows the scores anyway.
-    const endsAt = scoreboardAt + (this.breakAfter(r.index) ? SCOREBOARD_BEFORE_BREAK_MS * k : t.scoreboard)
 
     // lines
     const lines = game.lines
@@ -523,6 +561,27 @@ export class Room {
     const twins = sameAnswer(entries)
     const outlierIds = (score.crowd?.outliers ?? []).map((i) => entries[i].playerId)
 
+    const revealLines: RevealView['lines'] = {
+      ...(lockedEarly ? { everyone: lines.pick('everyone_locked', {}) } : {}),
+      ...(twins.length ? { twins: lines.pick('twins', { names: joinNames(twins.map(name)) }) } : {}),
+      ...(score.crowd?.method === 'median' && outlierIds.length
+        ? { ruleChange: lines.pick('rule_change', { name: name(outlierIds[0]), count: outlierIds.length }) }
+        : {}),
+      dunce: dunceLines,
+      ...(dunced.length >= 2
+        ? { dunceGroup: lines.pick('dunce.group', { names: joinNames(dunced.map(name)), count: dunced.length }) }
+        : {}),
+      verdict,
+      ...(bull ? { bullseye: lines.pick('human_bullseye', { name: name(bull.playerId) }) } : {}),
+    }
+    // FerMEANie's stage lasts until the steal has landed and she has finished talking, so the next step can't cut her
+    // off. Her chat isn't sped up by FERMI_TIME_SCALE: clients type at normal speed, test games included.
+    const stolen = stolenCards(score.fermeanie, score.results)
+    const chatAt = fermeanieAt + chatDelay(stolen)
+    const scoreboardAt = fermeanieAt + fermeanieStageMs(revealLines, stolen, t.fermeanie)
+    // With a break coming, the scoreboard step is short: the break shows the scores anyway.
+    const endsAt = scoreboardAt + (this.breakAfter(r.index) ? SCOREBOARD_BEFORE_BREAK_MS * k : t.scoreboard)
+
     const scoresAfter: Record<string, number> = {}
     for (const p of this.joinedPlayers()) scoresAfter[p.id] = p.score
     for (const res of score.results) scoresAfter[res.playerId] = (scoresAfter[res.playerId] ?? 0) + res.points
@@ -542,6 +601,7 @@ export class Room {
         startedAt: start,
         truthAt,
         fermeanieAt: Math.round(fermeanieAt),
+        chatAt: Math.round(chatAt),
         scoreboardAt: Math.round(scoreboardAt),
         endsAt: Math.round(endsAt),
       },
@@ -558,19 +618,7 @@ export class Room {
           }
         : null,
       fermeanie: score.fermeanie,
-      lines: {
-        ...(lockedEarly ? { everyone: lines.pick('everyone_locked', {}) } : {}),
-        ...(twins.length ? { twins: lines.pick('twins', { names: joinNames(twins.map(name)) }) } : {}),
-        ...(score.crowd?.method === 'median' && outlierIds.length
-          ? { ruleChange: lines.pick('rule_change', { name: name(outlierIds[0]), count: outlierIds.length }) }
-          : {}),
-        dunce: dunceLines,
-        ...(dunced.length >= 2
-          ? { dunceGroup: lines.pick('dunce.group', { names: joinNames(dunced.map(name)), count: dunced.length }) }
-          : {}),
-        verdict,
-        ...(bull ? { bullseye: lines.pick('human_bullseye', { name: name(bull.playerId) }) } : {}),
-      },
+      lines: revealLines,
       scoresAfter,
       fermeanieScoreAfter: this.fermeanieScore + (score.fermeanie?.points ?? 0),
     }
@@ -704,7 +752,29 @@ export class Room {
 
   private schedule(ms: number, fn: () => void) {
     clearTimeout(this.timer)
-    this.timer = setTimeout(fn, Math.max(0, ms))
+    this.timer = setTimeout(() => this.guard('timer', fn), Math.max(0, ms))
+  }
+
+  /**
+   * Runs `fn` so that a bug can't take the server (and every other room) down: it's logged, everyone in this room is
+   * told, and a game in progress goes back to the lobby, since a half-done step can't be trusted. Every way into a
+   * room (messages, connections, timers) goes through here.
+   */
+  guard(what: string, fn: () => void) {
+    try {
+      fn()
+    } catch (e) {
+      console.error(`[fermi] room ${this.code}: ${what} failed`, e)
+      // The message first: going back to the lobby broadcasts, which may hit the same bug.
+      const msg: ServerMessage = { type: 'error', message: 'Something broke on our side, so the game went back to the lobby. Sorry!' }
+      for (const p of this.players.values()) for (const c of p.conns) c.send(msg)
+      for (const c of this.screens) c.send(msg)
+      try {
+        if (this.phase !== 'lobby') this.toLobby()
+      } catch (again) {
+        console.error(`[fermi] room ${this.code}: recovering failed too`, again)
+      }
+    }
   }
 
   dispose() {

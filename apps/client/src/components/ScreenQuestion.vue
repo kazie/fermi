@@ -24,7 +24,7 @@ const playing = computed(() => props.room.players.filter((p) => !p.spectating).l
       <span class="eyebrow">Locked in {{ locked }} / {{ playing }}</span>
       <PlayerStrip :players="room.players" you="" />
     </div>
-    <FermeanieSays :text="round.line" :release="room.fermeanie" mood="smug" size="l" />
+    <FermeanieSays :text="round.line" :start-at="round.startedAt" :now="now" :release="room.fermeanie" mood="smug" size="l" />
   </div>
 </template>
 

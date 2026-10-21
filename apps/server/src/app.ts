@@ -14,6 +14,7 @@ import {
   exportAll,
   getQuestion,
   isPlayed,
+  keyReporter,
   listRejections,
   listTexts,
   loadCandidates,
@@ -106,7 +107,7 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
     if (!disputeLimit(ip)) return c.json({ error: 'Too many disputes from here. Try again later.' }, 429)
     const body = DisputeBody.safeParse(await c.req.json().catch(() => null))
     if (!body.success) return c.json({ error: 'Please describe what looks wrong (at least a few words)' }, 400)
-    const reporter = body.data.key ? `key:${hashKey(body.data.key)}` : `ip:${ip}`
+    const reporter = body.data.key ? keyReporter(hashKey(body.data.key)) : `ip:${ip}`
     const added = addDispute(db, id, reporter, body.data.message)
     return c.json({ ok: true, alreadyReported: !added }, added ? 201 : 200)
   })

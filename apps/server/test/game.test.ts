@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MIN_PLAYERS, type RoomView, type ServerMessage } from '@fermi/shared'
+import { chatDelay, fermeanieStageMs, MIN_PLAYERS, stolenCards, type RoomView, type ServerMessage } from '@fermi/shared'
 import { Room, DEADLINE_GRACE_MS, HOST_HANDOVER_MS, LOBBY_DROP_MS, quipNames } from '../src/game.ts'
 import { getQuestion } from '../src/questions/repo.ts'
 import { makeQuestion, seed, testDb, testLines } from './fixtures.ts'
@@ -542,5 +542,78 @@ describe('quipNames', () => {
       leader: 'Ada',
       last: undefined,
     })
+  })
+})
+
+describe('Room robustness', () => {
+  it('a step that throws sends only this room back to the lobby, with a message, and the server keeps going', () => {
+    const { room, players } = setup(3)
+    const [a] = players
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    room.handle(a.id, { type: 'start' }, a.conn)
+    expect(a.conn.last.phase).toBe('question')
+    vi.spyOn(room as unknown as { endRound(): void }, 'endRound').mockImplementation(() => {
+      throw new Error('a bug in endRound')
+    })
+    expect(() => vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS)).not.toThrow()
+    expect(a.conn.last.phase).toBe('lobby')
+    expect(a.conn.errors.at(-1)).toMatchObject({ message: /went back to the lobby/ })
+    expect(quiet).toHaveBeenCalled()
+    quiet.mockRestore()
+  })
+
+  it('guard catches a throwing message handler too', () => {
+    const { room, players } = setup(3)
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(() =>
+      room.guard('test', () => {
+        throw new Error('boom')
+      }),
+    ).not.toThrow()
+    expect(players[0].conn.errors.at(-1)).toMatchObject({ message: /Something broke/ })
+    quiet.mockRestore()
+  })
+
+  it('lets a player whose phone locked during the break answer the question when they come back', () => {
+    const { room, players } = setup(4)
+    const [a, , , d] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 60, breakSec: 15 }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS) // reveal
+    while (a.conn.last.phase === 'reveal') vi.advanceTimersByTime(1000)
+    expect(a.conn.last.phase).toBe('break')
+    room.disconnect(d.id, d.conn) // d's phone locks during the break
+    vi.advanceTimersByTime(15_000) // the break ends, the question starts without d connected
+    expect(a.conn.last.phase).toBe('question')
+    const fresh = new FakeConn()
+    room.connect(d.id, fresh) // back before the deadline
+    expect(fresh.last.yourSheet).toEqual({ text: '', locked: false })
+    room.handle(d.id, { type: 'lock', text: '42' }, fresh)
+    expect(a.conn.last.players.find((p) => p.id === d.id)).toMatchObject({ lockedIn: true })
+  })
+
+  it("makes FerMEANie's reveal stage long enough for everything she says", () => {
+    const { room, players } = setup(3)
+    const [a] = players
+    room.handle(a.id, { type: 'start' }, a.conn)
+    vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS)
+    const rv = a.conn.last.reveal!
+    const stolen = stolenCards(rv.fermeanie, rv.cards)
+    expect(rv.timeline.chatAt - rv.timeline.fermeanieAt).toBe(chatDelay(stolen))
+    expect(rv.timeline.scoreboardAt - rv.timeline.fermeanieAt).toBe(fermeanieStageMs(rv.lines, stolen))
+  })
+
+  it('keeps her chat at full length in sped-up games, since clients type at normal speed', () => {
+    const db = testDb()
+    seed(db, 6)
+    const room = new Room('FAST', { db, lines: testLines, rand: () => 0, timeScale: 0.25 })
+    const [a] = joinPlayers(room, 3)
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 60, breakSec: 0 }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS) // the question timer itself is never sped up
+    const rv = a.conn.last.reveal!
+    // only the minimum shrinks; the steal and her chat take their real time
+    const real = fermeanieStageMs(rv.lines, stolenCards(rv.fermeanie, rv.cards), 0)
+    expect(rv.timeline.scoreboardAt - rv.timeline.fermeanieAt).toBeGreaterThanOrEqual(real)
   })
 })

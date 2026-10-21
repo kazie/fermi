@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatFactor, type PlayerView, type RevealView } from '@fermi/shared'
+import { formatFactor, revealChat, type PlayerView, type RevealView } from '@fermi/shared'
 import { describeOff, flippedCount, revealStage } from '@/lib/reveal'
 import type { Release } from '@/lib/version'
 import { S } from '@/lib/strings'
@@ -25,6 +25,8 @@ const rank = computed(() => {
   return all.findIndex(([id]) => id === props.you) + 1
 })
 const stolen = computed(() => atLeast('fermeanie') && !!fer.value?.beatsAll)
+// The same chat as the big screen, at the same moment.
+const ferMessages = computed(() => revealChat(props.reveal.lines))
 </script>
 
 <template>
@@ -53,8 +55,8 @@ const stolen = computed(() => atLeast('fermeanie') && !!fer.value?.beatsAll)
 
     <FermeanieSays
       v-if="atLeast('fermeanie')"
-      :messages="[reveal.lines.ruleChange, reveal.lines.dunceGroup, reveal.lines.verdict]"
-      :start-at="reveal.timeline.fermeanieAt"
+      :messages="ferMessages"
+      :start-at="reveal.timeline.chatAt"
       :now="now"
       :release="release"
       :mood="fer?.beatsAll ? 'smug' : 'sulk'"

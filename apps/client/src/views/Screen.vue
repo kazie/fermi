@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useSocket } from '@/composables/useSocket'
 import { useServerNow } from '@/composables/useNow'
+import { useWakeLock } from '@/composables/useWakeLock'
 import { providePlayerOrder } from '@/lib/playerColors'
 import AppHeader from '@/components/AppHeader.vue'
 import BreakScreen from '@/components/BreakScreen.vue'
@@ -15,6 +16,7 @@ const props = defineProps<{ code: string }>()
 const code = props.code.toUpperCase()
 const { room, status, fatal, offset } = useSocket(code, { screen: true })
 const now = useServerNow(offset)
+useWakeLock(() => !!room.value) // a TV page should never fall asleep
 providePlayerOrder(computed(() => room.value?.players.map((p) => p.id) ?? []))
 const joinUrl = `${location.origin}/r/${code}`
 

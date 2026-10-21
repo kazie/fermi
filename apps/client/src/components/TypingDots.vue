@@ -1,5 +1,5 @@
 <template>
-  <span class="dots" role="status" aria-label="FerMEANie is typing"><i></i><i></i><i></i></span>
+  <span class="dots"><i></i><i></i><i></i></span>
 </template>
 
 <style scoped>

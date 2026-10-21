@@ -3,6 +3,8 @@ import { MIN_CROWD, type CrowdStats } from './crowd.ts'
 import type { PublicQuestion, RevealedQuestion } from './question.ts'
 import type { DunceKind, FermeanieRelease } from './scoring.ts'
 import { LIMITS } from './calc/evaluate.ts'
+import { chatDuration, HOLD_MS } from './chat.ts'
+import { plainText } from './markup.ts'
 
 export const ROUND_OPTIONS = [5, 10, 15] as const
 export const TIMER_OPTIONS = [30, 60, 90] as const
@@ -36,9 +38,47 @@ export const REVEAL_TIMING = {
   scoreboard: 6000,
 } as const
 
+/** The steal (ms from the start of FerMEANie's stage): each stolen card's points take off in turn, then fly. */
+export const STEAL = { lead: 700, spread: 1700, maxStagger: 300, flight: 900 } as const
+
+/** How the steal's take-offs are spaced, and when the last points land, for this many stolen cards. */
+export function stealTiming(victims: number) {
+  const stagger = victims > 1 ? Math.min(STEAL.maxStagger, STEAL.spread / (victims - 1)) : 0
+  const doneAt = victims ? STEAL.lead + (victims - 1) * stagger + STEAL.flight : STEAL.lead
+  return { stagger, doneAt }
+}
+
+/** FerMEANie's chat in the reveal, in the order she says it. Missing lines are left out. */
+export function revealChat(lines: RevealView['lines']): string[] {
+  return [lines.twins, lines.bullseye, lines.ruleChange, lines.dunceGroup, lines.verdict].filter((l): l is string => !!l)
+}
+
+/** How many cards FerMEANie steals from (null without a steal). The one count the steal and its timing use. */
+export function stolenCards(fermeanie: { beatsAll: boolean } | null, rows: { stolen: number }[]): number | null {
+  return fermeanie?.beatsAll ? rows.filter((r) => r.stolen > 0).length : null
+}
+
+/** When FerMEANie starts talking, in ms from the start of her stage: right away, or once the stolen points landed. */
+export const chatDelay = (stolen: number | null) => (stolen === null ? 0 : stealTiming(stolen).doneAt)
+
+/**
+ * How long FerMEANie's stage lasts (ms): at least `minMs`, and long enough for the steal, her whole chat after it and
+ * a moment to read her last line. Those are real time: clients play them at normal speed, even in sped-up test games,
+ * which only shorten `minMs`.
+ */
+export function fermeanieStageMs(lines: RevealView['lines'], stolen: number | null, minMs: number = REVEAL_TIMING.fermeanie): number {
+  return Math.max(minMs, chatDelay(stolen) + chatDuration(revealChat(lines).map(plainText)) + HOLD_MS)
+}
+
+/**
+ * FerMEANie's stage in a typical round, for estimates: her lines average about 100 characters, and many rounds add a
+ * second one (twins, a rule change, a group dunce) to the verdict.
+ */
+export const TYPICAL_FERMEANIE_MS = fermeanieStageMs({ dunce: {}, twins: 'x'.repeat(100), verdict: 'x'.repeat(100) }, null)
+
 export function revealDuration(players: number): number {
   const t = REVEAL_TIMING
-  return t.numberLine + t.truth + Math.min(t.cardsMaxTotal, players * t.cardEach) + t.fermeanie + t.scoreboard
+  return t.numberLine + t.truth + Math.min(t.cardsMaxTotal, players * t.cardEach) + TYPICAL_FERMEANIE_MS + t.scoreboard
 }
 
 export interface RoomSettings {
@@ -144,6 +184,8 @@ export interface RevealView {
     startedAt: number
     truthAt: number
     fermeanieAt: number
+    /** When her chat starts: after the steal, if there is one. */
+    chatAt: number
     scoreboardAt: number
     endsAt: number
   }

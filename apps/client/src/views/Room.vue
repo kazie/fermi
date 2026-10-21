@@ -4,6 +4,7 @@ import { rememberGameId, saveName, savedName, savedPhoneView, savePhoneView, typ
 import { providePlayerOrder } from '@/lib/playerColors'
 import { useSocket } from '@/composables/useSocket'
 import { useServerNow } from '@/composables/useNow'
+import { useWakeLock } from '@/composables/useWakeLock'
 import AppHeader from '@/components/AppHeader.vue'
 import FinalScreen from '@/components/FinalScreen.vue'
 import Lobby from '@/components/Lobby.vue'
@@ -19,6 +20,8 @@ const props = defineProps<{ code: string }>()
 const code = props.code.toUpperCase()
 const { room, status, fatal, lastError, offset, send } = useSocket(code)
 const now = useServerNow(offset)
+// keep the phone awake through a game, so it doesn't lock (and drop off) mid-question
+useWakeLock(() => ['question', 'reveal', 'break'].includes(room.value?.phase ?? ''))
 
 const me = computed(() => room.value?.players.find((p) => p.id === room.value?.you))
 providePlayerOrder(computed(() => room.value?.players.map((p) => p.id) ?? []))

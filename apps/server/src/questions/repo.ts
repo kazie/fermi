@@ -226,8 +226,15 @@ export function isPlayed(db: DB, questionId: string): boolean {
   return !!db.prepare('SELECT 1 FROM played_questions WHERE question_id = ?').get(questionId)
 }
 
-/** Player disputes take a question out of rotation only once this many different people agree. */
+/**
+ * Player disputes take a question out of rotation only once this many different people agree, and only people who
+ * were dealt it count: keys are free to make up, but `player_seen` only has the ones that played it.
+ */
 export const DISPUTES_TO_DISABLE = 2
+
+/** A dispute's reporter for a player key: its hash, the same one `player_seen` stores, behind this prefix. */
+const KEY_REPORTER = 'key:'
+export const keyReporter = (keyHash: string) => KEY_REPORTER + keyHash
 
 /**
  * @param reporter who disputes (a hashed player key or `ip:…`); null = the system itself (e.g. `q check`),
@@ -243,8 +250,13 @@ export function addDispute(db: DB, questionId: string, reporter: string | null, 
   }
   db.prepare('INSERT INTO disputes (question_id, player_id, message, at) VALUES (?, ?, ?, ?)').run(questionId, reporter, message, nowIso())
   const { n } = db
-    .prepare('SELECT COUNT(DISTINCT player_id) AS n FROM disputes WHERE question_id = ? AND resolved_at IS NULL AND player_id IS NOT NULL')
-    .get(questionId) as { n: number }
+    .prepare(
+      `SELECT COUNT(DISTINCT d.player_id) AS n FROM disputes d
+       WHERE d.question_id = ? AND d.resolved_at IS NULL AND d.player_id IS NOT NULL
+         AND d.player_id LIKE ? || '%'
+         AND EXISTS (SELECT 1 FROM player_seen s WHERE s.player_id = substr(d.player_id, ?) AND s.question_id = d.question_id)`,
+    )
+    .get(questionId, KEY_REPORTER, KEY_REPORTER.length + 1) as { n: number }
   if (reporter === null || n >= DISPUTES_TO_DISABLE) {
     db.prepare("UPDATE questions SET status = 'disputed', updated_at = ? WHERE id = ? AND status = 'active'").run(nowIso(), questionId)
   }
