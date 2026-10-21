@@ -5,6 +5,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { parseAgentOutput } from './grow-report.ts'
 
 export const ROOT = new URL('../', import.meta.url).pathname
 const envFile = new URL('../.env', import.meta.url)
@@ -40,6 +41,12 @@ export function runClaude(args: string[], configDir: string, env: Record<string,
     child.on('error', () => resolve(''))
     child.on('close', () => resolve(out))
   })
+}
+
+/** One tool-less model call with its own system prompt: its reply, cost and any usage limit (never printed). */
+export async function askModel(model: 'haiku' | 'sonnet', system: string, prompt: string, configDir: string) {
+  const args = ['-p', '--model', model, '--tools', '', '--system-prompt', system, '--no-session-persistence', '--output-format', 'json']
+  return parseAgentOutput(await runClaude([...args, prompt], configDir))
 }
 
 /** `pnpm q <args>`; resolves with stdout, rejects if it exits non-zero. */

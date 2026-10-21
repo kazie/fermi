@@ -7,15 +7,16 @@
 // Runs bill the Claude account in FERMI_CLAUDE_CONFIG_DIR (from .env), never whatever the shell defaults to.
 
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
 import { CATEGORIES } from '../packages/shared/src/question.ts'
-import { claudeConfigDir, ROOT, runClaude, runCli } from './claude.ts'
-import { limitReset } from './grow-report.ts'
-import { formatReport, parseAgentOutput, runPipeline, type AgentName, type AgentResult } from './pipeline.ts'
+import { askModel, claudeConfigDir, ROOT, runClaude, runCli } from './claude.ts'
+import { limitReset, parseAgentOutput } from './grow-report.ts'
+import { formatReport, runPipeline, type AgentName, type AgentResult, type ScreenResult } from './pipeline.ts'
+import { rulesSection, screenFilePath, screenQuestions, type ScreenFile, type ScreenItem } from './review.ts'
 
 const configDir = claudeConfigDir()
 const RETRY_MS = 20 * 60 * 1000
@@ -75,6 +76,45 @@ function runAgent(agent: AgentName, brief: string, heartbeat: string): Promise<A
   return runClaude(args, configDir, { FERMI_HEARTBEAT: heartbeat }).then(parseAgentOutput)
 }
 
+const rules = rulesSection(readFileSync(join(ROOT, 'content', 'QUESTION_RULES.md'), 'utf8'))
+
+/**
+ * The player-view screen of `pnpm review`, on drafts before they're verified. Each flagged draft gets a `.screen.json`
+ * with what the screen saw and its note, for the verifier and `pnpm q approve`. Drafts that can't be read are left out.
+ */
+async function screenDrafts(dir: string, ids: string[]): Promise<ScreenResult> {
+  const items: ScreenItem[] = []
+  const draftPath = (id: string) => join(ROOT, dir, 'drafts', `${id}.json`)
+  for (const id of ids) {
+    try {
+      const d = JSON.parse(readFileSync(draftPath(id), 'utf8'))
+      items.push({ id, category: String(d.category), question: String(d.question), unit: String(d.unit) })
+    } catch {
+      // still being written or broken: prepare passed it, so this is rare; screen the rest
+    }
+  }
+  const r: ScreenResult = { flags: {}, costUsd: 0, limit: null }
+  if (!items.length) return r
+  const hits = await screenQuestions(
+    async (system, prompt) => {
+      const a = await askModel('haiku', system, prompt, configDir)
+      r.costUsd += a.costUsd
+      r.limit ??= a.limit
+      return a.limit ? null : a.text
+    },
+    rules,
+    items,
+  )
+  if (!hits) return { ...r, failed: !r.limit }
+  for (const f of hits) {
+    const item = items.find((q) => q.id === f.id)!
+    const file: ScreenFile = { issue: f.issue, note: f.note, question: item.question, unit: item.unit }
+    writeFileSync(screenFilePath(draftPath(f.id)), JSON.stringify(file, null, 2))
+    r.flags[f.id] = f.issue
+  }
+  return r
+}
+
 /** Total spent by all runs, for the closing line. */
 let spent = 0
 
@@ -93,8 +133,9 @@ async function run(topic: string): Promise<{ added: number | null; report: strin
     const r = await runPipeline(topic, count, {
       runAgent: (agent, brief) => runAgent(agent, brief, heartbeat),
       cli: (args) => runCli(args, { FERMI_HEARTBEAT: heartbeat }),
+      screen: screenDrafts,
     })
-    spent += r.cost['fermi-generator'] + r.cost['fermi-verifier']
+    spent += r.cost['fermi-generator'] + r.cost.screen + r.cost['fermi-verifier']
     if (r.limit) {
       return { added: null, report: `${formatReport(r)} · stopped: ${r.limit}`, limitUntil: limitReset(r.limit, new Date()) }
     }

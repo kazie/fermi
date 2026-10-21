@@ -6,8 +6,10 @@ import {
   parseJsonArray,
   REVIEW_FLAG,
   reviewPool,
+  rewordProblem,
   rulesSection,
   SCREEN_CHUNK,
+  screenFilePath,
   UNRESOLVED_FLAG,
   type PoolQuestion,
   type ReviewDeps,
@@ -53,6 +55,12 @@ function fake(pool: PoolQuestion[], flag: Record<string, string>, decide: Record
 }
 
 describe('review helpers', () => {
+  it('holds a reworded draft to the review limits, naming counts only', () => {
+    expect(rewordProblem('How many trees grow in a big city park?', 'trees', 4200)).toBeNull()
+    expect(rewordProblem(Array.from({ length: 30 }, () => 'word').join(' '), 'x', 1)).toBe('is 30 words (at most 25)')
+    expect(rewordProblem('Of the 4200 trees, how many are oaks?', 'trees', 4200)).toBe('gives away the answer')
+    expect(screenFilePath('b/drafts/some-id.json')).toBe('b/drafts/some-id.screen.json')
+  })
   it('takes §1 of the rules without the category table', () => {
     const md = '# Rules\nintro\n## 1. What makes a good question\n- stands on its own\n### Categories\n| a |\n## 2. Sources'
     expect(rulesSection(md)).toBe('## 1. What makes a good question\n- stands on its own')
@@ -88,7 +96,7 @@ describe('reviewPool', () => {
     const pool = [q('keep-me'), q('reword-me'), q('retire-me'), q('fine')]
     const f = fake(
       pool,
-      { 'keep-me': 'other', 'reword-me': 'needs-context', 'retire-me': 'obscure' },
+      { 'keep-me': 'other', 'reword-me': 'needs-context', 'retire-me': 'unclear' },
       {
         'keep-me': { action: 'keep', reason: 'clear enough' },
         'reword-me': { action: 'reword', question: 'In Star Wars, how long is it?', reason: 'names the work' },
@@ -100,7 +108,7 @@ describe('reviewPool', () => {
     expect(f.asks[1].prompt).toContain('"answer":42')
     expect(r.kept).toEqual(['keep-me'])
     expect(r.reworded).toEqual([{ id: 'reword-me', newId: 'reword-me-v2', issue: 'needs-context' }])
-    expect(r.retired).toEqual([{ id: 'retire-me', issue: 'obscure' }])
+    expect(r.retired).toEqual([{ id: 'retire-me', issue: 'unclear' }])
     expect(f.cli).toContainEqual(['flag', REVIEW_FLAG, 'fine'])
     expect(f.cli).toContainEqual(['flag', REVIEW_FLAG, 'keep-me', 'reword-me-v2'])
     expect(f.cli.find((c) => c[0] === 'reword')).toEqual([
@@ -111,11 +119,11 @@ describe('reviewPool', () => {
       '--reason',
       'quality review (needs-context): names the work',
     ])
-    expect(f.cli).toContainEqual(['status', 'retire-me', 'retired', '--resolution', 'quality review (obscure): too obscure'])
+    expect(f.cli).toContainEqual(['status', 'retire-me', 'retired', '--resolution', 'quality review (unclear): too obscure'])
   })
 
   it('leaves questions with missing or bad decisions unflagged, for the next run', async () => {
-    const f = fake([q('a'), q('b')], { a: 'obscure', b: 'obscure' }, { a: { action: 'reword', reason: 'x' } })
+    const f = fake([q('a'), q('b')], { a: 'unclear', b: 'unclear' }, { a: { action: 'reword', reason: 'x' } })
     const r = await reviewPool(f.deps, { rules: 'rules' })
     expect(r.unresolved).toEqual([
       { id: 'a', why: 'no-decision' },
@@ -190,7 +198,7 @@ describe('reviewPool', () => {
 
   it('reports progress with counts only', async () => {
     const pool = Array.from({ length: SCREEN_CHUNK + 5 }, (_, i) => q(`q${i}`))
-    const f = fake(pool, { q3: 'obscure' }, { q3: { action: 'retire', reason: 'x' } })
+    const f = fake(pool, { q3: 'unclear' }, { q3: { action: 'retire', reason: 'x' } })
     const msgs: string[] = []
     await reviewPool(f.deps, { rules: 'rules', onProgress: (m) => msgs.push(m) })
     expect(msgs).toEqual([
@@ -235,7 +243,7 @@ describe('reviewPool', () => {
       passed: 7,
       kept: ['k'],
       reworded: [{ id: 'a', newId: 'a-v2', issue: 'needs-context' }],
-      retired: [{ id: 'b', issue: 'obscure' }],
+      retired: [{ id: 'b', issue: 'unclear' }],
       details: [],
       unresolved: [{ id: 'c', why: 'refused' }],
       cost: { haiku: 0.02, sonnet: 0.1 },
@@ -244,7 +252,7 @@ describe('reviewPool', () => {
     })
     expect(lines).toEqual([
       'reworded  a → a-v2 (needs-context)',
-      'retired   b (obscure)',
+      'retired   b (unclear)',
       'unresolved c (refused)',
       'screened 10: 7 fine, 1 kept after a second look, 1 reworded, 1 retired, 1 unresolved · $0.12 (screening $0.02, editing $0.10)',
     ])

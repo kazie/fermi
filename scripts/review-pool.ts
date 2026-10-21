@@ -6,8 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
-import { claudeConfigDir, ROOT, runClaude, runCli } from './claude.ts'
-import { parseAgentOutput } from './pipeline.ts'
+import { askModel, claudeConfigDir, ROOT, runCli } from './claude.ts'
 import { formatReview, maskNumbers, reviewPool, rulesSection, type PoolQuestion } from './review.ts'
 
 const { values } = parseArgs({
@@ -27,10 +26,7 @@ const configDir = claudeConfigDir()
 
 const result = await reviewPool(
   {
-    async ask(model, system, prompt) {
-      const args = ['-p', '--model', model, '--tools', '', '--system-prompt', system, '--no-session-persistence', '--output-format', 'json']
-      return parseAgentOutput(await runClaude([...args, prompt], configDir))
-    },
+    ask: (model, system, prompt) => askModel(model, system, prompt, configDir),
     cli: (args) => runCli(args),
     // The export holds answers: it's read from the command's output, never written to disk or printed.
     pool: async () => (JSON.parse(await runCli(['export'])) as { questions: PoolQuestion[] }).questions,

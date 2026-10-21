@@ -12,6 +12,8 @@ export const REVIEW_FLAG = 'reviewed:v1'
 /** A decision that couldn't be applied (the server refused the reword, say): skipped until `--retry-unresolved`. */
 export const UNRESOLVED_FLAG = 'review-unresolved:v1'
 export const SCREEN_CHUNK = 40
+/** A screener's note is cut to this many characters: it's a hint for the editor, not a place for instructions. */
+export const MAX_NOTE_CHARS = 200
 export const EDIT_CHUNK = 6
 /** A reworded question longer than this isn't applied (left unresolved), however good the model thought it was. */
 export const MAX_REWORD_WORDS = 25
@@ -56,7 +58,6 @@ export interface ReviewOptions {
   onProgress?: (msg: string) => void
 }
 
-type Flagged = { id: string; issue: string; note: string }
 type Decision = { id: string; action: 'keep' | 'reword' | 'retire'; question?: string; unit?: string; reason: string }
 
 export interface ReviewResult {
@@ -128,15 +129,16 @@ The project's rules for questions:
 
 ${rules}
 
-Flag every question that a typical adult player would struggle with because of how it is asked: it needs context
-the question doesn't give (e.g. a fictional thing without naming its work, an unexplained term or acronym), its
-subject is too obscure for most people, it is ambiguous, it is recall rather than estimation, the unit doesn't fit,
-or it breaks another rule above. Don't judge whether facts are true: you can't see answers or sources.
-Famous subjects are not obscure just because the exact number is unknown: that is the point of the game.
-When unsure, flag it: an editor checks every flag.
+Flag every question where a typical adult player couldn't tell what to estimate or would have nothing to reason
+from: it needs context the question doesn't give (e.g. a fictional thing without naming its work, an unexplained
+term or acronym), it's unclear what is being counted or measured, it is ambiguous, it is recall rather than
+estimation (a fixed fact people either remember or don't), the unit doesn't fit, or it breaks another rule above.
+Don't judge whether facts are true: you can't see answers or sources.
+An unfamiliar subject is fine when the question is plain: players reason from what they know (people, shares,
+rates, sizes). Not knowing the number is the point of the game. When unsure, flag it: an editor checks every flag.
 
 Reply with ONLY a JSON array with one object per flagged question:
-{"id": "<id>", "issue": "<needs-context | obscure | ambiguous | recall | unit | other>", "note": "<short reason>"}
+{"id": "<id>", "issue": "<needs-context | unclear | ambiguous | recall | unit | other>", "note": "<short reason>"}
 Reply [] if every question is fine.`
 
 export const editSystem = (
@@ -155,18 +157,63 @@ A screener flagged each question below. You see its sources and explanation. Dec
   acronym, use a plain word for a technical one. Keep it short: at most ${MAX_REWORD_WORDS} words, one question, at
   most a few words of setup, never a definition or a list of what counts. Never reveal or hint at the answer. Give
   "unit" only if it must change.
-- "retire": the question only makes sense after its subject or terms are explained (a statistical category, a
-  specialist counting method, an institution most people outside one country don't know), the subject is unknown to
-  most adults, it's ambiguous at heart, or it's not really an estimation question. If a fix would need a definition
-  or more than a few words of setup, retire it: a better-known subject makes a better question.
-Famous animals, places, objects, works and events are never too obscure, even when the exact fact is something
-nobody knows: that's what makes a good estimation question. Data age, sources and number accuracy were checked when
+- "retire": the question only makes sense after its terms are explained (a statistical category, a specialist
+  counting method), players can't tell what is being counted, it's ambiguous at heart, or there's nothing to reason
+  from (a fixed fact people either remember or don't). If a fix would need a definition or more than a few words
+  of setup, retire it.
+Never retire just because the subject is unfamiliar: if most adults understand what is asked and can reason toward
+it (people × share × rate…), it's a good estimation question, even when nobody knows the exact number. Data age, sources and number accuracy were checked when
 the question was added; don't retire for those.
 
 Reply with ONLY a JSON array, one object per question:
 {"id": "<id>", "action": "keep" | "reword" | "retire", "question": "<new wording, for reword>", "unit": "<only if changed>", "reason": "<short, no numbers>"}`
 
-const screenLine = (q: PoolQuestion) => JSON.stringify({ id: q.id, category: q.category, question: q.question, unit: q.unit })
+/** What a player sees of a question; all the screen is shown. */
+export type ScreenItem = Pick<PoolQuestion, 'id' | 'category' | 'question' | 'unit'>
+export type Flagged = { id: string; issue: string; note: string }
+
+/**
+ * Screens questions as a player sees them (Haiku, one call). Returns the flagged ones among `items`, or null when
+ * the call failed or its reply couldn't be read. Used by `pnpm review` and by the grow pipeline on new drafts.
+ */
+export async function screenQuestions(
+  ask: (system: string, prompt: string) => Promise<string | null>,
+  rules: string,
+  items: ScreenItem[],
+): Promise<Flagged[] | null> {
+  const text = await ask(screenSystem(rules), items.map(screenLine).join('\n'))
+  const flags = text === null ? null : parseJsonArray<Flagged>(text)
+  if (!flags) return null
+  const ids = new Set(items.map((q) => q.id))
+  const hits = new Map(
+    flags
+      .filter((f) => ids.has(f?.id))
+      .map((f) => [f.id, { id: f.id, issue: issueCode(f.issue), note: String(f.note ?? '').slice(0, MAX_NOTE_CHARS) }]),
+  )
+  return [...hits.values()]
+}
+
+/**
+ * `<id>.screen.json`, written next to a draft that `pnpm grow`'s screen flagged: what the screen saw and its note.
+ * The verifier reads it as data, and `pnpm q approve` holds a reworded question to the limits `pnpm review` uses.
+ */
+export interface ScreenFile {
+  issue: string
+  note: string
+  question: string
+  unit: string
+}
+export const screenFilePath = (draftPath: string) => draftPath.replace(/\.json$/, '.screen.json')
+
+/** Why a reworded question can't be used, or null. Mentions counts only, never the question. */
+export function rewordProblem(question: string, unit: string, answer: number): string | null {
+  const words = wordCount(question)
+  if (words > MAX_REWORD_WORDS) return `is ${words} words (at most ${MAX_REWORD_WORDS})`
+  if (quoteContainsNumber(`${question} ${unit}`, answer)) return 'gives away the answer'
+  return null
+}
+
+const screenLine = (q: ScreenItem) => JSON.stringify({ id: q.id, category: q.category, question: q.question, unit: q.unit })
 const editBlock = (q: PoolQuestion, f: Flagged) =>
   JSON.stringify({
     id: q.id,
@@ -219,14 +266,12 @@ export async function reviewPool(deps: ReviewDeps, opts: ReviewOptions): Promise
   const flagged: Flagged[] = []
   for (let i = 0; i < queue.length && !result.limit; i += SCREEN_CHUNK) {
     const chunk = queue.slice(i, i + SCREEN_CHUNK)
-    const text = await ask('haiku', screenSystem(opts.rules), chunk.map(screenLine).join('\n'))
-    const flags = text === null ? null : parseJsonArray<Flagged>(text)
-    if (!flags) continue // nothing recorded: screened again next run
+    const hits = await screenQuestions((system, prompt) => ask('haiku', system, prompt), opts.rules, chunk)
+    if (!hits) continue // nothing recorded: screened again next run
     result.screened += chunk.length
-    const ids = new Set(chunk.map((q) => q.id))
-    const hits = new Map(flags.filter((f) => ids.has(f?.id)).map((f) => [f.id, { ...f, issue: issueCode(f.issue) }]))
-    flagged.push(...hits.values())
-    const fine = chunk.filter((q) => !hits.has(q.id)).map((q) => q.id)
+    flagged.push(...hits)
+    const hitIds = new Set(hits.map((f) => f.id))
+    const fine = chunk.filter((q) => !hitIds.has(q.id)).map((q) => q.id)
     result.passed += fine.length
     await flag(REVIEW_FLAG, fine)
     progress(`screened ${Math.min(i + SCREEN_CHUNK, queue.length)}/${queue.length} · ${flagged.length} flagged`)

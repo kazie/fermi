@@ -20,8 +20,12 @@ here and are the verifier's job.
   who has never seen the source must know exactly what is being asked: name the work or franchise in `fiction` ("In
   Star Wars, how long is the Millennium Falcon?"), say what an unfamiliar thing is, and spell out jargon and
   acronyms. Read the question as a stranger at a party would.
-- **The subject is well known.** Ask about things most adults have heard of: famous places, works, objects, animals,
-  events. If the question needs a clause explaining what its subject is, a better-known subject is usually better.
+- **Players can tell what to estimate.** The test isn't whether players know the subject, but whether most adults
+  understand what the question asks and have something to reason from, without knowing the answer. "How many
+  fishing licences does Norway sell in a year?" works for someone who has never fished: people × share who fish.
+  It fails when the question needs a definition or jargon to make sense, when it's unclear what counts, or when
+  it's a fixed fact people either remember or don't, with nothing to break it into (that's recall). If a fix
+  would need a clause of explanation, pick a plainer question.
 - **The wording is exact, and matches exactly what the source measures.** The Eiffel Tower is famous
   for _rivets_, not bolts. If the source counts "registered cars" don't ask about "cars". If it is
   "average distance" to the Moon, say "average".

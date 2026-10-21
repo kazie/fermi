@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { formatReport, parseAgentOutput, parseBatch, parsePrepare, runPipeline, type AgentName, type PipelineDeps } from '../pipeline.ts'
+import { parseAgentOutput } from '../grow-report.ts'
+import { formatReport, parseBatch, parsePrepare, runPipeline, type AgentName, type PipelineDeps } from '../pipeline.ts'
 
 /**
  * A fake pool, CLI and agents. Generators write 5 drafts each; `prepare` fails every draft whose number is divisible
  * by `failEvery`; verifiers add every draft they get except those in `rejectIds`.
  */
-function world(opts: { failEvery?: number; rejectIds?: string[]; limitAfter?: number; leftovers?: string[] } = {}) {
+function world(
+  opts: { failEvery?: number; rejectIds?: string[]; limitAfter?: number; leftovers?: string[]; screen?: PipelineDeps['screen'] } = {},
+) {
   const pool = new Map<string, string>([['old-1', 'food']])
   const drafts = new Map<string, string[]>() // batch dir → draft ids
   const verified = new Set<string>()
@@ -15,6 +18,7 @@ function world(opts: { failEvery?: number; rejectIds?: string[]; limitAfter?: nu
   let n = 0
   for (const dir of opts.leftovers ?? []) drafts.set(dir, [`${dir}-left`])
   const deps: PipelineDeps = {
+    screen: opts.screen,
     async cli([cmd, arg]) {
       if (cmd === 'batch') return `batch .fermi-work/b-new\n${(opts.leftovers ?? []).map((d) => `leftover ${d} 1 pending\n`).join('')}`
       if (cmd === 'list') return [...pool].map(([id, c]) => `${id}\t${c}\tactive\n`).join('')
@@ -119,18 +123,92 @@ describe('runPipeline', () => {
   })
 })
 
+describe('runPipeline screen', () => {
+  it('screens each prepare once, and passes flags for its drafts to the verifiers', async () => {
+    const screened: string[][] = []
+    const w = world({
+      rejectIds: ['d-2'],
+      async screen(_dir, ids) {
+        screened.push(ids)
+        return { flags: { [ids[0]]: 'unclear' }, costUsd: 0.01, limit: null }
+      },
+    })
+    const r = await runPipeline('food', 10, w.deps)
+    const verifiers = w.calls.filter((c) => c.agent === 'fermi-verifier')
+    const generators = w.calls.filter((c) => c.agent === 'fermi-generator')
+    expect(screened.length).toBeLessThanOrEqual(generators.length) // one call per prepare, not per verifier chunk
+    const flaggedBriefs = verifiers.filter((v) => v.brief.includes('flagged'))
+    expect(flaggedBriefs.length).toBe(screened.length)
+    for (const ids of screened) {
+      const v = verifiers.find((c) => c.brief.includes(`\`${ids[0]}\` (unclear)`))!
+      expect(v.brief).toMatch(/\.screen\.json/)
+      expect(v.brief).toMatch(/at most 25 words/)
+    }
+    expect(r.flagged).toBe(screened.length)
+    expect(r.flaggedAdded).toBe(r.flagged - (screened.some((ids) => ids[0] === 'd-2') ? 1 : 0))
+    expect(r.unscreened).toBe(0)
+    expect(r.cost.screen).toBeCloseTo(0.01 * screened.length)
+  })
+  it('still verifies when the screen fails, and counts those drafts as unscreened', async () => {
+    const w = world({ screen: async () => ({ flags: {}, costUsd: 0.01, limit: null, failed: true }) })
+    const r = await runPipeline('food', 5, w.deps)
+    expect(r.added).toBeGreaterThanOrEqual(5)
+    expect(r.flagged).toBe(0)
+    expect(r.unscreened).toBeGreaterThanOrEqual(5)
+    for (const v of w.calls.filter((c) => c.agent === 'fermi-verifier')) expect(v.brief).not.toContain('flagged')
+  })
+  it('counts a throwing screen as unscreened too', async () => {
+    const w = world({
+      async screen() {
+        throw new Error('down')
+      },
+    })
+    const r = await runPipeline('food', 5, w.deps)
+    expect(r.added).toBeGreaterThanOrEqual(5)
+    expect(r.unscreened).toBeGreaterThanOrEqual(5)
+  })
+  it('stops at a limit hit by the screen, without counting the unverified drafts as rejected or flagged', async () => {
+    const w = world({
+      screen: async (_d, ids) => ({ flags: { [ids[0]]: 'recall' }, costUsd: 0, limit: "You've hit your session limit · resets 4:20am" }),
+    })
+    const r = await runPipeline('food', 25, w.deps)
+    expect(r.limit).toMatch(/resets 4:20am/)
+    expect(w.calls.filter((c) => c.agent === 'fermi-verifier')).toEqual([])
+    expect(r.rejected).toBe(0)
+    expect(r.flagged).toBe(0)
+  })
+})
+
 describe('formatReport', () => {
   it('prints counts, categories and cost only', () => {
     const line = formatReport({
       added: 4,
       byCategory: { food: 3, history: 1 },
       failedChecks: 2,
+      flagged: 3,
+      flaggedAdded: 1,
+      unscreened: 0,
       rejected: 1,
-      cost: { 'fermi-generator': 0.4, 'fermi-verifier': 0.8 },
+      cost: { 'fermi-generator': 0.4, screen: 0.04, 'fermi-verifier': 0.76 },
       limit: null,
     })
     expect(line).toBe(
-      '+4 added (food 3, history 1) · 2 failed checks · 1 rejected · $1.20 (drafting $0.40, verifying $0.80), $0.30 per question',
+      '+4 added (food 3, history 1) · 2 failed checks · 3 flagged by screen (1 added) · 1 rejected · ' +
+        '$1.20 (drafting $0.40, screening $0.04, verifying $0.76), $0.30 per question',
     )
+  })
+  it('says how many drafts went unscreened', () => {
+    const line = formatReport({
+      added: 0,
+      byCategory: {},
+      failedChecks: 0,
+      flagged: 0,
+      flaggedAdded: 0,
+      unscreened: 5,
+      rejected: 0,
+      cost: { 'fermi-generator': 0, screen: 0, 'fermi-verifier': 0 },
+      limit: null,
+    })
+    expect(line).toContain('0 flagged by screen (0 added, 5 unscreened)')
   })
 })

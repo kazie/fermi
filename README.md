@@ -142,7 +142,9 @@ and a Wayback Machine snapshot. Derived answers store their formula in calculato
 For steady growth, let `pnpm grow` run unattended. It runs the same pipeline as the skill, but as a script
 (`scripts/pipeline.ts`), so no Sonnet session is paid just to coordinate: it starts the generator and verifier agents
 directly as headless sessions (`claude -p --agent …`), runs `pnpm q prepare` in between, and counts what was added from
-the pool itself. Parallel workers each take a different topic, so they don't draft the same questions. Each run prints
+the pool itself. Before verifying, it runs `pnpm review`'s Haiku screen on the drafts (category, question and unit
+only); the verifier gets the flags and must fix those drafts' wording or reject them ("N flagged by screen (M added)"
+in the report). Parallel workers each take a different topic, so they don't draft the same questions. Each run prints
 one line with counts, categories and its API-equivalent cost (from the sessions' `total_cost_usd`), and the end of the
 run prints the total:
 
@@ -222,7 +224,7 @@ Every insert goes through `apps/server/src/questions/ingest.ts`:
   remembered.
 
 **Quality review.** `pnpm review` checks the pool the way a player sees it (category, question and unit only): would a
-stranger know what's being asked, is the subject well known, is it unambiguous? Haiku screens about 40 questions per
+stranger know what to estimate and have something to reason from, is it unambiguous? Haiku screens about 40 questions per
 call; Sonnet looks only at the flagged ones, with their sources, and keeps, rewords (`pnpm q reword`: same fact, new
 id, the old one retired) or retires them. Every finished question gets the flag `reviewed:v1`, so later runs only look
 at new questions; bump `REVIEW_FLAG` in `scripts/review.ts` to review everything again after a rules change. It

@@ -33,13 +33,16 @@ export function createBatch(workDir: string, now: Date, heartbeat = '') {
 /** mtime, or undefined if the file is gone (another run's sweep, or an editor's temp file, may delete it any time). */
 export const mtime = (path: string) => statSync(path, { throwIfNoEntry: false })?.mtimeMs
 
+/** A draft's own file, not the `.check.json` / `.screen.json` written next to it. */
+export const isDraftFile = (f: string) => f.endsWith('.json') && !f.endsWith('.check.json') && !f.endsWith('.screen.json')
+
 /** Drafts in `<batch>/drafts` with no same-named file in `<batch>/verified`, skipping ones that failed `prepare`. */
 function pendingDrafts(batch: string) {
   const drafts = join(batch, 'drafts')
   if (!existsSync(drafts)) return []
   const verified = join(batch, 'verified')
   return readdirSync(drafts)
-    .filter((f) => f.endsWith('.json') && !f.endsWith('.check.json'))
+    .filter(isDraftFile)
     .filter((f) => !existsSync(join(verified, f)) && !failedCheck(join(drafts, f.replace(/\.json$/, '.check.json'))))
 }
 
@@ -108,6 +111,7 @@ export function sweepLeftovers(workDir: string, now: Date, runDir: string, heart
       if (now.getTime() - t > STALE_MS) {
         rmSync(path, { force: true })
         rmSync(path.replace(/\.json$/, '.check.json'), { force: true })
+        rmSync(path.replace(/\.json$/, '.screen.json'), { force: true })
         deleted++
       } else pending++
     }

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, statSync, utimesSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { batchName, createBatch, sweepLeftovers } from '../batch.ts'
+import { batchName, createBatch, isDraftFile, sweepLeftovers } from '../batch.ts'
 
 const now = new Date()
 const minute = 60 * 1000
@@ -34,6 +34,9 @@ function work() {
 }
 
 describe('question batches', () => {
+  it('tells drafts from the files written next to them', () => {
+    expect(['a.json', 'a.check.json', 'a.screen.json', 'notes.txt'].filter(isDraftFile)).toEqual(['a.json'])
+  })
   it('names batches by local minute plus a suffix', () => {
     expect(batchName(new Date(2026, 9, 19, 15, 7), '3fa1')).toBe('b-20261019-1507-3fa1')
     expect(batchName(now)).toMatch(/^b-\d{8}-\d{4}-[0-9a-f]{4}$/)

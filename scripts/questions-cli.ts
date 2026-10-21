@@ -9,8 +9,9 @@ import { extractNumbers, quoteContainsNumber } from '../apps/server/src/question
 import { prepareDraft, withDryRun, type DraftCheck } from '../apps/server/src/questions/prepare.ts'
 import { fetchPageText } from '../apps/server/src/questions/html.ts'
 import { archive as archiveWith, archiveOptionsFromEnv } from './archive.ts'
-import { createBatch, mtime, sweepLeftovers } from './batch.ts'
+import { createBatch, isDraftFile, mtime, sweepLeftovers } from './batch.ts'
 import { parseCli } from './cli-args.ts'
+import { rewordProblem, screenFilePath, type ScreenFile } from './review.ts'
 
 const ROOT = new URL('../', import.meta.url)
 const envFile = new URL('.env', ROOT)
@@ -110,6 +111,15 @@ async function main() {
       const notes = opts.notes
       if (!path || !notes) die('usage: pnpm q approve <batch>/drafts/<id>.json --notes "…" [--batch id]')
       const draft = JSON.parse(readFileSync(path, 'utf8'))
+      // A draft the screen flagged and the verifier reworded: the same limits as `pnpm review`'s rewordings.
+      const screenPath = screenFilePath(path)
+      if (existsSync(screenPath)) {
+        const seen = JSON.parse(readFileSync(screenPath, 'utf8')) as ScreenFile
+        if (draft.question !== seen.question || draft.unit !== seen.unit) {
+          const problem = rewordProblem(String(draft.question), String(draft.unit), Number(draft.answer))
+          if (problem) die(`the reworded question ${problem}: shorten it, or reject the draft`)
+        }
+      }
       draft.verification = { verifiedAt: new Date().toISOString(), verdict: 'approved', notes }
       const out = join(dirname(path), '..', 'verified', basename(path))
       mkdirSync(dirname(out), { recursive: true })
@@ -222,7 +232,7 @@ async function main() {
       const dir = rest[0]
       if (!dir) die('usage: pnpm q prepare <drafts-dir>')
       const verified = join(dir, '..', 'verified')
-      const files = readdirSync(dir).filter((f) => f.endsWith('.json') && !f.endsWith('.check.json') && !existsSync(join(verified, f)))
+      const files = readdirSync(dir).filter((f) => isDraftFile(f) && !existsSync(join(verified, f)))
       // One prepare per folder at a time: two would archive and write the same drafts. Wait for the other (it may be
       // a parallel call from the same run); a lock older than 15 minutes is from a crashed prepare.
       const lock = join(dir, '.prepare.lock')
