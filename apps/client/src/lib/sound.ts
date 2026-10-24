@@ -1,7 +1,7 @@
 // Which sounds a device plays, and when. Pure, so tests can check it without audio: the synth (lib/synth.ts) makes the
 // sounds, the composable (useGameSfx) plays them.
 
-import type { RoomView } from '@fermi/shared'
+import type { Reaction, RoomView } from '@fermi/shared'
 
 /**
  * Where sound goes depends on the mode. Online (no big screen), every device plays everything: it's the only screen
@@ -45,6 +45,8 @@ export type Cue =
   | 'award'
   | 'fermeanieWins'
   | 'humansWin'
+  /** someone's emoji reaction (each emoji has its own sound) */
+  | 'reaction'
   // personal: this device's player
   /** you locked in */
   | 'youLocked'
@@ -52,14 +54,18 @@ export type Cue =
   | 'yourCard'
   /** the roll call reaches you */
   | 'yourTurn'
+  /** you sent a reaction: a quiet click (at a party the big screen plays the reaction itself) */
+  | 'youReacted'
 
-export interface CueEvent {
-  cue: Cue
-  /** For `tick`: seconds left. */
-  n?: number
+/** A moment to play: the cue, and what the cues that need more say about it. */
+export type CueEvent = {
   /** Personal cues play on the player's own device even at a party; shared ones only where the route is `all`. */
   personal?: boolean
-}
+} & (
+  | { cue: 'tick'; /** seconds left */ n: number }
+  | { cue: 'reaction'; /** which emoji (each has its own sound) */ emoji: Reaction }
+  | { cue: Exclude<Cue, 'tick' | 'reaction'> }
+)
 
 /** Seconds left at which the countdown ticks. */
 export const TICK_SECONDS = [5, 4, 3, 2, 1] as const
@@ -113,7 +119,10 @@ export function cuesBetween(prev: RoomView | null, room: RoomView, from: number,
   const out: CueEvent[] = []
   const since = Math.max(from, now - MAX_LATE_MS)
   for (const e of timed(room))
-    if (e.at > since && e.at <= now) out.push({ cue: e.cue, ...(e.n && { n: e.n }), ...(e.personal && { personal: true }) })
+    if (e.at > since && e.at <= now) {
+      const { at: _at, ...event } = e
+      out.push(event)
+    }
 
   if (prev && prev.phase === room.phase) {
     if (room.phase === 'lobby' && room.players.length > prev.players.length) out.push({ cue: 'join' })
@@ -128,6 +137,21 @@ export function cuesBetween(prev: RoomView | null, room: RoomView, from: number,
 
 /** The moments this device plays: all of them online and on the big screen, only personal ones on a phone at a party. */
 export const audible = (events: CueEvent[], route: SoundRoute) => events.filter((e) => route === 'all' || e.personal)
+
+/** Reactions are heard too, but a busy room shouldn't turn into noise: someone else's not this soon after another (ms). */
+const REACTION_SOUND_SPACING_MS = 90
+
+/**
+ * The moments a reaction arriving at `t` (ms on a steady clock) brings: its emoji's sound, and a click if it's your own
+ * (at a party a phone plays only the click, as `audible` has it). Someone else's is skipped if a reaction sound just
+ * played; your own never is, it's the feedback that it went out. `heard` is when the last one played.
+ */
+export function reactionCues(r: { playerId: string; emoji: Reaction }, you: string, t: number, heard: { last: number }): CueEvent[] {
+  const own = r.playerId === you
+  if (!own && t - heard.last < REACTION_SOUND_SPACING_MS) return []
+  heard.last = t
+  return [{ cue: 'reaction', emoji: r.emoji }, ...(own ? [{ cue: 'youReacted' as const, personal: true }] : [])]
+}
 
 /** Phones buzz for their player's own moments, at a party or not (vibration never echoes). */
 export const VIBRATE: Partial<Record<Cue, number[]>> = {

@@ -16,17 +16,23 @@ import ScreenLobby from '@/components/ScreenLobby.vue'
 import ScreenQuestion from '@/components/ScreenQuestion.vue'
 import SkipIntro from '@/components/SkipIntro.vue'
 import ReactionLayer from '@/components/ReactionLayer.vue'
+import SoundNudge from '@/components/SoundNudge.vue'
 
 /** /screen/:code — the big screen (TV or laptop). It only watches; everyone plays on their phones. */
 const props = defineProps<{ code: string }>()
 const code = props.code.toUpperCase()
 const socket = useSocket(code, { screen: true })
 const { room, status, fatal, offset } = socket
-// FerMEANie's voice: off until this device turns it on (the speaker in the header)
+// FerMEANie's voice and the effects: on unless turned off (the speaker in the header), once the browser has had a click
 const voice = useVoice(socket)
+/** Nobody clicks a TV, so it asks: whenever sound waits for a click, and in the lobby when it was turned off. */
+const nudge = computed(() => {
+  const silence = voice.silence.value
+  return silence === 'locked' || (silence === 'muted' && room.value?.phase === 'lobby') ? silence : null
+})
 const now = useServerNow(offset)
 // the big screen plays the shared sounds: the countdown, the reveal, the steal
-useGameSfx(room, now, voice)
+useGameSfx(room, now, voice, socket.onReaction)
 useWakeLock(() => !!room.value) // a TV page should never fall asleep
 providePlayerOrder(computed(() => room.value?.players.map((p) => p.id) ?? []))
 const joinUrl = `${location.origin}/r/${code}`
@@ -65,6 +71,7 @@ async function toggleFullscreen() {
     </div>
     <p v-else-if="!room" class="muted">Connecting to room {{ code }}…</p>
     <template v-else>
+      <SoundNudge v-if="nudge" :state="nudge" tv @on="voice.enable()" />
       <ScreenLobby v-if="room.phase === 'lobby'" :room="room" :join-url="joinUrl" />
       <IntroSequence
         v-else-if="room.phase === 'intro' && room.intro"

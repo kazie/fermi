@@ -2,7 +2,8 @@
 // test chamber: clinical bleeps, sonar pings, alarms and the occasional ominous drone. Each cue is a few oscillators
 // or a burst of filtered noise with a short envelope.
 
-import type { Cue } from './sound'
+import type { Reaction } from '@fermi/shared'
+import type { Cue, CueEvent } from './sound'
 
 /** Every cue, for the soundboard story: a record, so a new cue can't be left out. */
 const ALL: Record<Cue, true> = {
@@ -26,6 +27,8 @@ const ALL: Record<Cue, true> = {
   award: true,
   fermeanieWins: true,
   humansWin: true,
+  reaction: true,
+  youReacted: true,
 }
 export const CUES = Object.keys(ALL) as Cue[]
 
@@ -103,10 +106,49 @@ function noiseBuffer(c: BaseAudioContext) {
 const notes = (c: BaseAudioContext, out: AudioNode, t0: number, freqs: number[], step: number, t: Omit<Tone, 'freq'>) =>
   freqs.forEach((freq, i) => tone(c, out, t0, { ...t, freq, at: (t.at ?? 0) + i * step }))
 
-/** Plays a cue into `out` now. `n`: for `tick`, the seconds left (the tick rises as the deadline nears). */
-export function playCue(c: BaseAudioContext, out: AudioNode, cue: Cue, n = 0) {
+type Sound = (c: BaseAudioContext, out: AudioNode, t: number, j: number) => void
+
+/**
+ * Each reaction's sound: short and quiet, pitched a little differently each time (`j`, around 1) so a burst doesn't
+ * sound like one sample on repeat.
+ */
+const REACTION_SOUNDS: Record<Reaction, Sound> = {
+  // bubbles
+  '🧪': (c, out, t, j) => {
+    for (let i = 0; i < 3; i++) {
+      const freq = (520 + i * 210 + Math.random() * 120) * j
+      tone(c, out, t, { freq, to: freq * 1.6, at: i * 0.07, dur: 0.06, gain: 0.1 })
+    }
+  },
+  // a crackly whoosh
+  '🔥': (c, out, t, j) => {
+    noise(c, out, t, { dur: 0.3, gain: 0.1, from: 500 * j, to: 2600 * j })
+    for (let i = 0; i < 3; i++)
+      noise(c, out, t, { at: 0.04 + Math.random() * 0.2, dur: 0.02, gain: 0.08, from: 4000, to: 3000, kind: 'highpass' })
+  },
+  // a tense rub
+  '😬': (c, out, t, j) => {
+    tone(c, out, t, { type: 'square', freq: 466 * j, dur: 0.2, gain: 0.04 })
+    tone(c, out, t, { type: 'square', freq: 494 * j, dur: 0.2, gain: 0.04 })
+  },
+  // claps
+  '👏': (c, out, t, j) => {
+    for (let i = 0; i < 3; i++) noise(c, out, t, { at: i * 0.09, dur: 0.05, gain: 0.16, from: 1800 * j, to: 1100, kind: 'highpass' })
+  },
+  // a sinking boop
+  '💀': (c, out, t, j) => tone(c, out, t, { type: 'triangle', freq: 420 * j, to: 130 * j, dur: 0.35, gain: 0.11 }),
+  // thunk, then a ping
+  '🎯': (c, out, t, j) => {
+    noise(c, out, t, { dur: 0.1, gain: 0.14, from: 320, to: 90, kind: 'lowpass' })
+    tone(c, out, t, { freq: 150, to: 60, dur: 0.12, gain: 0.16 })
+    tone(c, out, t, { freq: 2093 * j, at: 0.06, dur: 0.25, gain: 0.06 })
+  },
+}
+
+/** Plays a cue into `out` now: for `tick`, `n` seconds left (the tick rises as the deadline nears); for `reaction`, its `emoji`. */
+export function playCue(c: BaseAudioContext, out: AudioNode, e: CueEvent) {
   const t = c.currentTime + 0.01
-  switch (cue) {
+  switch (e.cue) {
     case 'join':
       return notes(c, out, t, [880, 1320], 0.07, { dur: 0.12, gain: 0.15 })
     case 'intro':
@@ -125,7 +167,7 @@ export function playCue(c: BaseAudioContext, out: AudioNode, cue: Cue, n = 0) {
     case 'tenLeft':
       return
     case 'tick':
-      return tone(c, out, t, { freq: 800 + (6 - n) * 90, dur: 0.07, gain: 0.14 })
+      return tone(c, out, t, { freq: 800 + (6 - e.n) * 90, dur: 0.07, gain: 0.14 })
     case 'timesUp':
       for (let i = 0; i < 3; i++) {
         tone(c, out, t, { type: 'square', freq: 440, at: i * 0.2, dur: 0.1, gain: 0.13 })
@@ -160,5 +202,9 @@ export function playCue(c: BaseAudioContext, out: AudioNode, cue: Cue, n = 0) {
       return tone(c, out, t, { freq: 55, dur: 1.8, gain: 0.2 })
     case 'humansWin':
       return notes(c, out, t, [523, 659, 784, 1046], 0.1, { type: 'triangle', dur: 0.4, gain: 0.16 })
+    case 'reaction':
+      return REACTION_SOUNDS[e.emoji](c, out, t, 0.92 + Math.random() * 0.16)
+    case 'youReacted':
+      return tone(c, out, t, { freq: 1200, dur: 0.03, gain: 0.06 })
   }
 }

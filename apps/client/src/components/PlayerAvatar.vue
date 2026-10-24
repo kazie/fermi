@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { usePlayerColors } from '@/lib/playerColors'
+import { hash, rng } from '@/lib/random'
 
 export type AvatarState = 'idle' | 'locked' | 'typing' | 'off' | 'drained'
 
@@ -8,28 +9,6 @@ const props = withDefaults(defineProps<{ seed: string; size?: number; state?: Av
 
 // Colour comes from the player's join order (distinct per table); the shape from the seed.
 const colorOf = usePlayerColors()
-
-function hash(s: string): number {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619)
-  // final avalanche, so ids that differ in one character still look different
-  h ^= h >>> 16
-  h = Math.imul(h, 0x85ebca6b)
-  h ^= h >>> 13
-  h = Math.imul(h, 0xc2b2ae35)
-  h ^= h >>> 16
-  return h >>> 0
-}
-/** Small deterministic PRNG (mulberry32), so a player looks the same everywhere. */
-function rng(seed: number) {
-  let a = seed
-  return () => {
-    a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
 
 const look = computed(() => {
   const h = hash(props.seed)

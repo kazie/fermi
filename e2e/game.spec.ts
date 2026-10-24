@@ -1,4 +1,5 @@
 import { devices, expect, test, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from '@playwright/test'
+import { SLOWER } from './env.ts'
 
 const TOKEN = 'e2e-token'
 
@@ -107,11 +108,11 @@ async function answer(page: Page, text: string, last = false) {
  * How long a reveal step may take. Test speed shortens the reveal, but not FerMEANie's chat, which plays in real time:
  * with her voice (FERMI_VOICE=1) each message stays up until she has said it, so a talkative round takes longer.
  */
-const REVEAL_WAIT_MS = process.env.FERMI_VOICE === '1' ? 60_000 : 20_000
+const REVEAL_WAIT_MS = (process.env.FERMI_VOICE === '1' ? 60_000 : 20_000) * SLOWER
 /** An intro step lasts until her line is typed, and with her voice, said: slower with a busy voice renderer. */
-const INTRO_WAIT_MS = process.env.FERMI_VOICE === '1' ? 60_000 : 30_000
+const INTRO_WAIT_MS = (process.env.FERMI_VOICE === '1' ? 60_000 : 30_000) * SLOWER
 /** The crown comes after the awards ceremony: up to three of her lines, each typed (and said) at full speed. */
-const FINAL_WAIT_MS = REVEAL_WAIT_MS + 40_000
+const FINAL_WAIT_MS = REVEAL_WAIT_MS + 40_000 * SLOWER
 
 // Once per worker; a worker started after a failed test finds the questions already there.
 test.beforeAll(async ({ request }) => {
@@ -275,8 +276,7 @@ test('with sound on, FerMEANie reads the question out and says her lines', async
   const clips: number[] = []
   host.on('response', (r) => r.url().includes('/voice/') && clips.push(r.status()))
   const url = await hostGame(host, 'Listener')
-  const speaker = host.getByRole('button', { name: /Turn sound on/ })
-  await speaker.click()
+  // sound is on by default: hosting the game was the tap the browser needed
   await expect(host.getByRole('button', { name: /Sound is on/ })).toHaveAttribute('aria-pressed', 'true')
   await host.setViewportSize({ width: 360, height: 740 }) // the speaker fits in the header on a small phone
   await noHorizontalScroll(host)

@@ -6,6 +6,8 @@ import {
   fermeanieStageMs,
   holdDuration,
   MIN_PLAYERS,
+  REACTION_BURST,
+  REACTION_GAP_MS,
   stolenCards,
   type RevealView,
   type RoomView,
@@ -604,13 +606,32 @@ describe('the call and reactions', () => {
     for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
     room.handle(a.id, { type: 'react', emoji: '🔥' }, a.conn)
     room.handle(a.id, { type: 'react', emoji: '💀' }, a.conn) // too soon after the first
-    vi.advanceTimersByTime(800)
+    vi.advanceTimersByTime(REACTION_GAP_MS)
     room.handle(a.id, { type: 'react', emoji: '👏' }, a.conn)
     const seen = b.conn.messages.filter((m) => m.type === 'reaction')
     expect(seen).toEqual([
-      { type: 'reaction', playerId: a.id, emoji: '🔥' },
-      { type: 'reaction', playerId: a.id, emoji: '👏' },
+      { type: 'reaction', playerId: a.id, emoji: '🔥', at: expect.any(Number) },
+      { type: 'reaction', playerId: a.id, emoji: '👏', at: expect.any(Number) },
     ])
+  })
+  it('cools a spammer down, and tells a reloaded phone when it last reacted', () => {
+    const { room, players } = setup(3)
+    const [a, b] = players
+    room.handle(a.id, { type: 'start' }, a.conn)
+    for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
+    for (let i = 0; i < REACTION_BURST + 1; i++) {
+      room.handle(a.id, { type: 'react', emoji: '🔥' }, a.conn)
+      vi.advanceTimersByTime(REACTION_GAP_MS)
+    }
+    // the last one came inside the window after a full burst: dropped
+    expect(b.conn.messages.filter((m) => m.type === 'reaction')).toHaveLength(REACTION_BURST)
+    // the dropped one brought its sender the truth
+    expect(a.conn.messages.at(-1)).toMatchObject({ type: 'reactions', yourReactions: { length: REACTION_BURST } })
+    // a reload: the new connection's first snapshot carries the cooldown
+    const reloaded = new FakeConn()
+    room.connect(a.id, reloaded)
+    expect(reloaded.last.yourReactions).toHaveLength(REACTION_BURST)
+    expect(b.conn.last.yourReactions).toBeUndefined()
   })
 })
 

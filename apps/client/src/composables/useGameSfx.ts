@@ -3,8 +3,9 @@
 
 import { watch, type Ref } from 'vue'
 import type { RoomView } from '@fermi/shared'
-import { audible, cuesBetween, soundRoute, VIBRATE } from '@/lib/sound'
+import { audible, cuesBetween, reactionCues, soundRoute, VIBRATE, type CueEvent } from '@/lib/sound'
 import { playCue } from '@/lib/synth'
+import type { FloatingReaction } from './useSocket'
 
 /** Effects play under her voice: quieter while she talks. */
 const LEVEL = 0.8
@@ -14,6 +15,7 @@ export function useGameSfx(
   room: Ref<RoomView | null>,
   now: Ref<number>,
   voice: { audio: () => AudioContext | null; talking: Ref<boolean> },
+  onReaction: (f: (r: FloatingReaction) => void) => void,
 ) {
   let out: GainNode | null = null
   let outCtx: AudioContext | null = null
@@ -30,6 +32,12 @@ export function useGameSfx(
   watch(voice.talking, (t) => {
     if (out && outCtx) out.gain.setTargetAtTime(t ? DUCKED : LEVEL, outCtx.currentTime, 0.08)
   })
+
+  /** Plays what this device plays of `events`; a hidden tab keeps quiet, as her voice does. */
+  function play(events: CueEvent[]) {
+    const c = voice.audio()
+    if (c?.state === 'running' && !document.hidden) for (const e of events) playCue(c, output(c), e)
+  }
 
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches
   let prev: RoomView | null = null
@@ -49,9 +57,7 @@ export function useGameSfx(
     prev = r
     last = t
     if (!events.length) return
-    const c = voice.audio()
-    // a hidden tab keeps quiet, as her voice does
-    if (c?.state === 'running' && !document.hidden) for (const e of audible(events, soundRoute(r))) playCue(c, output(c), e.cue, e.n)
+    play(audible(events, soundRoute(r)))
     // phones buzz for their own moments; ten seconds left only matters to someone still answering
     if (!r.viewer && !reduced()) {
       for (const e of events) {
@@ -60,5 +66,13 @@ export function useGameSfx(
         if (pattern) navigator.vibrate?.(pattern)
       }
     }
+  })
+
+  // Reactions come as their own messages, not in snapshots: each may be heard (see reactionCues).
+  const heard = { last: -Infinity }
+  onReaction((x) => {
+    const r = room.value
+    // spaced on this device's own steady clock: the server clock's estimate jumps on a reconnect
+    if (r) play(audible(reactionCues(x, r.you, performance.now(), heard), soundRoute(r)))
   })
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onUnmounted, ref } from 'vue'
 import { REACTIONS } from '@fermi/shared'
-import { players } from '@/fixtures/rooms'
+import { players, T0 as T } from '@/fixtures/rooms'
 import type { FloatingReaction } from '@/composables/useSocket'
 import ReactionLayer from './ReactionLayer.vue'
 
@@ -18,6 +18,14 @@ const tick = setInterval(() => {
   ]
 }, 300)
 onUnmounted(() => clearInterval(tick))
+
+// one of each emoji, each starting at a different moment of its flight
+const frozen: FloatingReaction[] = REACTIONS.map((emoji, i) => ({
+  id: 100 + i,
+  playerId: ps[i % ps.length].id,
+  emoji,
+  t: T - 300 - i * 350,
+}))
 </script>
 
 <template>
@@ -27,6 +35,9 @@ onUnmounted(() => clearInterval(tick))
     ></Variant>
     <Variant title="Big screen (live burst)"
       ><div class="page" style="height: 600px"><ReactionLayer :reactions="reactions" :players="ps" :now="now" big /></div
+    ></Variant>
+    <Variant title="One of each, mid-flight"
+      ><div class="page" style="height: 600px"><ReactionLayer :reactions="frozen" :players="ps" :now="T" big /></div
     ></Variant>
   </Story>
 </template>

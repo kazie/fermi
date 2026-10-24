@@ -1,5 +1,5 @@
-// FerMEANie's voice on this device: off until the player turns it on (browsers only play sound after a tap, and a
-// room full of phones talking at once is a lot). When the server has a voice, each snapshot lists the clips for what
+// FerMEANie's voice on this device: on unless the player turns it off, from the first tap (browsers only play sound
+// after one). At a party only the big screen speaks, so a room full of phones doesn't talk at once. When the server has a voice, each snapshot lists the clips for what
 // she says (`room.voice`: text → one clip per sentence) and which are rendered; the server pushes the rest as they're
 // rendered. A clip is fetched the moment it's ready, never before (no requests for clips that aren't there), and each
 // line plays as she starts typing it, one line at a time. A clip that isn't there in time is skipped, never played
@@ -79,15 +79,24 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
   /** She is saying something right now (sound effects duck under her). */
   const talking = ref(false)
 
+  const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+
+  /**
+   * iOS: where she speaks, play through the silent switch like a video would. A phone at a party only clicks for its
+   * own moments: those mix with the player's music and respect the switch.
+   */
+  function audioSession() {
+    const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession
+    if (session && ctx) session.type = speaks.value ? 'playback' : 'ambient'
+  }
+  watch(speaks, audioSession)
+
   function context(): AudioContext | null {
     if (ctx) return ctx
-    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
     if (!Ctor) return null
     ctx = new Ctor()
     ctx.onstatechange = () => (running.value = ctx?.state === 'running')
-    // iOS: play through the silent switch, like a video would
-    const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession
-    if (session) session.type = 'playback'
+    audioSession()
     return ctx
   }
 
@@ -103,30 +112,27 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
     blip.start()
   }
 
-  /**
-   * The sound button does what the player saw when they pressed it: shown off (off, or on but still locked after a
-   * reload) turns it on, shown on turns it off. The same tap may unlock the sound first (below); that doesn't count.
-   */
-  let shownOn: boolean | null = null
-  const onPress = () => (shownOn = on.value)
+  /** The speaker: off turns sound on, on turns it off (on but waiting for a tap shows as on; a nudge asks for the tap). */
   function toggle() {
-    const wasOn = shownOn ?? on.value
-    shownOn = null
-    wanted.value = !wasOn
-    saveSound(wanted.value)
-    if (wasOn) return stop()
+    if (!wanted.value) return enable()
+    wanted.value = false
+    saveSound(false)
+    stop()
+  }
+  /** Turns sound on (inside a tap, which also lets the browser start it). */
+  function enable() {
+    wanted.value = true
+    saveSound(true)
     unlock()
     prefetch()
   }
 
-  // After a reload the choice is remembered, but the browser still needs a tap: the first one anywhere will do. Only
-  // the end of a touch (or a click or key) counts as one; a touch starting doesn't.
-  const PRESS_EVENTS = ['pointerdown', 'keydown'] as const
+  // Sound is on, but the browser still needs a tap: the first one anywhere will do. Only the end of a touch (or a click
+  // or key) counts as one; a touch starting doesn't.
   const UNLOCK_EVENTS = ['pointerup', 'touchend', 'click', 'keydown'] as const
   const onFirstTap = () => {
     if (wanted.value && !running.value) unlock()
   }
-  for (const e of PRESS_EVENTS) document.addEventListener(e, onPress, { capture: true })
   for (const e of UNLOCK_EVENTS) document.addEventListener(e, onFirstTap, { capture: true })
 
   /** Can this browser decode the clips we fetch? Only asked until the answer is known. */
@@ -276,7 +282,6 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
 
   onUnmounted(() => {
     stop()
-    for (const e of PRESS_EVENTS) document.removeEventListener(e, onPress, { capture: true })
     for (const e of UNLOCK_EVENTS) document.removeEventListener(e, onFirstTap, { capture: true })
     document.removeEventListener('visibilitychange', onHidden)
     void ctx?.close()
@@ -285,11 +290,19 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
   provide(VOICE, player)
   return {
     player,
-    /** Sound is on and playing (on but locked shows as off until a tap). */
+    /** Sound is on and playing (on but still waiting for a tap isn't). */
     on,
-    /** For the header's speaker: all sound on this device (her voice, if the server has one, and the effects). */
-    sound: on,
+    /** For the header's speaker: sound turned on for this device (her voice, if the server has one, and the effects). */
+    sound: computed(() => wanted.value),
+    /**
+     * Why there's no sound, for a nudge: `locked` when it's on but the browser waits for a tap (the next one anywhere
+     * will do, if this browser can play at all), `muted` when it was turned off on purpose.
+     */
+    silence: computed(() => (!wanted.value ? 'muted' : !running.value && Ctor ? 'locked' : null)),
+    /** This device speaks her lines (everywhere online; only the big screen at a party). */
+    speaks,
     toggle,
+    enable,
     /** The page's audio, shared with the sound effects (null until there is one). */
     audio: () => (on.value ? context() : null),
     talking,

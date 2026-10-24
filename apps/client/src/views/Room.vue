@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { rememberGameId, saveName, savedName, savedPhoneView, savePhoneView, type PhoneView } from '@/lib/storage'
 import { providePlayerOrder } from '@/lib/playerColors'
-import { useSocket } from '@/composables/useSocket'
+import { restShowing, useSocket } from '@/composables/useSocket'
 import { useServerNow } from '@/composables/useNow'
 import { useVoice } from '@/composables/useVoice'
 import { useGameSfx } from '@/composables/useGameSfx'
@@ -21,13 +21,19 @@ import ControllerReveal from '@/components/ControllerReveal.vue'
 import ViewToggle from '@/components/ViewToggle.vue'
 import ReactionBar from '@/components/ReactionBar.vue'
 import ReactionLayer from '@/components/ReactionLayer.vue'
+import SoundNudge from '@/components/SoundNudge.vue'
 
 const props = defineProps<{ code: string }>()
 const code = props.code.toUpperCase()
 const socket = useSocket(code)
 const { room, status, fatal, lastError, offset, send } = socket
-// FerMEANie's voice: off until this device turns it on (the speaker in the header)
+// FerMEANie's voice and the effects: on unless turned off (the speaker in the header), once the browser has had a tap
 const voice = useVoice(socket)
+/**
+ * In the lobby, a reminder that sound is half the fun, if it's off or still waiting for a tap. Not at a party: there
+ * the big screen speaks, and a phone only clicks for its own moments.
+ */
+const nudge = computed(() => (room.value?.phase === 'lobby' && voice.speaks.value ? voice.silence.value : null))
 const now = useServerNow(offset)
 // keep the phone awake through a game, so it doesn't lock (and drop off) mid-question
 useWakeLock(() => ['intro', 'question', 'reveal', 'break'].includes(room.value?.phase ?? ''))
@@ -46,6 +52,8 @@ const showToggle = computed(() => hasScreen.value && !!me.value && ['intro', 're
 const isHost = computed(() => !!room.value && room.value.hostId === room.value.you)
 /** Reactions: during the reveal and the break, from players in the game. */
 const canReact = computed(() => !!me.value && (room.value?.phase === 'reveal' || room.value?.phase === 'break'))
+/** The reaction bar's rest after a reaction, if any. */
+const reactRest = restShowing(() => socket.reactRest.value, now)
 /** During the intro's example question, the vote to skip the intro is still on. */
 const practiceSkip = computed(() => (room.value?.phase !== 'intro' && !!me.value ? room.value?.intro?.skip : undefined))
 
@@ -55,7 +63,7 @@ function join(name: string) {
 }
 
 // Sound effects and vibration: everything online; at a party (a big screen in the room), only this player's own moments.
-useGameSfx(room, now, voice)
+useGameSfx(room, now, voice, socket.onReaction)
 
 // remember our per-room public id, so the recap page can highlight our cards
 watch(
@@ -76,6 +84,7 @@ watch(
     </div>
     <p v-else-if="!room" class="muted">Connecting to room {{ code }}…</p>
     <template v-else>
+      <SoundNudge v-if="nudge" :state="nudge" @on="voice.enable()" />
       <ViewToggle v-if="showToggle" v-model="phoneView" class="toggle" />
       <NameForm v-if="!me" :code="code" :mid-game="room.phase !== 'lobby'" :initial-name="initialName" @join="join" />
       <Lobby
@@ -163,7 +172,7 @@ watch(
         :is-host="room.hostId === room.you"
         @play-again="send({ type: 'play_again' })"
       />
-      <ReactionBar v-if="canReact" class="reactions" @react="(emoji) => send({ type: 'react', emoji })" />
+      <ReactionBar v-if="canReact" class="reactions" :rest="reactRest" @react="socket.react" />
       <SkipIntro v-if="practiceSkip" class="practice-skip" :skip="practiceSkip" :is-host="isHost" @skip="send({ type: 'skip_intro' })" />
     </template>
     <ReactionLayer v-if="room" :reactions="socket.reactions.value" :players="room.players" :now="now" />

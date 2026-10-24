@@ -49,6 +49,6 @@ export type PhoneView = 'controller' | 'full'
 export const savedPhoneView = (): PhoneView => (load('fermi.view') === 'full' ? 'full' : 'controller')
 export const savePhoneView = (v: PhoneView) => save('fermi.view', v)
 
-/** FerMEANie's voice on this device (off until turned on). */
-export const savedSound = () => load('fermi.sound') === 'on'
+/** FerMEANie's voice and the sound effects on this device: on unless turned off (the browser still wants a tap). */
+export const savedSound = () => load('fermi.sound') !== 'off'
 export const saveSound = (on: boolean) => save('fermi.sound', on ? 'on' : 'off')

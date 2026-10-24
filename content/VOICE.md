@@ -1,7 +1,7 @@
 # FerMEANie's voice
 
-FerMEANie says her lines out loud and reads each question as it appears, on devices that turn sound on (the speaker
-button in the header): every device online, only the big screen at a party (a big screen in the room), where phones
+FerMEANie says her lines out loud and reads each question as it appears, on devices with sound on (it is on by default, from
+the first tap; the speaker button in the header turns it off): every device online, only the big screen at a party (a big screen in the room), where phones
 play only their own sound effects (see README "Sound"; the rule is `soundRoute` in `apps/client/src/lib/sound.ts`). Everything is free and runs locally: no paid text-to-speech service, no network at
 play time. This file records what was chosen and why, how it works, and how to change it.
 
@@ -92,16 +92,17 @@ line (with markup) → speech text → sentences → clip key per sentence → w
 ready: [...] }` over the websocket (clips finishing within 100 ms go in one message). Clients never ask for a clip
   that isn't there, so a game produces no 404s: some setups treat bursts of them as an attack (fail2ban) or a sick
   service, and a clip arrives the moment it exists instead of at the next poll.
-- **The client** (`apps/client/src/composables/useVoice.ts`), only after the player turns sound on:
+- **The client** (`apps/client/src/composables/useVoice.ts`), with sound on (the default, unless the player turned it off):
   - Fetches each clip as soon as it's both listed and ready; a line waiting for a clip that isn't ready gets it the
     moment the server says so. Clips are kept encoded and decoded as they play.
   - Plays each line when its message starts typing (`FermeanieSays`), one line at a time. A line more than 1.5 s late
     (a remount, a reconnect) is skipped; so is one whose first clip takes more than 1.5 s to arrive (4 s for a
     question, which stays on screen). A dunce remark is skipped if she's already talking; a missing sentence ends its
     line; a line already said (a bubble that remounted: the same start time and place) isn't said again; a hidden tab stops talking.
-  - Uses Web Audio. Opus first, MP3 for browsers that can't decode it. On iOS it asks to play through the silent
-    switch (`navigator.audioSession`). Browsers need a tap before any sound, so the remembered choice waits for the
-    first tap (or click, or key) after a reload.
+  - Uses Web Audio. Opus first, MP3 for browsers that can't decode it. On iOS, where she speaks, it asks to play through the
+    silent switch (`navigator.audioSession` 'playback'); a phone at a party, which only clicks for its own moments,
+    uses 'ambient', so it mixes with the player's music and respects the switch. Browsers need a tap before any sound,
+    so sound waits for the first tap (or click, or key); the big screen shows a nudge until it gets one.
 - **Pacing** (`packages/shared/src/chat.ts`): on a server with a voice, each message stays up until she has finished
   saying it (`speechDuration`: about 400 ms a sentence plus 58 ms a character as she reads it, numbers spelled out,
   measured on her clips and rounded up), and the reveal lasts until the last one is said. This is the same on every
@@ -132,7 +133,7 @@ The Docker image includes ffmpeg, uv, the worker's Python packages and the model
 the clip folder (e.g. `-v ~/fermi-data/voice:/data/voice`) to keep it across deployments and reach it with rsync.
 
 Tests use a fake renderer. `FERMI_VOICE_TEST=1 pnpm test` also runs the real worker once, and
-`FERMI_VOICE=1 pnpm test:e2e` adds a browser test that turns sound on and checks that her clips play.
+`FERMI_VOICE=1 pnpm test:e2e` adds a browser test that checks sound is on after the first tap and that her clips play.
 
 ## Dependencies
 

@@ -3,7 +3,7 @@ import { MIN_CROWD, type CrowdStats } from './crowd.ts'
 import type { PublicQuestion, RevealedQuestion } from './question.ts'
 import type { DunceKind, FermeanieRelease } from './scoring.ts'
 import { LIMITS } from './calc/evaluate.ts'
-import { chatDuration, HOLD_MS, holdDuration } from './chat.ts'
+import { chatDuration, HOLD_MS, holdDuration, lineDuration } from './chat.ts'
 import { plainText } from './markup.ts'
 import type { Award } from './awards.ts'
 
@@ -58,7 +58,25 @@ export const KEY_RE = /^[A-Za-z0-9_-]{32,128}$/
 export const REACTIONS = ['🧪', '🔥', '😬', '👏', '💀', '🎯'] as const
 export type Reaction = (typeof REACTIONS)[number]
 /** The least time between two reactions from one player (ms). */
-export const REACTION_GAP_MS = 700
+export const REACTION_GAP_MS = 1500
+/** And at most this many from one player in any window of REACTION_WINDOW_MS: a spammer cools down for longer. */
+export const REACTION_BURST = 5
+export const REACTION_WINDOW_MS = 15_000
+
+/**
+ * When a player may react next (ms, same clock as `sent`), given when they last did (oldest first): the gap after the
+ * last one, or, with a full burst inside the window, when its oldest leaves the window (`burst`). The server enforces
+ * it; the phone uses it to show the cooldown.
+ */
+export function reactionRest(sent: readonly number[]): { until: number; burst: boolean } {
+  if (!sent.length) return { until: -Infinity, burst: false }
+  const gap = sent[sent.length - 1] + REACTION_GAP_MS
+  const burst = sent.length >= REACTION_BURST ? sent[sent.length - REACTION_BURST] + REACTION_WINDOW_MS : -Infinity
+  return { until: Math.max(gap, burst), burst: burst > gap }
+}
+
+/** `sent` with a new reaction at `t`, keeping only what reactionRest still needs. */
+export const reactionSent = (sent: readonly number[], t: number) => [...sent, t].slice(-REACTION_BURST)
 
 /** The call at the start of a reveal: is the truth higher or lower than your answer? */
 export const CALLS = ['higher', 'lower'] as const
@@ -330,8 +348,18 @@ export interface FinalAward extends Award {
   at: number
 }
 
-/** The awards ceremony (ms): a beat before the first, and the shortest each award stays up. */
-export const AWARD_TIMING = { lead: 1500, each: 5000 } as const
+/**
+ * The awards ceremony (ms): a beat before the first, the shortest each award stays up, and a beat after her line so it
+ * lands before the next.
+ */
+export const AWARD_TIMING = { lead: 1500, each: 5000, after: 500 } as const
+
+/**
+ * How long one award stays up (ms): her line typed out and held (and, `paced`, said), then a beat; never less than
+ * AWARD_TIMING.each. `k`: the server's FERMI_TIME_SCALE.
+ */
+export const awardDuration = (line: string, { paced = false, k = 1 } = {}) =>
+  Math.max(AWARD_TIMING.each * k, lineDuration(plainText(line), paced) + AWARD_TIMING.after * k)
 
 /** What everyone may know during the call: the answers, anonymous and sorted, and nothing about the truth. */
 export interface CallView {
@@ -410,6 +438,8 @@ export interface RoomView {
   yourCall?: Call
   /** Your own sheet for this round (restored on reconnect). */
   yourSheet?: { text: string; locked: boolean }
+  /** When you last reacted (server ms, oldest first), during the reveal and the break: a reloaded phone's cooldown. */
+  yourReactions?: number[]
   reveal?: RevealView
   final?: FinalView
   /** The intro, and its vote to skip (also during its example question). */
@@ -436,5 +466,7 @@ export type ServerMessage =
   | { type: 'voice'; ready: string[] }
   | { type: 'pong'; t: number; serverNow: number }
   /** Someone reacted (sent on its own: a reaction doesn't need a whole snapshot). */
-  | { type: 'reaction'; playerId: string; emoji: Reaction }
+  | { type: 'reaction'; playerId: string; emoji: Reaction; /** when the server took it (server ms) */ at: number }
+  /** To its sender only: a reaction came too soon and was dropped; when they last reacted (server ms). */
+  | { type: 'reactions'; yourReactions: number[] }
   | { type: 'error'; message: string; fatal?: boolean }

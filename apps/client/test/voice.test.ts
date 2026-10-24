@@ -113,6 +113,8 @@ class FakeAudio {
 
 describe('useVoice', () => {
   let missing: Set<string>
+  /** Every test's voice is unmounted after it, so none is left listening for the next test's taps. */
+  const mounted: { unmount(): void }[] = []
   beforeEach(() => {
     localStorage.clear()
     missing = new Set()
@@ -126,6 +128,7 @@ describe('useVoice', () => {
     )
   })
   afterEach(() => {
+    for (const w of mounted.splice(0)) w.unmount()
     vi.unstubAllGlobals()
     vi.useRealTimers()
     FakeAudio.failing = () => false
@@ -151,6 +154,7 @@ describe('useVoice', () => {
         },
       }),
     )
+    mounted.push(w)
     let n = 0
     /** Says a line as a new utterance (or as `id`, to say the same one again). */
     const say = (keys: string[], opts: { id?: string; late?: number; aside?: boolean } = {}) =>
@@ -162,13 +166,13 @@ describe('useVoice', () => {
     for (let i = 0; i < times; i++) await flush()
   }
 
-  it('is off until turned on; the button is there with or without a voice on the server (effects play either way)', async () => {
-    expect(setup(null).voice.sound.value).toBe(false)
+  it('is on, but waits for a tap before it plays; the button is there with or without a voice on the server (effects play either way)', async () => {
+    expect(setup(null).voice.sound.value).toBe(true)
     const { voice, say } = setup()
-    expect(voice.sound.value).toBe(false)
+    expect(voice.sound.value).toBe(true)
     expect(voice.on.value).toBe(false)
     say(['a1'])
-    voice.toggle()
+    voice.enable() // a tap
     await settle()
     expect(voice.on.value).toBe(true)
     expect(FakeAudio.last.played).toEqual([]) // said while off: not queued
@@ -177,7 +181,7 @@ describe('useVoice', () => {
 
   it('plays a line sentence by sentence, then the next line', async () => {
     const { voice, say } = setup()
-    voice.toggle()
+    voice.enable()
     await settle()
     say(['a1', 'a2'])
     say(['b1'])
@@ -194,7 +198,7 @@ describe('useVoice', () => {
   it('at a party (a big screen in the room), only the big screen speaks: a phone stays quiet', async () => {
     const { voice, say, room } = setup()
     room.value = { ...room.value!, screens: 1 }
-    voice.toggle()
+    voice.enable()
     await settle()
     say(['a1'])
     await settle()
@@ -207,7 +211,7 @@ describe('useVoice', () => {
 
   it('skips a line that is already too late, and remarks while she is talking', async () => {
     const { voice, say } = setup()
-    voice.toggle()
+    voice.enable()
     await settle()
     say(['a1'], { late: 5000 })
     say(['b1'])
@@ -221,7 +225,7 @@ describe('useVoice', () => {
   it("never asks for a clip that isn't rendered, and fetches it the moment the server says it is", async () => {
     missing.add('a2')
     const { voice, say, pushed } = setup()
-    voice.toggle()
+    voice.enable()
     await settle()
     say(['a1', 'a2'])
     await settle()
@@ -239,7 +243,7 @@ describe('useVoice', () => {
   it('drops the rest of a line when a sentence never arrives', async () => {
     missing.add('a2')
     const { voice, say } = setup()
-    voice.toggle()
+    voice.enable()
     await settle()
     say(['a1', 'a2'])
     say(['b1'])
@@ -250,23 +254,58 @@ describe('useVoice', () => {
     expect(FakeAudio.last.played).toEqual(['a1.webm', 'b1.webm'])
   })
 
-  it('after a reload with sound on, the first tap unlocks it, even a tap on the speaker itself', async () => {
-    localStorage.setItem('fermi.sound', 'on')
+  it('is on by default: the first tap starts it, and the nudge goes away', async () => {
     const { voice } = setup()
-    expect(voice.on.value).toBe(false) // on, but the browser needs a tap first
-    // one tap on the speaker: pointerdown, pointerup (unlocks), then the click
-    document.dispatchEvent(new Event('pointerdown'))
+    expect([voice.silence.value, voice.on.value]).toEqual(['locked', false])
     document.dispatchEvent(new Event('pointerup'))
     await settle()
+    expect([voice.silence.value, voice.on.value]).toEqual([null, true])
+  })
+
+  it('stays off once turned off, without waiting for a tap', async () => {
+    localStorage.setItem('fermi.sound', 'off')
+    const { voice } = setup()
+    expect(voice.silence.value).toBe('muted')
+    document.dispatchEvent(new Event('pointerup'))
+    await settle()
+    expect(voice.on.value).toBe(false)
+  })
+
+  it('never asks for a tap in a browser without Web Audio', () => {
+    vi.stubGlobal('AudioContext', undefined)
+    expect(setup().voice.silence.value).toBe(null)
+  })
+
+  it('on iOS, plays through the silent switch where she speaks, and mixes with music on a party phone', async () => {
+    const session = { type: 'auto' }
+    Object.defineProperty(navigator, 'audioSession', { value: session, configurable: true })
+    const { room } = setup()
+    await settle()
+    expect(session.type).toBe('playback')
+    room.value = { ...room.value!, screens: 1 }
+    await settle()
+    expect(session.type).toBe('ambient')
+    room.value = { ...room.value!, screens: 0 }
+    await settle()
+    expect(session.type).toBe('playback')
+    Reflect.deleteProperty(navigator, 'audioSession')
+  })
+
+  it('the speaker shows the setting: on while waiting for a tap, and a press turns it off', async () => {
+    const { voice } = setup()
+    expect([voice.sound.value, voice.silence.value]).toEqual([true, 'locked'])
     voice.toggle()
     await settle()
-    expect(voice.on.value).toBe(true)
-    expect(localStorage.getItem('fermi.sound')).toBe('on')
+    expect([voice.sound.value, voice.silence.value]).toEqual([false, 'muted'])
+    expect(localStorage.getItem('fermi.sound')).toBe('off')
+    voice.toggle()
+    await settle()
+    expect([voice.sound.value, voice.on.value]).toEqual([true, true])
   })
 
   it('says a line once, even when its bubble remounts', async () => {
     const { voice, say } = setup()
-    voice.toggle()
+    voice.enable()
     await settle()
     say(['b1'], { id: 'the same line' })
     say(['b1'], { id: 'the same line' })
@@ -278,7 +317,7 @@ describe('useVoice', () => {
 
   it('a hidden tab drops the rest of what she was saying', async () => {
     const { voice, say } = setup()
-    voice.toggle()
+    voice.enable()
     await settle()
     say(['a1', 'a2'])
     say(['b1'])
@@ -293,7 +332,7 @@ describe('useVoice', () => {
   it('switches every clip to MP3 when this browser cannot decode Opus, even ones fetched at the same time', async () => {
     FakeAudio.failing = (data) => new TextDecoder().decode(data).endsWith('.webm')
     const { voice, say } = setup()
-    voice.toggle() // fetches every clip in the snapshot at once
+    voice.enable() // fetches every clip in the snapshot at once
     await settle(20)
     say(['a1', 'a2'])
     say(['b1'])
@@ -307,7 +346,7 @@ describe('useVoice', () => {
 
   it('switches to MP3 when this browser cannot decode Opus', async () => {
     const { voice, say } = setup({ a: ['a1'] })
-    voice.toggle()
+    voice.enable()
     FakeAudio.last.decodeFails = (data) => new TextDecoder().decode(data).endsWith('.webm')
     say(['a1'])
     await settle(20)
