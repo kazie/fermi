@@ -4,12 +4,16 @@ See README.md for what this is and how to run it.
 
 ## Spoilers: the owner plays this game
 
-**Never print question texts or answers** in chat, summaries or commands whose output lands in the main
-conversation. That covers `pnpm q get`, `pnpm q export`, `pnpm q list --texts`, `pnpm q quote`, reading the question
-JSON in `.fermi-work/`, querying the `questions` table, and playing or transcribing clips in the voice folder
-(`data/voice/`: questions read aloud). Do content work (generating, verifying,
-debugging a specific question) inside subagents, and report counts, IDs and categories only. Test
-fixtures in `apps/server/test` and `apps/client/src/fixtures` are fake and fine to read.
+**Answers are the spoiler.** Never print a question's answer, or source quotes, excerpts and numbers that give it
+away, in chat, summaries or commands whose output lands in the main conversation. That rules out `pnpm q get`,
+`pnpm q export`, `pnpm q quote`, dumping question or draft JSON (`.fermi-work/`, the `questions` table), and playing
+or transcribing clips in `data/voice/` (questions read aloud, with their answers in the reveal lines).
+
+Everything else is fine and needn't be treated as a slip: ids, categories, source ids and publishers, check-failure
+reasons with the numbers masked, and the odd question text (one question out of a large pool is rarely dealt, and
+without its answer it spoils little). Still don't dump question texts in bulk (`pnpm q list --texts`). Do heavy
+content work (generating, verifying, debugging a specific question's answer) inside subagents. Test fixtures in
+`apps/server/test` and `apps/client/src/fixtures` are fake and fine to read.
 
 ## Conventions
 

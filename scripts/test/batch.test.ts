@@ -8,13 +8,16 @@ const now = new Date()
 const minute = 60 * 1000
 const day = 24 * 60 * minute
 
-function draft(batch: string, id: string, verified = false, checkOk = true) {
+function draft(batch: string, id: string, verified = false, checkOk: boolean | object = true, rejected = false) {
   mkdirSync(join(batch, 'drafts'), { recursive: true })
   mkdirSync(join(batch, 'verified'), { recursive: true })
+  mkdirSync(join(batch, 'rejected'), { recursive: true })
   const path = join(batch, 'drafts', `${id}.json`)
   writeFileSync(path, '{}')
-  writeFileSync(join(batch, 'drafts', `${id}.check.json`), JSON.stringify({ ok: checkOk }))
+  const check = typeof checkOk === 'object' ? checkOk : { ok: checkOk, problems: [] }
+  writeFileSync(join(batch, 'drafts', `${id}.check.json`), JSON.stringify(check))
   if (verified) writeFileSync(join(batch, 'verified', `${id}.json`), '{}')
+  if (rejected) writeFileSync(join(batch, 'rejected', `${id}.json`), '{}')
   return path
 }
 
@@ -42,21 +45,39 @@ describe('question batches', () => {
     expect(batchName(now)).toMatch(/^b-\d{8}-\d{4}-[0-9a-f]{4}$/)
   })
 
-  it('creates drafts and verified directories', () => {
+  it('creates drafts, verified and rejected directories', () => {
     const { run } = work()
-    expect(existsSync(join(run, 'drafts'))).toBe(true)
-    expect(existsSync(join(run, 'verified'))).toBe(true)
+    for (const d of ['drafts', 'verified', 'rejected']) expect(existsSync(join(run, d))).toBe(true)
   })
 
-  it('claims quiet batches with unverified drafts, ignoring verified and failed ones', () => {
+  it('claims quiet batches with undecided drafts, ignoring verified, rejected and failed ones', () => {
     const { dir, run } = work()
     const a = join(dir, 'b-a')
     draft(a, 'fresh')
     draft(a, 'done', true)
     draft(a, 'failed', false, false)
+    draft(a, 'rejected', false, true, true)
     age(a, 50 * minute)
     expect(sweepLeftovers(dir, now, run)).toEqual({ deleted: 0, leftovers: [{ dir: a, pending: 1 }] })
     expect(existsSync(join(a, 'claim-0'))).toBe(true)
+  })
+
+  it('counts a draft whose archiving failed as pending while it has tries left', () => {
+    const { dir, run } = work()
+    const a = join(dir, 'b-a')
+    const archive = ['source s1: could not archive (busy)', 'sources.0.archiveUrl: Invalid input']
+    draft(a, 'retry', false, { ok: false, problems: archive, archiveTries: 2 })
+    draft(a, 'spent', false, { ok: false, problems: archive, archiveTries: 3 })
+    draft(a, 'bad-quote', false, { ok: false, problems: ['source s1: quote not found on the live page or the snapshot'] })
+    age(a, 50 * minute)
+    expect(sweepLeftovers(dir, now, run).leftovers).toEqual([{ dir: a, pending: 1 }])
+  })
+  it("doesn't claim a batch whose drafts were all rejected", () => {
+    const { dir, run } = work()
+    const a = join(dir, 'b-a')
+    draft(a, 'nope', false, true, true)
+    age(a, 50 * minute)
+    expect(sweepLeftovers(dir, now, run).leftovers).toEqual([])
   })
 
   it('leaves batches alone while a run is still working on them', () => {

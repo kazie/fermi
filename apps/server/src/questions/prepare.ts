@@ -3,11 +3,18 @@
 
 import { quoteExcerpt } from './dedupe.ts'
 
+/** Text similarity at which a draft counts as the same wording as a rejected candidate. */
+const SAME_REJECTED = 0.95
+
 export interface PrepareDeps {
   pageText(url: string): Promise<string | null>
   archive(url: string): Promise<{ archiveUrl: string; archivedAt: string }>
   /** Server-side ingest dry run (schema, numbers, formula, dates, duplicates). */
-  dryRun(draft: unknown): Promise<{ status: string; errors?: string[]; matches?: { id: string; question: string; reasons: string[] }[] }>
+  dryRun(draft: unknown): Promise<{
+    status: string
+    errors?: string[]
+    matches?: { id: string; question: string; reasons: string[]; similarity?: number; rejectionReason?: string }[]
+  }>
 }
 
 export interface DraftCheck {
@@ -64,6 +71,9 @@ export function withDryRun(
   const problems = [...rest.problems]
   if (res.status === 'invalid') problems.push(...(res.errors ?? []))
   if (res.status === 'duplicate') problems.push('duplicate of an existing question')
+  // A verifier already rejected this very wording (a leftover draft from before rejections were marked in the batch).
+  if (res.matches?.some((m) => m.rejectionReason !== undefined && (m.similarity ?? 0) >= SAME_REJECTED))
+    problems.push('previously rejected')
   return {
     ...rest,
     ok: problems.length === 0 && (res.status === 'valid' || res.status === 'needs_review'),

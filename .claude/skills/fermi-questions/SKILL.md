@@ -49,7 +49,8 @@ else without asking. `$B` below stands for the batch path that `pnpm q batch` pr
    hold ids, categories and counts only, no question texts: generators don't need the texts, because the
    `prepare` step below catches duplicates on the server. It also deletes unverified drafts older than 7 days
    from earlier batches, since their access dates would be stale.
-2. **Leftovers.** Each `leftover <dir> <n> pending` line is a batch whose run died; `pnpm q batch` has
+2. `date -u +%F`: today's date, for the briefs (generators have no shell).
+3. **Leftovers.** Each `leftover <dir> <n> pending` line is a batch whose run died; `pnpm q batch` has
    claimed it for you, so no other run will touch it. Put `<dir>/drafts` through steps 2–3 alongside
    your own drafts, and count its successes towards N.
 
@@ -60,7 +61,7 @@ Split what is still needed into chunks of **5 drafts** (template chunks: 6), wit
 
 > Write 5 drafts into `$B/drafts/`. Existing ids and categories: `$B/existing.tsv`; questions per
 > category: `$B/categories.tsv`. Topic: <topic, or "any: favour the categories with the fewest
-> questions">.
+> questions">. Today is <date>.
 
 When the topic is several category names (e.g. `space history`), give each chunk **one** of them, in
 turn. A combined topic lets the generator pick whichever is easier, and the other one gets nothing.
@@ -68,14 +69,14 @@ turn. A combined topic lets the generator pick whichever is easier, and the othe
 When the run has no topic, make every third chunk a template chunk:
 
 > Write 6 drafts for template `<id>` from `content/question-templates.md`, from one source table if you
-> can, with 6 different well-known slots not yet in `$B/existing.tsv` (ids name the slot).
+> can, with 6 different well-known slots not yet in `$B/existing.tsv` (ids name the slot). Today is <date>.
 
 For `--template`, every chunk is for that template.
 
 ## 2. Mechanical checks (no LLM), as each generator finishes
 
 Don't wait for all generators. Each time one finishes, run `pnpm q prepare $B/drafts` (and the same for
-any leftover batch). It skips drafts that are already verified and only re-checks drafts changed since
+any leftover batch). It skips drafts a verifier already approved or rejected, and only re-checks drafts changed since
 their last check, so repeated calls are cheap. It archives sources, confirms each quote is on the live page
 or the snapshot, and dry-runs ingest. Read only its last line (`x/y drafts passed`) and the ✓/✗ ids it
 prints. A `… <id>: not ready` line is a draft still being written: it's checked on a later call. Run one

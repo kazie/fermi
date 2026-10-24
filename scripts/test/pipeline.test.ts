@@ -1,14 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import { parseAgentOutput } from '../grow-report.ts'
-import { formatReport, parseBatch, parsePrepare, runPipeline, type AgentName, type PipelineDeps } from '../pipeline.ts'
+import { formatReport, parseBatch, parsePrepare, runPipeline, usableIdeas, type AgentName, type PipelineDeps } from '../pipeline.ts'
 
 /**
- * A fake pool, CLI and agents. Generators write 5 drafts each; `prepare` fails every draft whose number is divisible
- * by `failEvery`; verifiers add every draft they get except those in `rejectIds`.
+ * A fake pool, CLI and agents. Generators write 5 drafts each (or one per assigned idea); `prepare` fails every draft
+ * whose number is divisible by `failEvery`; verifiers add every draft they get except those in `rejectIds`.
  */
 function world(
-  opts: { failEvery?: number; rejectIds?: string[]; limitAfter?: number; leftovers?: string[]; screen?: PipelineDeps['screen'] } = {},
+  opts: {
+    failEvery?: number
+    rejectIds?: string[]
+    limitAfter?: number
+    leftovers?: string[]
+    screen?: PipelineDeps['screen']
+    plan?: PipelineDeps['plan']
+    /** Drafts whose prepare fails (archiving) until the pipeline has paused for its retry. */
+    failUntilPause?: string[]
+  } = {},
 ) {
+  const pauses: number[] = []
+
   const pool = new Map<string, string>([['old-1', 'food']])
   const drafts = new Map<string, string[]>() // batch dir → draft ids
   const verified = new Set<string>()
@@ -19,14 +30,19 @@ function world(
   for (const dir of opts.leftovers ?? []) drafts.set(dir, [`${dir}-left`])
   const deps: PipelineDeps = {
     screen: opts.screen,
+    plan: opts.plan,
+    pause: async (ms) => void pauses.push(ms),
     async cli([cmd, arg]) {
       if (cmd === 'batch') return `batch .fermi-work/b-new\n${(opts.leftovers ?? []).map((d) => `leftover ${d} 1 pending\n`).join('')}`
-      if (cmd === 'list') return [...pool].map(([id, c]) => `${id}\t${c}\tactive\n`).join('')
+      if (cmd === 'list') return [...pool].map(([id, c]) => `${id}\t${c}\tactive${arg === '--texts' ? `\tQ ${id}` : ''}\n`).join('')
       if (cmd === 'prepare') {
         const dir = arg.replace(/\/drafts$/, '')
         return (drafts.get(dir) ?? [])
           .filter((id) => !verified.has(id))
-          .map((id) => (opts.failEvery && Number(id.split('-').pop()) % opts.failEvery === 0 ? `✗ ${id}: 1 problem(s)` : `✓ ${id}`))
+          .map((id) => {
+            if (opts.failUntilPause?.includes(id) && !pauses.length) return `✗ ${id}: 3 problem(s)`
+            return opts.failEvery && Number(id.split('-').pop()) % opts.failEvery === 0 ? `✗ ${id}: 1 problem(s)` : `✓ ${id}`
+          })
           .join('\n')
       }
       throw new Error(`unexpected cli ${cmd}`)
@@ -41,7 +57,8 @@ function world(
       }
       if (agent === 'fermi-generator') {
         const dir = /`([^`]+)\/drafts\/`/.exec(brief)![1]
-        const ids = Array.from({ length: 5 }, () => `d-${++n}`)
+        const assigned = [...brief.matchAll(/^- `([^`]+)`/gm)].map((m) => `${m[1]}-${++n}`)
+        const ids = assigned.length ? assigned : Array.from({ length: 5 }, () => `d-${++n}`)
         drafts.set(dir, [...(drafts.get(dir) ?? []), ...ids])
         return { costUsd: 0.1, limit: null }
       }
@@ -52,7 +69,7 @@ function world(
       return { costUsd: 0.2, limit: null }
     },
   }
-  return { deps, calls, pool, peak: () => peak }
+  return { deps, calls, pool, pauses, peak: () => peak }
 }
 
 describe('pipeline parsing', () => {
@@ -90,7 +107,7 @@ describe('runPipeline', () => {
     expect(generators.length).toBeGreaterThanOrEqual(3) // ceil(10 × 1.1 / 5)
     expect(generators[0].brief).toContain('Topic: food.')
     for (const v of w.calls.filter((c) => c.agent === 'fermi-verifier')) {
-      expect(v.brief.match(/\.json`/g)!.length).toBeLessThanOrEqual(5)
+      expect(v.brief.match(/drafts\/[^`]+\.json`/g)!.length).toBeLessThanOrEqual(5)
     }
     // every ✓ draft is sent to a verifier exactly once
     const sent = w.calls.flatMap((c) => [...c.brief.matchAll(/drafts\/([^`]+)\.json/g)].map((m) => m[1]))
@@ -110,6 +127,20 @@ describe('runPipeline', () => {
     expect(generators).toBeGreaterThan(3)
     expect(generators).toBeLessThanOrEqual(6)
   })
+  it('prepares once more after a pause when drafts failed, so archiving gets another try', async () => {
+    const w = world({ failUntilPause: ['d-2', 'd-4'] })
+    const r = await runPipeline('food', 5, w.deps)
+    expect(w.pauses.length).toBe(1)
+    expect(w.pauses).toEqual([2 * 60 * 1000])
+    expect(r.failedChecks).toBe(0)
+    expect(r.drafts).toBe(r.passed)
+    expect(r.added).toBe(r.passed)
+  })
+  it("doesn't pause when every draft passed", async () => {
+    const w = world()
+    await runPipeline('food', 5, w.deps)
+    expect(w.pauses).toEqual([])
+  })
   it('verifies leftover batches too', async () => {
     const w = world({ leftovers: ['.fermi-work/b-left'] })
     const r = await runPipeline('food', 5, w.deps)
@@ -120,6 +151,85 @@ describe('runPipeline', () => {
     const r = await runPipeline('food', 25, w.deps)
     expect(r.limit).toMatch(/resets 4:20am/)
     expect(w.calls.length).toBeLessThanOrEqual(2 + 4) // the ones already running may finish
+  })
+})
+
+describe('runPipeline with a planner', () => {
+  const ideas = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i}`, idea: `Idea ${prefix}${i}` }))
+
+  it('hands each generator its own ideas, three at a time, and reports the funnel', async () => {
+    const planned: { n: number; existing: string[]; tried: string[] }[] = []
+    const w = world({
+      async plan(_topic, n, existing, tried) {
+        planned.push({ n, existing, tried })
+        return { ideas: ideas(`r${planned.length}-`, n), costUsd: 0.05, limit: null }
+      },
+    })
+    const r = await runPipeline('food', 6, w.deps)
+    expect(planned[0]).toEqual({ n: 12, existing: ['Q old-1'], tried: [] })
+    const briefs = w.calls.filter((c) => c.agent === 'fermi-generator').map((c) => c.brief)
+    expect(briefs.length).toBe(4)
+    const assigned = briefs.flatMap((b) => [...b.matchAll(/^- `([^`]+)`/gm)].map((m) => m[1]))
+    expect(assigned.length).toBe(12)
+    expect(new Set(assigned).size).toBe(12)
+    for (const b of briefs) expect(b).toMatch(/Today is \d{4}-\d{2}-\d{2}\./)
+    expect(r).toMatchObject({ ideas: 12, drafts: 12, passed: 12, added: 12 })
+    expect(r.cost.plan).toBeCloseTo(0.05)
+    expect(formatReport(r)).toContain('ideas 12 → drafts 12 → passed 12')
+  })
+  it('plans the second round around what the first tried', async () => {
+    const planned: string[][] = []
+    const w = world({
+      failEvery: 1, // nothing passes
+      async plan(_t, n, _e, tried) {
+        planned.push(tried)
+        return { ideas: ideas(`r${planned.length}-`, n), costUsd: 0, limit: null }
+      },
+    })
+    await runPipeline('food', 3, w.deps)
+    expect(planned.length).toBe(2)
+    expect(planned[1]).toEqual(ideas('r1-', 6).map((i) => i.idea))
+  })
+  it('falls back to the topic brief when the planner has nothing usable', async () => {
+    const w = world({ plan: async () => ({ ideas: null, costUsd: 0.01, limit: null }) })
+    const r = await runPipeline('food', 5, w.deps)
+    expect(w.calls.find((c) => c.agent === 'fermi-generator')!.brief).toContain('Topic: food.')
+    expect(r.added).toBeGreaterThanOrEqual(5)
+  })
+  it('gathers passed drafts into full verifier sessions', async () => {
+    const w = world({ plan: async (_t, n) => ({ ideas: ideas('x', n), costUsd: 0, limit: null }) })
+    const r = await runPipeline('food', 10, w.deps)
+    const verifiers = w.calls.filter((c) => c.agent === 'fermi-verifier')
+    expect(verifiers.length).toBeLessThanOrEqual(Math.ceil(r.passed / 5) + 1)
+  })
+  it('lets a drafting step of its own replace planner and generators, in one round', async () => {
+    const w = world({ plan: async () => ({ ideas: null, costUsd: 0, limit: null }) })
+    let calls = 0
+    const r = await runPipeline('food', 10, {
+      ...w.deps,
+      async draft(batch, _topic, need, existing) {
+        calls++
+        expect(existing).toEqual(['Q old-1'])
+        // the fake world's prepare reads drafts from its generator calls, so stand in for one
+        await w.deps.runAgent('fermi-generator', `Write ${need} drafts into \`${batch}/drafts/\`.`)
+        return { ideas: 5, costUsd: 0.1, limit: null }
+      },
+    })
+    expect(calls).toBe(1)
+    expect(w.calls.filter((c) => c.agent === 'fermi-generator').length).toBe(1)
+    expect(r).toMatchObject({ ideas: 5, drafts: 5, added: 5 })
+  })
+  it('drops ideas without a usable id, taken ids and repeats', () => {
+    const got = usableIdeas(
+      [
+        { id: 'old-1', idea: 'a' },
+        { id: 'Bad Id', idea: 'b' },
+        { id: 'fresh-one', idea: 'c' },
+        { id: 'fresh-one', idea: 'd' },
+      ],
+      new Set(['old-1']),
+    )
+    expect(got).toEqual([{ id: 'fresh-one', idea: 'c' }])
   })
 })
 
@@ -184,29 +294,35 @@ describe('formatReport', () => {
     const line = formatReport({
       added: 4,
       byCategory: { food: 3, history: 1 },
+      ideas: 12,
+      drafts: 9,
+      passed: 6,
       failedChecks: 2,
       flagged: 3,
       flaggedAdded: 1,
       unscreened: 0,
       rejected: 1,
-      cost: { 'fermi-generator': 0.4, screen: 0.04, 'fermi-verifier': 0.76 },
+      cost: { 'fermi-generator': 0.4, screen: 0.04, 'fermi-verifier': 0.66, plan: 0.1 },
       limit: null,
     })
     expect(line).toBe(
-      '+4 added (food 3, history 1) · 2 failed checks · 3 flagged by screen (1 added) · 1 rejected · ' +
-        '$1.20 (drafting $0.40, screening $0.04, verifying $0.76), $0.30 per question',
+      '+4 added (food 3, history 1) · ideas 12 → drafts 9 → passed 6 · 2 failed checks · 3 flagged by screen (1 added) · ' +
+        '1 rejected · $1.20 (planning $0.10, drafting $0.40, screening $0.04, verifying $0.66), $0.30 per question',
     )
   })
   it('says how many drafts went unscreened', () => {
     const line = formatReport({
       added: 0,
       byCategory: {},
+      ideas: null,
+      drafts: 5,
+      passed: 5,
       failedChecks: 0,
       flagged: 0,
       flaggedAdded: 0,
       unscreened: 5,
       rejected: 0,
-      cost: { 'fermi-generator': 0, screen: 0, 'fermi-verifier': 0 },
+      cost: { 'fermi-generator': 0, screen: 0, 'fermi-verifier': 0, plan: 0 },
       limit: null,
     })
     expect(line).toContain('0 flagged by screen (0 added, 5 unscreened)')

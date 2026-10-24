@@ -1,4 +1,4 @@
-// Batch directories for /fermi-questions: `.fermi-work/b-<stamp>-<rand>/{drafts,verified}`.
+// Batch directories for /fermi-questions: `.fermi-work/b-<stamp>-<rand>/{drafts,verified,rejected}`.
 // Plain file work so the skill's setup is a single `pnpm q batch` call (headless runs can't approve shell glue).
 // Several runs may work at once, so a run only takes over another batch once that batch's run is gone, and claims it
 // first. The creator holds `claim-0`, and each takeover writes the next number; the highest claim owns the batch. Under
@@ -26,6 +26,7 @@ export function createBatch(workDir: string, now: Date, heartbeat = '') {
   const dir = join(workDir, batchName(now))
   mkdirSync(join(dir, 'drafts'), { recursive: true })
   mkdirSync(join(dir, 'verified'), { recursive: true })
+  mkdirSync(join(dir, 'rejected'), { recursive: true })
   writeFileSync(join(dir, 'claim-0'), heartbeat)
   return dir
 }
@@ -36,19 +37,33 @@ export const mtime = (path: string) => statSync(path, { throwIfNoEntry: false })
 /** A draft's own file, not the `.check.json` / `.screen.json` written next to it. */
 export const isDraftFile = (f: string) => f.endsWith('.json') && !f.endsWith('.check.json') && !f.endsWith('.screen.json')
 
-/** Drafts in `<batch>/drafts` with no same-named file in `<batch>/verified`, skipping ones that failed `prepare`. */
+/** A draft a verifier already decided on: approved (`verified/<id>.json`) or rejected (`rejected/<id>.json`). */
+export const isDecided = (drafts: string, f: string) =>
+  existsSync(join(drafts, '..', 'verified', f)) || existsSync(join(drafts, '..', 'rejected', f))
+
+/** How many `prepare` calls may try to archive a draft's sources before it is given up. */
+export const ARCHIVE_TRIES = 3
+
+/**
+ * A failed check that a later `prepare` tries again: archiving failed (the Wayback Machine was busy) and tries are
+ * left. Its other problems may only be that failure's consequence (no snapshot fields), so they don't count.
+ */
+export const archiveRetryable = (check: { ok: boolean; problems: string[]; archiveTries?: number }) =>
+  !check.ok && (check.archiveTries ?? 1) < ARCHIVE_TRIES && check.problems.some((p) => p.includes('could not archive'))
+
+/** Drafts in `<batch>/drafts` no verifier has decided on, skipping ones that failed `prepare` for good. */
 function pendingDrafts(batch: string) {
   const drafts = join(batch, 'drafts')
   if (!existsSync(drafts)) return []
-  const verified = join(batch, 'verified')
   return readdirSync(drafts)
     .filter(isDraftFile)
-    .filter((f) => !existsSync(join(verified, f)) && !failedCheck(join(drafts, f.replace(/\.json$/, '.check.json'))))
+    .filter((f) => !isDecided(drafts, f) && !failedForGood(join(drafts, f.replace(/\.json$/, '.check.json'))))
 }
 
-function failedCheck(path: string) {
+function failedForGood(path: string) {
   try {
-    return JSON.parse(readFileSync(path, 'utf8')).ok === false
+    const check = JSON.parse(readFileSync(path, 'utf8'))
+    return check.ok === false && !archiveRetryable(check)
   } catch {
     return false
   }

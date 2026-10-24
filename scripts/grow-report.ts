@@ -58,3 +58,10 @@ export function parseAgentOutput(out: string): { text: string; costUsd: number; 
     limit: failed ? (inResult ?? limitMessage(out)) : null,
   }
 }
+
+const REST_MS = 24 * 60 * 60 * 1000
+/** A category gets a rest when its last two runs, both within a day, added at most one question each. */
+export function resting(runs: { at: string; added: number }[] = [], now = Date.now()) {
+  const last = runs.slice(-2)
+  return last.length === 2 && last.every((r) => r.added <= 1 && now - Date.parse(r.at) < REST_MS)
+}

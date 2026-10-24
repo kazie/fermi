@@ -25,6 +25,7 @@
     "lint:fix": "eslint . --fix",
     "check": "pnpm format:check && pnpm lint && pnpm type-check && pnpm test",
     "grow": "node scripts/grow.ts",
+    "harvest": "node scripts/harvest.ts",
     "review": "node scripts/review-pool.ts",
     "voice:render": "node scripts/voice-render.ts"
   },
