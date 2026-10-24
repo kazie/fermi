@@ -36,8 +36,18 @@ docker run -d -p 3000:3000 -v fermi-data:/data -e FERMI_ADMIN_TOKEN=… fermi
 One container serves the client, the websocket and the API; the SQLite database lives in `/data`. See
 [Self-hosting](#self-hosting) for the settings.
 
-**FerMEANie's voice.** With `FERMI_VOICE=1` she says her lines and reads each question aloud, on every device that
-turns sound on (the speaker in the header). It's free and local: Kokoro text-to-speech in a Python worker the server
+**Sound.** The speaker in the header turns sound on for that device. Sound effects are synthesised in the browser
+(no audio files): a lab-style chime for each question, a ticking last five seconds and a time's-up alarm, the truth
+landing, cards flipping, the steal, the winner. Where sound plays depends on the mode:
+
+- **Online** (no big screen): every device plays everything.
+- **Party** (a big screen is connected): the big screen plays FerMEANie's voice and the shared sounds, and phones play
+  only their player's own moments (your lock-in, your card, your turn in the roll call), so the room doesn't echo.
+
+Phones also vibrate for their own moments and at ten seconds left, unless reduced motion is on.
+
+**FerMEANie's voice.** With `FERMI_VOICE=1` she says her lines and reads each question aloud, wherever the shared
+sounds play (see above). It's free and local: Kokoro text-to-speech in a Python worker the server
 starts (the Docker image includes it; for `pnpm dev`, install uv and ffmpeg: uv sets up the worker's locked Python
 packages from `apps/server/voice/`). See [content/VOICE.md](content/VOICE.md)
 for the chosen voice, how clips are rendered ahead of time, `pnpm q voice` and `pnpm voice:render`.

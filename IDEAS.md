@@ -62,8 +62,6 @@ Not bugs: choices to make, with the trade-off.
 
 - **Lock in while offline** queues the lock but the button doesn't change until the server answers, so it looks
   like nothing happened. Show a pending state and an offline banner near the editor.
-- **"Your last line counts."** Unlocked drafts are scored, but nobody is told, and the Lock button is disabled until
-  the answer is valid. A hint at the urgent threshold and a short "Time's up" moment would calm the last seconds.
 - **Calculator on a phone:** the helper keys lack digits, `.`, `+`, `-` and `_` (three taps away on iOS), and the
   textarea has no `inputmode`. The decimal-comma Fix button is 32 px, under the 44 px touch target. The caret-line
   `aria-live` announces every caret move. Line values and number-line pins are only in `title` (no hover on a phone).
@@ -85,8 +83,8 @@ Not bugs: choices to make, with the trade-off.
 - **Small screens and focus:** number-line labels are sized in percent from name length and overlap at 360 px; focus
   falls back to `<body>` and nothing is announced on phase changes; `document.title` never changes, so a background
   tab can't show the timer or "Reveal!"; safe areas are only applied to the helper keys.
-- **Feedback:** the only vibration is the steal. 10 s left, your card flipping and being locked in are obvious
-  moments. Host commands queued while offline replay later (a double-tapped Next can skip a later break).
+- **Queued host commands:** host commands queued while offline replay later (a double-tapped Next can skip a later
+  break).
 
 ## Server and operations
 

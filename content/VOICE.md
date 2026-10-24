@@ -1,7 +1,8 @@
 # FerMEANie's voice
 
-FerMEANie says her lines out loud and reads each question as it appears, on every device that turns sound on (the
-speaker button in the header). Everything is free and runs locally: no paid text-to-speech service, no network at
+FerMEANie says her lines out loud and reads each question as it appears, on devices that turn sound on (the speaker
+button in the header): every device online, only the big screen at a party (a big screen in the room), where phones
+play only their own sound effects (see README "Sound"; the rule is `soundRoute` in `apps/client/src/lib/sound.ts`). Everything is free and runs locally: no paid text-to-speech service, no network at
 play time. This file records what was chosen and why, how it works, and how to change it.
 
 ## The voice
@@ -85,7 +86,8 @@ line (with markup) → speech text → sentences → clip key per sentence → w
   - Each question is read before her line, which gives a just-picked line a few more seconds.
 - **Snapshots** carry `voice`: for each line and question in the view, its clip keys, and which of them
   aren't rendered yet (nearly always none).
-  Its presence tells the client to show the speaker button.
+  Its presence tells the client that her lines are paced to her voice. The speaker button shows either way: sound
+  effects play without a voice too.
 - **Ready clips are pushed.** When the worker finishes a clip, each room whose view uses it sends `{ type: 'voice',
 ready: [...] }` over the websocket (clips finishing within 100 ms go in one message). Clients never ask for a clip
   that isn't there, so a game produces no 404s: some setups treat bursts of them as an attack (fail2ban) or a sick

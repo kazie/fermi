@@ -155,17 +155,17 @@ describe('useVoice', () => {
     /** Says a line as a new utterance (or as `id`, to say the same one again). */
     const say = (keys: string[], opts: { id?: string; late?: number; aside?: boolean } = {}) =>
       voice.player.say(keys, { id: `line ${n++}`, ...opts })
-    return { voice, say, pushed, w }
+    return { voice, say, pushed, w, room }
   }
   const flush = () => new Promise((r) => setTimeout(r, 0))
   async function settle(times = 10) {
     for (let i = 0; i < times; i++) await flush()
   }
 
-  it('is off until turned on, and shows the button only when the server has a voice', async () => {
-    expect(setup(null).voice.sound.value !== undefined).toBe(false)
+  it('is off until turned on; the button is there with or without a voice on the server (effects play either way)', async () => {
+    expect(setup(null).voice.sound.value).toBe(false)
     const { voice, say } = setup()
-    expect(voice.sound.value !== undefined).toBe(true)
+    expect(voice.sound.value).toBe(false)
     expect(voice.on.value).toBe(false)
     say(['a1'])
     voice.toggle()
@@ -189,6 +189,20 @@ describe('useVoice', () => {
     FakeAudio.last.finish()
     await settle()
     expect(FakeAudio.last.played).toEqual(['a1.webm', 'a2.webm', 'b1.webm'])
+  })
+
+  it('at a party (a big screen in the room), only the big screen speaks: a phone stays quiet', async () => {
+    const { voice, say, room } = setup()
+    room.value = { ...room.value!, screens: 1 }
+    voice.toggle()
+    await settle()
+    say(['a1'])
+    await settle()
+    expect(FakeAudio.last.played).toEqual([])
+    room.value = { ...room.value!, viewer: 'screen' }
+    say(['b1'])
+    await settle()
+    expect(FakeAudio.last.played).toEqual(['b1.webm'])
   })
 
   it('skips a line that is already too late, and remarks while she is talking', async () => {

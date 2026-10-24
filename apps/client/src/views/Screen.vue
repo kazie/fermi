@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useSocket } from '@/composables/useSocket'
 import { useServerNow } from '@/composables/useNow'
 import { useVoice } from '@/composables/useVoice'
+import { useGameSfx } from '@/composables/useGameSfx'
 import { useWakeLock } from '@/composables/useWakeLock'
 import { providePlayerOrder } from '@/lib/playerColors'
 import AppHeader from '@/components/AppHeader.vue'
@@ -22,6 +23,8 @@ const { room, status, fatal, offset } = socket
 // FerMEANie's voice: off until this device turns it on (the speaker in the header)
 const voice = useVoice(socket)
 const now = useServerNow(offset)
+// the big screen plays the shared sounds: the countdown, the reveal, the steal
+useGameSfx(room, now, voice)
 useWakeLock(() => !!room.value) // a TV page should never fall asleep
 providePlayerOrder(computed(() => room.value?.players.map((p) => p.id) ?? []))
 const joinUrl = `${location.origin}/r/${code}`

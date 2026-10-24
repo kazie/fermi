@@ -9,6 +9,7 @@ import { computed, inject, onUnmounted, provide, ref, watch, type InjectionKey, 
 import type { RoomView } from '@fermi/shared'
 import { SPEECH_GAP_MS } from '@fermi/shared'
 import { savedSound, saveSound } from '@/lib/storage'
+import { soundRoute } from '@/lib/sound'
 
 export interface VoicePlayer {
   /** The server has a voice: her lines (in bubbles on the server clock) are paced to it, sound on or off. */
@@ -73,6 +74,10 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
   let epoch = 0
   let source: AudioBufferSourceNode | null = null
   const on = computed(() => wanted.value && running.value)
+  /** Her voice plays where the shared sounds do: everywhere online, only on the big screen at a party. */
+  const speaks = computed(() => !!socket.room.value && soundRoute(socket.room.value) === 'all')
+  /** She is saying something right now (sound effects duck under her). */
+  const talking = ref(false)
 
   function context(): AudioContext | null {
     if (ctx) return ctx
@@ -181,7 +186,7 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
 
   /** Fetches the rendered clips this view may say. */
   function prefetch() {
-    if (!wanted.value || !context()) return
+    if (!wanted.value || !speaks.value || !context()) return
     for (const keys of Object.values(voiceView()?.lines ?? {})) for (const k of keys) if (ready.has(k)) void load(k)
   }
   watch([voiceView, socket.voiceReady], onReady, { immediate: true })
@@ -223,11 +228,14 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
           const b = await c.decodeAudioData(data.slice(0)).catch(() => null)
           if (!b || line.epoch !== epoch) break
           if (i > 0) await new Promise((r) => setTimeout(r, SPEECH_GAP_MS))
+          talking.value = true
           await playBuffer(c, b)
+          talking.value = false
         }
       }
     } finally {
       playing = false
+      talking.value = false
     }
   }
 
@@ -237,7 +245,7 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
     },
     keys: (text) => voiceView()?.lines[text],
     say(keys, { id, late = 0, aside = false, patience = FIRST_CLIP_WAIT_MS }) {
-      if (!wanted.value || !running.value || document.hidden || !keys.length || late > MAX_LATE_MS || said.has(id)) return
+      if (!wanted.value || !running.value || !speaks.value || document.hidden || !keys.length || late > MAX_LATE_MS || said.has(id)) return
       if (aside && (playing || queue.length)) return
       said.add(id)
       if (said.size > 500) said.delete(said.values().next().value!)
@@ -248,6 +256,7 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
 
   function stop() {
     epoch++
+    talking.value = false
     queue.length = 0
     try {
       source?.stop()
@@ -255,6 +264,10 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
       /* already stopped */
     }
   }
+  // A big screen joining mid-line takes over: the phone stops at once rather than finishing its queue over it.
+  watch(speaks, (s) => {
+    if (!s) stop()
+  })
   // A hidden tab drops what it hasn't said: coming back to a backlog of old lines would be worse than silence.
   const onHidden = () => {
     if (document.hidden) stop()
@@ -274,9 +287,12 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
     player,
     /** Sound is on and playing (on but locked shows as off until a tap). */
     on,
-    /** For the header's speaker: on or off, or undefined (no button) when the server has no voice. */
-    sound: computed(() => (voiceView() ? on.value : undefined)),
+    /** For the header's speaker: all sound on this device (her voice, if the server has one, and the effects). */
+    sound: on,
     toggle,
+    /** The page's audio, shared with the sound effects (null until there is one). */
+    audio: () => (on.value ? context() : null),
+    talking,
   }
 }
 
