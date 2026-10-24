@@ -6,7 +6,7 @@ version = "0"
 description = "Renders FerMEANie's voice clips for the Fermi game server"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-  "kokoro-onnx>=0.4.9",
+  "kokoro-onnx>=0.6.1",
   "numpy>=2",
 ]
 

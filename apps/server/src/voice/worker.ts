@@ -26,18 +26,13 @@ export function lockedVersions(lock: string): Map<string, string> {
  * Everything that shapes how she sounds, as one string for clip keys: voice.json (her settings and the model files'
  * checksums) and the locked versions of the packages it lists as `engineDeps`. Change any of it (an edit, a new model,
  * Dependabot's voice-engine PR) and every clip gets a new key, so the sweep renders her again instead of mixing old
- * and new audio. Other packages' versions don't count.
+ * and new audio. Other packages' versions don't count. A listed package the lock doesn't have (a newer engine dropped
+ * it) counts as absent: the key still changes, and nothing breaks before voice.json is tidied up.
  */
 export function voiceFingerprint(config = readFileSync(VOICE_CONFIG, 'utf8'), lock = readFileSync(VOICE_LOCK, 'utf8')): string {
   const settings = JSON.parse(config) as { engineDeps?: string[] }
   const locked = lockedVersions(lock)
-  const engine = Object.fromEntries(
-    (settings.engineDeps ?? []).map((name) => {
-      const version = locked.get(name)
-      if (!version) throw new Error(`${name} (engineDeps in voice.json) isn't in apps/server/voice/uv.lock`)
-      return [name, version]
-    }),
-  )
+  const engine = Object.fromEntries((settings.engineDeps ?? []).map((name) => [name, locked.get(name) ?? null]))
   return JSON.stringify({ settings, engine })
 }
 
@@ -107,7 +102,7 @@ export class WorkerRenderer implements Renderer {
       // a worker that died between two jobs: the next write fails (EPIPE), which must not crash the server
       proc.stdin.on('error', fail)
       createInterface({ input: proc.stdout }).on('line', (line) => {
-        let msg: { ready?: boolean; versions?: Record<string, string>; id?: string; ok?: boolean; error?: string }
+        let msg: { ready?: boolean; versions?: Record<string, string | null>; id?: string; ok?: boolean; error?: string }
         try {
           msg = JSON.parse(line)
         } catch {
@@ -173,9 +168,11 @@ export class WorkerRenderer implements Renderer {
 }
 
 /** A local environment out of step with uv.lock (an old .venv) would render clips under the wrong key: say so. */
-function warnIfNotLocked(installed: Record<string, string>) {
+function warnIfNotLocked(installed: Record<string, string | null>) {
   const locked = lockedVersions(readFileSync(VOICE_LOCK, 'utf8'))
   for (const [name, version] of Object.entries(installed))
-    if (locked.get(name) !== version)
-      console.error(`[voice] ${name} ${version} is installed but uv.lock says ${locked.get(name)}: run uv sync --project apps/server/voice`)
+    if ((locked.get(name) ?? null) !== version)
+      console.error(
+        `[voice] ${name} ${version ?? '(none)'} is installed but uv.lock says ${locked.get(name) ?? '(none)'}: run uv sync --project apps/server/voice`,
+      )
 }
