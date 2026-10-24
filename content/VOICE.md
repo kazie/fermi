@@ -106,7 +106,8 @@ ready: [...] }` over the websocket (clips finishing within 100 ms go in one mess
   clips for, in a bubble on the server clock. The lobby and recaps (their own clock) keep the plain reading pauses.
 
 Measured speed: on dhole (an Intel i3-1115G4, no GPU) about 1 s per sentence in the container, about 3× faster than
-real time. A first sweep takes roughly half an hour; a workstation does it in a few minutes.
+real time. A full render (about 1,850 clips) takes roughly half an hour, on dhole and on a 24-core workstation alike:
+one worker renders one sentence at a time, so more cores barely help.
 
 ## Running it
 
@@ -114,7 +115,7 @@ real time. A first sweep takes roughly half an hour; a workstation does it in a 
 FERMI_VOICE=1 pnpm dev          # needs uv and ffmpeg; uv installs the locked packages, the model (~90 MB) downloads
 pnpm q voice                    # what's rendered and queued (counts only)
 pnpm q voice --sweep            # render whatever is missing
-pnpm voice:render [--out DIR]   # the same sweep without a server, e.g. on a faster machine, then rsync DIR
+pnpm voice:render [--out DIR]   # the same sweep without a server, e.g. on another machine, then rsync DIR
 ```
 
 | Variable             | Default                       | What it does                                         |
@@ -152,7 +153,7 @@ merging one:
 1. Listen. Play a game with sound on, or render the audition script: `pnpm test:e2e:video` doesn't help, because its
    videos are silent.
 2. Merging changes the fingerprint, so every clip gets a new key. The server's sweep renders everything again (about
-   35–40 min on dhole). Or render ahead with `pnpm voice:render` on a faster machine and rsync the folder.
+   35–40 min on dhole). Or render ahead with `pnpm voice:render` on another machine (so the server stays free) and rsync the folder.
 
 kokoro-onnx was locked at 0.4.9, the version the voice was auditioned with; newer versions exist, so the first
 `voice-engine` PR is worth a listen.
@@ -172,7 +173,7 @@ better model:
 ## Changing the voice
 
 Edit `voice/voice.json` and restart the server: every sentence gets a new key, and the sweep renders them all again
-(or run `pnpm voice:render` on a faster machine and rsync the folder). To audition before deciding:
+(or run `pnpm voice:render` on another machine and rsync the folder). To audition before deciding:
 
 1. Render the same short script (about five lines, a fake question and the name, with names and numbers filled in) in
    each candidate: voice or blend × effect chain × pronunciation, using the worker's code for speech and effects.
