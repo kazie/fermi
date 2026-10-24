@@ -26,7 +26,13 @@ import {
   toRevealed,
   type ClientMessage,
   type FermeanieRelease,
+  awardLineCall,
+  type AwardKind,
+  AWARD_TIMING,
+  MAX_AWARDS,
+  type FinalAward,
   type FinalView,
+  pickAwards,
   type IntroStep,
   type IntroView,
   type PlayerView,
@@ -96,6 +102,8 @@ interface Player {
 interface Sheet {
   text: string
   locked: boolean
+  /** When they last locked in (server ms): the awards' Gut Feeling. */
+  lockedAt?: number
 }
 
 interface RoundState {
@@ -161,6 +169,8 @@ interface GameState {
    * and the final lines, by slot. Used when the situation turned out as expected (same category), else picked anew.
    */
   prepared: Map<string, { key: LineCategory; chosen: ChosenLine<LineCategory> }>
+  /** The rounds that counted, for the awards at the end. */
+  counted: RevealView[]
 }
 
 export interface RoomDeps {
@@ -191,6 +201,8 @@ export class Room {
   private lastExample: string | undefined
   /** This room has finished a game: her next hello is a welcome back (`hello_again`), not an introduction. */
   private playedBefore = false
+  /** The awards this room's last game gave, kept for the next game's pick to avoid. */
+  private lastAwards: AwardKind[] = []
   private fermeanieScore = 0
   private game: GameState | null = null
   private round: RoundState | null = null
@@ -418,6 +430,7 @@ export class Room {
         sheet.text = msg.text
         r.sheets.set(playerId, sheet)
         if (msg.type === 'lock') {
+          if (!sheet.locked) sheet.lockedAt = this.now()
           sheet.locked = true
           this.broadcast()
           this.maybeEndEarly()
@@ -430,6 +443,7 @@ export class Room {
         const sheet = this.round?.sheets.get(playerId)
         if (this.phase !== 'question' || !sheet) return
         sheet.locked = false
+        sheet.lockedAt = undefined
         this.broadcast()
         return
       }
@@ -494,6 +508,7 @@ export class Room {
       lines: new LinePicker(lines, db, this.deps.rand),
       startedAt: this.now(),
       prepared: new Map(),
+      counted: [],
     }
     this.final = null
     db.prepare('INSERT INTO games (id, created_at, settings) VALUES (?, ?, ?)').run(id, nowIso(), JSON.stringify(this.settings))
@@ -857,12 +872,16 @@ export class Room {
     for (const p of this.joinedPlayers()) scoresAfter[p.id] = p.score
     for (const res of score.results) scoresAfter[res.playerId] = (scoresAfter[res.playerId] ?? 0) + res.points
 
-    const cards: RevealCard[] = cardsSorted.map((res, i) => ({
-      ...res,
-      name: name(res.playerId),
-      text: texts.get(res.playerId) ?? '',
-      at: Math.round(cardsStart + i * per),
-    }))
+    const cards: RevealCard[] = cardsSorted.map((res, i) => {
+      const lockedAt = r.sheets.get(res.playerId)?.lockedAt
+      return {
+        ...res,
+        name: name(res.playerId),
+        text: texts.get(res.playerId) ?? '',
+        lockMs: lockedAt === undefined ? null : lockedAt - r.startedAt,
+        at: Math.round(cardsStart + i * per),
+      }
+    })
 
     this.reveal = {
       index: r.index,
@@ -896,13 +915,17 @@ export class Room {
       fermeanieScoreAfter: this.fermeanieScore + (score.fermeanie?.points ?? 0),
     }
     this.phase = 'reveal'
+    if (policy.counts) game.counted.push(this.reveal)
     if (this.deps.voice) {
       // What she says next, picked now so her voice can render it while this reveal plays.
       const upcoming: Scores = { players: scoresAfter, fermeanie: this.reveal.fermeanieScoreAfter }
       if (r.practice) this.prepare(questionSlot(0), { key: 'for_real.played', vars: {} }, endsAt)
       else if (r.index + 1 < this.settings.rounds)
         this.prepare(questionSlot(r.index + 1), this.questionLineCall(r.index + 1, { scores: upcoming }).call, endsAt)
-      else this.prepareFinal(upcoming, endsAt)
+      else {
+        this.prepareFinal(upcoming, endsAt)
+        this.prepareAwards(endsAt)
+      }
     }
     if (policy.counts) {
       markPlayed(db, q.id)
@@ -1037,13 +1060,17 @@ export class Room {
     for (const p of this.joinedPlayers().filter((p) => p.played))
       played.run(p.seenKey, game.id, nowIso(), p.score, p.dunces, o.fermeanieWon ? 1 : 0)
     this.playedBefore = true
+    const startedAt = this.now()
+    const { awards, crownAt } = this.awards(startedAt)
     this.final = {
       gameId: game.id,
       ranking,
       winnerId: ranking[0]?.playerId ?? null,
       fermeanieScore: this.fermeanieScore,
       fermeanieWon: o.fermeanieWon,
-      startedAt: this.now(),
+      startedAt,
+      awards,
+      crownAt,
       ...o.release,
       line: this.take('final', finalCall(o)),
       ...(o.fermeanieWon ? { versionLine: this.take('version', versionCall(o)) } : {}),
@@ -1053,6 +1080,42 @@ export class Room {
     this.reveal = null
     this.phase = 'final'
     this.broadcast()
+  }
+
+  /**
+   * The awards (up to three, each to a different player) and when she reads each out, from `startedAt`: a beat, then
+   * one at a time, each until her line is said. The crown comes after the last.
+   */
+  private awards(startedAt: number): { awards: FinalAward[]; crownAt: number } {
+    const k = this.deps.timeScale ?? 1
+    const picked = this.pickedAwards()
+    this.lastAwards = picked.map((a) => a.kind)
+    let t = startedAt + (picked.length ? AWARD_TIMING.lead * k : 0)
+    const awards = picked.map((a, i) => {
+      const name = this.playerName(a.playerId)
+      const line = this.take(awardSlot(i), awardLineCall(a, name, formatFactor) as LineCall)
+      const award = { ...a, name, line, at: Math.round(t) }
+      t += Math.max(AWARD_TIMING.each * k, lineDuration(plainText(line), this.paced))
+      return award
+    })
+    return { awards, crownAt: Math.round(t) }
+  }
+
+  /** The awards this game gives (the same every time it's asked, until the game ends). */
+  private pickedAwards() {
+    const game = this.game!
+    return pickAwards(game.counted, game.id, MAX_AWARDS, this.lastAwards)
+  }
+
+  private playerName(id: string) {
+    return this.players.get(id)?.name ?? '???'
+  }
+
+  /** During the last reveal: the award lines, picked now so her voice has them ready for the ceremony. */
+  private prepareAwards(at: number) {
+    this.pickedAwards().forEach((a, i) =>
+      this.prepare(awardSlot(i), awardLineCall(a, this.playerName(a.playerId), formatFactor) as LineCall, at),
+    )
   }
 
   /**
@@ -1184,7 +1247,10 @@ export class Room {
     }
     if (this.phase === 'break' && this.breakState) say(this.breakLine(this.breakState), this.breakState.startedAt)
     const f = this.final
-    if (this.phase === 'final' && f) chat([f.line, f.versionLine], f.startedAt)
+    if (this.phase === 'final' && f) {
+      for (const a of f.awards) say(a.line, a.at)
+      chat([f.line, f.versionLine], f.crownAt)
+    }
     return out
   }
 
@@ -1344,6 +1410,9 @@ function versionCall({ winner, wins, release: { codename, version } }: GameOutco
   if (codename && isPieRelease(wins)) return { key: 'pie_release', vars: { codename, version, wins } }
   return { key: 'release_notes', vars: { winner, version, wins } }
 }
+
+/** The slot for the line said as the `i`th award is read out (see Room.prepare). */
+const awardSlot = (i: number) => `award ${i}`
 
 /** The slot for the line said as question `index` appears (see Room.prepare). */
 const questionSlot = (index: number) => `question ${index}`

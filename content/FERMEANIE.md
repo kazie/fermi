@@ -49,6 +49,24 @@ content/fermeanie/
 │   ├── question.ftl         # key: practice.question
 │   ├── guide.ftl            # key: practice.guide
 │   └── lesson.ftl           # key: practice.lesson
+├── award/
+│   ├── swarm_slayer.ftl     # key: award.swarm_slayer
+│   ├── bullseye.ftl         # key: award.bullseye
+│   ├── steady_hand.ftl      # key: award.steady_hand
+│   ├── abacus.ftl           # key: award.abacus
+│   ├── gut_feeling.ftl      # key: award.gut_feeling
+│   ├── contrarian.ftl       # key: award.contrarian
+│   ├── bold_estimator.ftl   # key: award.bold_estimator
+│   ├── last_minute.ftl      # key: award.last_minute
+│   ├── swarm_twin.ftl       # key: award.swarm_twin
+│   ├── comeback.ftl         # key: award.comeback
+│   ├── optimist.ftl         # key: award.optimist
+│   ├── pessimist.ftl        # key: award.pessimist
+│   ├── late_bloomer.ftl     # key: award.late_bloomer
+│   ├── one_liner.ftl        # key: award.one_liner
+│   ├── round_numbers.ftl    # key: award.round_numbers
+│   ├── near_miss.ftl        # key: award.near_miss
+│   └── swarm_donor.ftl      # key: award.swarm_donor
 └── dunce/
     ├── mild.ftl             # key: dunce.mild
     ├── severe.ftl           # key: dunce.severe
@@ -186,6 +204,23 @@ Use placeholders exactly as written. A line may use any of its situation's place
 | `humble_pie`            | Instead of `game_loss`, from the third loss in a row                                | `{ $winner }`, `{ $version }`, `{ $losses }` (3 or more)    |                                                                                                   |
 | `release_notes`         | After a win (except a pie release): changelog jokes                                 | `{ $winner }`, `{ $version }`, `{ $wins }`                  |                                                                                                   |
 | `pie_release`           | Every fifth win: a major release named after a pie                                  | `{ $codename }` (“Cherry Pie”), `{ $version }`, `{ $wins }` |                                                                                                   |
+| `award.swarm_slayer`    | End-of-game award, before the crown: beat the swarm in the most rounds              | `{ $name }`, `{ $count }` rounds (≥ 1)                      |                                                                                                   |
+| `award.bullseye`        | Award: the most answers within 10%                                                  | `{ $name }`, `{ $count }` answers (≥ 1)                     |                                                                                                   |
+| `award.steady_hand`     | Award: the lowest average error                                                     | `{ $name }`, `{ $factor }` average times off                |                                                                                                   |
+| `award.abacus`          | Award: the longest working                                                          | `{ $name }`, `{ $lines }` lines per answer (≥ 3)            |                                                                                                   |
+| `award.gut_feeling`     | Award: the fastest to lock in, on average                                           | `{ $name }`, `{ $seconds }` average seconds                 |                                                                                                   |
+| `award.contrarian`      | Award: most often on the other side of the truth from everyone else                 | `{ $name }`, `{ $count }` rounds (≥ 1)                      |                                                                                                   |
+| `award.bold_estimator`  | Award: the furthest single miss, framed as boldness (never mention dunce caps)      | `{ $name }`, `{ $factor }` off                              |                                                                                                   |
+| `award.last_minute`     | Award: the slowest to lock in, on average                                           | `{ $name }`, `{ $seconds }` average seconds                 |                                                                                                   |
+| `award.swarm_twin`      | Award: answers closest to her swarm estimate, on average                            | `{ $name }`, `{ $factor }` from the swarm                   |                                                                                                   |
+| `award.comeback`        | Award: the biggest climb from their lowest place to their final place               | `{ $name }`, `{ $places }` climbed (≥ 2)                    |                                                                                                   |
+| `award.optimist`        | Award: too high most often                                                          | `{ $name }`, `{ $count }` answers (≥ 3)                     |                                                                                                   |
+| `award.pessimist`       | Award: too low most often                                                           | `{ $name }`, `{ $count }` answers (≥ 3)                     |                                                                                                   |
+| `award.late_bloomer`    | Award: the biggest improvement from the first half to the second                    | `{ $name }`, `{ $factor }` closer                           |                                                                                                   |
+| `award.one_liner`       | Award: the most answers with one line of working                                    | `{ $name }`, `{ $count }` answers                           |                                                                                                   |
+| `award.round_numbers`   | Award: the most answers with one significant digit                                  | `{ $name }`, `{ $count }` answers (≥ 3)                     |                                                                                                   |
+| `award.near_miss`       | Award: the most answers within 2× without a bullseye                                | `{ $name }`, `{ $count }` answers (≥ 2)                     |                                                                                                   |
+| `award.swarm_donor`     | Award: lost the most points to her steals (thank the generosity)                    | `{ $name }`, `{ $points }` taken                            |                                                                                                   |
 
 Notes: `{ $factor }` arrives pre-formatted (e.g. "3 200×"), so write `{ $factor } off`, not `{ $factor }× off`. Write `{ $version }` without a leading "v" or "version" (e.g. "FerMEANie { $version }"), so the line works whether or not the value includes "v".
 

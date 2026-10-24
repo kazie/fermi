@@ -1,4 +1,4 @@
-import { MIN_PLAYERS, type IntroMode, type Rule, type RoomSettings } from '@fermi/shared'
+import { formatFactor, MIN_PLAYERS, type AwardKind, type IntroMode, type Rule, type RoomSettings } from '@fermi/shared'
 
 // All user-facing copy in one place, so a translation can slot in later.
 export const S = {
@@ -73,6 +73,28 @@ export const S = {
   } satisfies Record<Rule, { title: string; text: string }>,
   lastLineCounts: 'Not locked in? When time runs out, your last line counts.',
   timesUp: 'Time’s up!',
+  awardsTitle: 'The awards',
+  awardsSoFar: 'Awards',
+  /** The end-of-game awards: an emoji, a title, and what the number is. */
+  awards: {
+    swarm_slayer: { emoji: '⚔️', title: 'Swarm Slayer', stat: (n: number) => `closer than the swarm in ${n} round${n === 1 ? '' : 's'}` },
+    bullseye: { emoji: '🎯', title: 'Bullseye', stat: (n: number) => `${n} answer${n === 1 ? '' : 's'} within 10%` },
+    steady_hand: { emoji: '🧘', title: 'Steady Hand', stat: (v: number) => `${formatFactor(v)} off on average` },
+    abacus: { emoji: '🧮', title: 'The Abacus', stat: (v: number) => `${v} lines of working per answer` },
+    gut_feeling: { emoji: '⚡', title: 'Gut Feeling', stat: (v: number) => `locked in after ${v} s on average` },
+    contrarian: { emoji: '🔄', title: 'Contrarian', stat: (n: number) => `against everyone else in ${n} round${n === 1 ? '' : 's'}` },
+    bold_estimator: { emoji: '🚀', title: 'Bold Estimator', stat: (v: number) => `one answer ${formatFactor(v)} off` },
+    last_minute: { emoji: '⏳', title: 'Last Minute', stat: (v: number) => `locked in after ${v} s on average` },
+    swarm_twin: { emoji: '🪞', title: 'Swarm Twin', stat: (v: number) => `${formatFactor(v)} from the swarm on average` },
+    comeback: { emoji: '📈', title: 'Comeback', stat: (n: number) => `climbed ${n} places` },
+    optimist: { emoji: '🌞', title: 'Optimist', stat: (n: number) => `too high ${n} times` },
+    pessimist: { emoji: '🌧️', title: 'Pessimist', stat: (n: number) => `too low ${n} times` },
+    late_bloomer: { emoji: '🌱', title: 'Late Bloomer', stat: (v: number) => `${formatFactor(v)} closer in the second half` },
+    one_liner: { emoji: '☝️', title: 'One-Liner', stat: (n: number) => `${n} answer${n === 1 ? '' : 's'} with no working` },
+    round_numbers: { emoji: '🔵', title: 'Round Numbers', stat: (n: number) => `${n} perfectly round answer${n === 1 ? '' : 's'}` },
+    near_miss: { emoji: '🤏', title: 'Near Miss', stat: (n: number) => `${n} answers within 2×, no bullseye` },
+    swarm_donor: { emoji: '💸', title: 'Swarm Donor', stat: (n: number) => `${n} points given to the swarm` },
+  } satisfies Record<AwardKind, { emoji: string; title: string; stat: (value: number) => string }>,
   lookUp: 'Look at the big screen',
   controllerView: 'Controller',
   fullView: 'Full view',

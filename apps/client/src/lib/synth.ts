@@ -23,6 +23,7 @@ const ALL: Record<Cue, true> = {
   dunce: true,
   steal: true,
   defeated: true,
+  award: true,
   fermeanieWins: true,
   humansWin: true,
 }
@@ -150,6 +151,10 @@ export function playCue(c: BaseAudioContext, out: AudioNode, cue: Cue, n = 0) {
       return
     case 'defeated':
       return tone(c, out, t, { freq: 520, to: 180, dur: 0.8, gain: 0.15 })
+    case 'award':
+      // a lab-certificate chime: two bright pings over a soft pad
+      tone(c, out, t, { type: 'triangle', freq: 392, dur: 0.9, gain: 0.08 })
+      return notes(c, out, t, [1568, 2093], 0.12, { dur: 0.35, gain: 0.14 })
     case 'fermeanieWins':
       for (const freq of [110, 131, 165]) tone(c, out, t, { type: 'sawtooth', freq, dur: 1.6, gain: 0.06 })
       return tone(c, out, t, { freq: 55, dur: 1.8, gain: 0.2 })

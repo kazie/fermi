@@ -41,6 +41,8 @@ export type Cue =
   | 'steal'
   /** a human beats the swarm */
   | 'defeated'
+  /** an end-of-game award is read out */
+  | 'award'
   | 'fermeanieWins'
   | 'humansWin'
   // personal: this device's player
@@ -95,7 +97,10 @@ function timed(room: RoomView): (CueEvent & { at: number })[] {
     if (rv.fermeanie) out.push({ cue: rv.fermeanie.beatsAll ? 'steal' : 'defeated', at: rv.timeline.fermeanieAt })
   }
   const f = room.phase === 'final' ? room.final : undefined
-  if (f) out.push({ cue: f.fermeanieWon ? 'fermeanieWins' : 'humansWin', at: f.startedAt })
+  if (f) {
+    for (const a of f.awards ?? []) out.push({ cue: 'award', at: a.at })
+    out.push({ cue: f.fermeanieWon ? 'fermeanieWins' : 'humansWin', at: f.crownAt ?? f.startedAt })
+  }
   return out
 }
 

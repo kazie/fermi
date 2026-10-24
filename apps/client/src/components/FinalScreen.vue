@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { FinalView } from '@fermi/shared'
 import { S } from '@/lib/strings'
+import AwardCard from './AwardCard.vue'
 import FermeanieAvatar from './FermeanieAvatar.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import PlayerAvatar from './PlayerAvatar.vue'
@@ -19,6 +20,15 @@ const props = withDefaults(
 )
 const emit = defineEmits<{ playAgain: [] }>()
 
+/** Older saved games have no awards. */
+const awards = computed(() => props.final.awards ?? [])
+/** The awards ceremony, before the crown (live only: a recap or a story without a clock shows the end straight away). */
+const ceremony = computed(() => props.now !== undefined && awards.value.length > 0 && props.now < props.final.crownAt)
+const current = computed(() => {
+  const shown = awards.value.filter((a) => props.now !== undefined && props.now >= a.at)
+  return shown.at(-1)
+})
+
 const winner = computed(() => props.final.ranking[0])
 const rows = computed(() => {
   const humans = props.final.ranking.map((r) => ({ ...r, bot: false }))
@@ -28,7 +38,26 @@ const rows = computed(() => {
 </script>
 
 <template>
-  <div class="final">
+  <div v-if="ceremony" class="final ceremony">
+    <h2 class="eyebrow center">{{ S.awardsTitle }}</h2>
+    <ol class="dots" :aria-label="current ? `${S.awardsTitle}: ${awards.indexOf(current) + 1} of ${awards.length}` : S.awardsTitle">
+      <li v-for="a in awards" :key="a.kind" :class="{ on: a === current, done: current && a.at < current.at }" />
+    </ol>
+    <template v-if="current">
+      <AwardCard :key="current.kind" :award="current" big :you="current.playerId === you" />
+      <FermeanieSays
+        :key="`say-${current.kind}`"
+        :text="current.line"
+        :start-at="current.at"
+        :now="now"
+        :release="final"
+        mood="smug"
+        size="l"
+      />
+    </template>
+    <FermeanieAvatar v-else class="center-self" :size="96" mood="smug" speaking />
+  </div>
+  <div v-else class="final">
     <section class="crown card">
       <span class="eyebrow">Best carbon-based organism</span>
       <div v-if="winner" class="winner">
@@ -42,7 +71,7 @@ const rows = computed(() => {
 
     <FermeanieSays
       :messages="[final.line, final.versionLine]"
-      :start-at="now === undefined ? undefined : final.startedAt"
+      :start-at="now === undefined ? undefined : final.crownAt"
       :now="now"
       :release="final"
       :mood="final.fermeanieWon ? 'smug' : 'sulk'"
@@ -67,6 +96,13 @@ const rows = computed(() => {
       </ol>
     </section>
 
+    <section v-if="awards.length" class="card">
+      <h2 class="eyebrow">{{ S.awardsSoFar }}</h2>
+      <div class="awards">
+        <AwardCard v-for="a in awards" :key="a.kind" :award="a" :you="a.playerId === you" />
+      </div>
+    </section>
+
     <div class="actions">
       <a class="btn" :href="`/recap/${final.gameId}`" target="_blank" rel="noopener">📜 Recap with all answers and sources</a>
       <button v-if="isHost" class="btn btn-primary" type="button" @click="emit('playAgain')">↻ {{ S.playAgain }}</button>
@@ -84,6 +120,38 @@ const rows = computed(() => {
   gap: var(--space-4);
   max-width: 720px;
   margin: 0 auto;
+}
+.center {
+  text-align: center;
+  margin: 0;
+}
+.center-self {
+  align-self: center;
+}
+.dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dots li {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--surface-3);
+}
+.dots li.done {
+  background: var(--text-dim);
+}
+.dots li.on {
+  background: var(--gold);
+}
+.awards {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 .crown {
   text-align: center;

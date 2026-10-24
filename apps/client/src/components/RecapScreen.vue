@@ -4,6 +4,7 @@ import type { RecapGame } from '@/lib/recap'
 import AnswerCard from './AnswerCard.vue'
 import DisputeForm from './DisputeForm.vue'
 import FermeanieAvatar from './FermeanieAvatar.vue'
+import AwardCard from './AwardCard.vue'
 import DoubleBadge from './DoubleBadge.vue'
 import TruthPanel from './TruthPanel.vue'
 
@@ -25,6 +26,9 @@ const emit = defineEmits<{ dispute: [questionId: string, message: string] }>()
     <header>
       <span class="eyebrow">Game recap · {{ new Date(game.createdAt).toLocaleString() }}</span>
       <h1>Every answer, every source</h1>
+      <div v-if="game.final?.awards?.length" class="recap-awards">
+        <AwardCard v-for="a in game.final.awards" :key="a.kind" :award="a" />
+      </div>
       <p v-if="game.final" class="muted">
         Winner: <strong>{{ game.final.ranking[0]?.name }}</strong> ({{ game.final.ranking[0]?.score }} pts) · FerMEANie
         {{ game.final.version }}: {{ game.final.fermeanieScore }} pts
@@ -65,6 +69,11 @@ const emit = defineEmits<{ dispute: [questionId: string, message: string] }>()
 </template>
 
 <style scoped>
+.recap-awards {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
 .recap {
   display: flex;
   flex-direction: column;

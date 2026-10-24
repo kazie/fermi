@@ -563,6 +563,36 @@ describe('the final round', () => {
   })
 })
 
+describe('awards', () => {
+  it('reads out up to three awards before the crown, each to a different player, and saves them', () => {
+    const { db, room, players } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0, intro: 'off' }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    for (let i = 0; i < 5; i++) {
+      // Ada answers at once with long working; Bob and Cyd take their time, Cyd wildly off
+      room.handle(a.id, { type: 'lock', text: 'x = 1000\ny = 2\nz = x * y\nz / 2' }, a.conn)
+      vi.advanceTimersByTime(10_000)
+      room.handle(b.id, { type: 'lock', text: '3000' }, b.conn)
+      room.handle(c.id, { type: 'lock', text: '9e9' }, c.conn)
+      const rv = a.conn.last.reveal!
+      expect(rv.cards.find((card) => card.playerId === a.id)!.lockMs).toBe(0)
+      expect(rv.cards.find((card) => card.playerId === b.id)!.lockMs).toBe(10_000)
+      vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
+    }
+    const final = a.conn.last.final!
+    expect(final.awards.length).toBeGreaterThan(0)
+    expect(final.awards.length).toBeLessThanOrEqual(3)
+    expect(new Set(final.awards.map((w) => w.playerId)).size).toBe(final.awards.length)
+    for (const w of final.awards) expect(w.line).toMatch(new RegExp(`^${w.kind.toUpperCase()} ${w.name} `))
+    const times = [final.startedAt, ...final.awards.map((w) => w.at), final.crownAt]
+    expect(times).toEqual([...times].sort((x, y) => x - y))
+    expect(final.crownAt).toBeGreaterThan(final.startedAt)
+    const saved = JSON.parse((db.prepare('SELECT final FROM games').get() as { final: string }).final)
+    expect(saved.awards).toEqual(final.awards)
+  })
+})
+
 describe('the intro', () => {
   const count = (db: ReturnType<typeof testDb>, table: string) =>
     (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
