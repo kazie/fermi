@@ -38,7 +38,8 @@ One container serves the client, the websocket and the API; the SQLite database 
 
 **FerMEANie's voice.** With `FERMI_VOICE=1` she says her lines and reads each question aloud, on every device that
 turns sound on (the speaker in the header). It's free and local: Kokoro text-to-speech in a Python worker the server
-starts (the Docker image includes it; for `pnpm dev`, install uv and ffmpeg). See [content/VOICE.md](content/VOICE.md)
+starts (the Docker image includes it; for `pnpm dev`, install uv and ffmpeg: uv sets up the worker's locked Python
+packages from `apps/server/voice/`). See [content/VOICE.md](content/VOICE.md)
 for the chosen voice, how clips are rendered ahead of time, `pnpm q voice` and `pnpm voice:render`.
 
 ## Playing

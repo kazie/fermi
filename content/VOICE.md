@@ -9,16 +9,18 @@ play time. This file records what was chosen and why, how it works, and how to c
 The settings live in [`voice/voice.json`](voice/voice.json); every field is described below. They were picked by ear in
 three audition rounds (October 2026), comparing engines, voices, blends, effects and pronunciations.
 
-| Setting      | Value                                       | Why                                                                        |
-| ------------ | ------------------------------------------- | -------------------------------------------------------------------------- |
-| `engine`     | Kokoro-82M (`kokoro-v1.0.int8`, Apache-2.0) | Best free quality that runs on a CPU; through `kokoro-onnx` in Python      |
-| `blend`      | 0.4 × `af_nicole` + 0.6 × `bf_emma`         | A mix of two voice styles (style vectors added with these weights)         |
-| `lang`       | `en-gb`                                     | British pronunciation rules (espeak), preferred over American              |
-| `speed`      | 1.0                                         |                                                                            |
-| `pronounce`  | FerMEANie → `fɚmˈiːni` (fer-MEAN-ie)        | Kokoro says "fer-mee-NIGH" on its own; see below                           |
-| `effects`    | "robot smooth": an ffmpeg filter chain      | She is a bot, so robotic is charming, and it hides the joins between clips |
-| `loudnessDb` | -19                                         | Every clip at the same loudness (RMS), with peaks kept below clipping      |
-| `opusKbps`   | 32                                          | Opus is plenty for speech at this rate; MP3 is the fallback                |
+| Setting      | Value                                        | Why                                                                        |
+| ------------ | -------------------------------------------- | -------------------------------------------------------------------------- |
+| `engine`     | `kokoro`: Kokoro-82M (Apache-2.0)            | Best free quality that runs on a CPU; through `kokoro-onnx` in Python      |
+| `model`      | `kokoro-v1.0.int8.onnx`, `voices-v1.0.bin`   | Their download URLs and sha256: the exact files, checked on every start    |
+| `engineDeps` | kokoro-onnx, onnxruntime, espeak, phonemizer | The packages whose versions shape the sound (part of every clip's key)     |
+| `blend`      | 0.4 × `af_nicole` + 0.6 × `bf_emma`          | A mix of two voice styles (style vectors added with these weights)         |
+| `lang`       | `en-gb`                                      | British pronunciation rules (espeak), preferred over American              |
+| `speed`      | 1.0                                          |                                                                            |
+| `pronounce`  | FerMEANie → `fɚmˈiːni` (fer-MEAN-ie)         | Kokoro says "fer-mee-NIGH" on its own; see below                           |
+| `effects`    | "robot smooth": an ffmpeg filter chain       | She is a bot, so robotic is charming, and it hides the joins between clips |
+| `loudnessDb` | -19                                          | Every clip at the same loudness (RMS), with peaks kept below clipping      |
+| `opusKbps`   | 32                                           | Opus is plenty for speech at this rate; MP3 is the fallback                |
 
 **The effect chain**, in order: FFT robotisation (`afftfilt` keeps each frequency bin's magnitude and zeroes its
 phase, window 1024 for a smooth buzz rather than a harsh one), a 6% higher pitch at the same speed (`asetrate` +
@@ -50,9 +52,13 @@ line (with markup) → speech text → sentences → clip key per sentence → w
 - **One clip per sentence.** Most of her sentences have no variables ("Please accept this dunce cap."), so they're
   rendered once and kept forever; only the short sentences with a name or a number are rendered during a game. Lines
   play as their clips back to back, with 150 ms between sentences.
-- **Clip keys** are a hash of `voice.json` and the sentence. A clip rendered anywhere is valid everywhere, folders
-  can be merged, and changing any setting gives every sentence a new key (old clips are simply unused).
-- **The worker** (`apps/server/voice/worker.py`, a uv script) loads Kokoro once and renders sentences on request:
+- **Clip keys** are a hash of the voice's fingerprint and the sentence. The fingerprint is `voice.json` (her
+  settings, and the model files' checksums) plus the versions `uv.lock` pins for its `engineDeps`. A clip rendered
+  anywhere is valid everywhere, folders can be merged, and changing anything that shapes her sound gives every
+  sentence a new key (old clips are simply unused), so old and new audio never mix in a line. Other packages and
+  ffmpeg's version are left out: they don't change the voice (ffmpeg's effects could, slightly; it comes with the
+  Debian base image and changes rarely).
+- **The worker** (`apps/server/voice/worker.py`, run in the locked environment below) loads Kokoro once and renders sentences on request:
   speech, effects, loudness, then Opus and MP3, written atomically. The server starts it on the first job and
   restarts it if it dies (`apps/server/src/voice/worker.ts`). After ten failures in a row (no uv, no ffmpeg, no
   model) rendering rests for five minutes and then goes on with the queue as it is; `pnpm q voice` shows why
@@ -105,7 +111,7 @@ real time. A first sweep takes roughly half an hour; a workstation does it in a 
 ## Running it
 
 ```bash
-FERMI_VOICE=1 pnpm dev          # needs uv and ffmpeg; the model (~90 MB) downloads on first use
+FERMI_VOICE=1 pnpm dev          # needs uv and ffmpeg; uv installs the locked packages, the model (~90 MB) downloads
 pnpm q voice                    # what's rendered and queued (counts only)
 pnpm q voice --sweep            # render whatever is missing
 pnpm voice:render [--out DIR]   # the same sweep without a server, e.g. on a faster machine, then rsync DIR
@@ -123,6 +129,45 @@ the clip folder (e.g. `-v ~/fermi-data/voice:/data/voice`) to keep it across dep
 
 Tests use a fake renderer. `FERMI_VOICE_TEST=1 pnpm test` also runs the real worker once, and
 `FERMI_VOICE=1 pnpm test:e2e` adds a browser test that turns sound on and checks that her clips play.
+
+## Dependencies
+
+The worker is a small Python project, `apps/server/voice/`:
+
+- **`pyproject.toml`** lists what it needs, with lower bounds.
+- **`uv.lock`** pins every package exactly. It's what the server runs (`uv run --project apps/server/voice --frozen`)
+  and what the Docker image installs (`uv sync --frozen`), so every build is the same. CI checks that the lock matches
+  the pyproject (`uv lock --check`).
+- **`.python-version`** pins the interpreter (3.12).
+- The uv binary comes from the image's `ghcr.io/astral-sh/uv` stage; Dependabot's Docker updates keep it current.
+
+To update by hand: `uv lock --upgrade-package <name> --project apps/server/voice` (or `--upgrade` for all), then
+`uv sync --project apps/server/voice` for the local environment. The server warns if the local environment doesn't
+match the lock.
+
+**Dependabot** opens a monthly PR for the Python packages (label `voice`). The packages that shape her sound (the
+`voice-engine` group: kokoro-onnx, onnxruntime, espeakng-loader, phonemizer-fork) come in a PR of their own. Before
+merging one:
+
+1. Listen. Play a game with sound on, or render the audition script: `pnpm test:e2e:video` doesn't help, because its
+   videos are silent.
+2. Merging changes the fingerprint, so every clip gets a new key. The server's sweep renders everything again (about
+   35–40 min on dhole). Or render ahead with `pnpm voice:render` on a faster machine and rsync the folder.
+
+kokoro-onnx was locked at 0.4.9, the version the voice was auditioned with; newer versions exist, so the first
+`voice-engine` PR is worth a listen.
+
+## Changing to another model
+
+The worker's engine is a class (`Kokoro` in `worker.py`, picked by `voice.json`'s `engine` through `ENGINES`). For a
+better model:
+
+1. Add its package to `pyproject.toml` and run `uv lock`.
+2. Add an engine class next to `Kokoro`. It needs one method, `speak(text)`, which returns 24 kHz float samples. The
+   effects, loudness and encoding stay as they are.
+3. Point `voice.json` at it: `engine`, the model files' URLs and sha256 (`sha256sum`), and its `engineDeps`.
+4. Audition it (below).
+5. Merge. Every clip re-keys and is rendered again with the new voice.
 
 ## Changing the voice
 

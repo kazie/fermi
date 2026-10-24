@@ -2,13 +2,44 @@
 // pair of clips (<out>.webm, <out>.mp3) out. Started on the first job, restarted after it dies.
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('../../../../', import.meta.url))
-const WORKER_SCRIPT = `${ROOT}apps/server/voice/worker.py`
-export const VOICE_CONFIG = `${ROOT}content/voice/voice.json`
+/** The worker's Python project: pyproject.toml, and uv.lock with the exact versions every build uses. */
+const VOICE_PROJECT = `${ROOT}apps/server/voice`
+const WORKER_SCRIPT = `${VOICE_PROJECT}/worker.py`
+const VOICE_LOCK = `${VOICE_PROJECT}/uv.lock`
+const VOICE_CONFIG = `${ROOT}content/voice/voice.json`
 const DEFAULT_MODELS_DIR = `${ROOT}.fermi-work/voice-models`
+
+/** The version uv.lock pins for each package (its `[[package]]` blocks: name, then version; the first if several). */
+export function lockedVersions(lock: string): Map<string, string> {
+  const versions = new Map<string, string>()
+  for (const [, name, version] of lock.matchAll(/^\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"/gm))
+    if (!versions.has(name)) versions.set(name, version)
+  return versions
+}
+
+/**
+ * Everything that shapes how she sounds, as one string for clip keys: voice.json (her settings and the model files'
+ * checksums) and the locked versions of the packages it lists as `engineDeps`. Change any of it (an edit, a new model,
+ * Dependabot's voice-engine PR) and every clip gets a new key, so the sweep renders her again instead of mixing old
+ * and new audio. Other packages' versions don't count.
+ */
+export function voiceFingerprint(config = readFileSync(VOICE_CONFIG, 'utf8'), lock = readFileSync(VOICE_LOCK, 'utf8')): string {
+  const settings = JSON.parse(config) as { engineDeps?: string[] }
+  const locked = lockedVersions(lock)
+  const engine = Object.fromEntries(
+    (settings.engineDeps ?? []).map((name) => {
+      const version = locked.get(name)
+      if (!version) throw new Error(`${name} (engineDeps in voice.json) isn't in apps/server/voice/uv.lock`)
+      return [name, version]
+    }),
+  )
+  return JSON.stringify({ settings, engine })
+}
 
 /** Renders one sentence into `<out>.webm` and `<out>.mp3`. */
 export interface Renderer {
@@ -35,7 +66,20 @@ export class WorkerRenderer implements Renderer {
     command,
     startTimeoutMs = START_TIMEOUT_MS,
   }: { modelsDir?: string; command?: string[]; startTimeoutMs?: number } = {}) {
-    this.command = command ?? ['uv', 'run', '--script', WORKER_SCRIPT, '--config', VOICE_CONFIG, '--models', modelsDir]
+    // --frozen: exactly what uv.lock says; a lock out of date with pyproject.toml fails instead of resolving anew
+    this.command = command ?? [
+      'uv',
+      'run',
+      '--project',
+      VOICE_PROJECT,
+      '--frozen',
+      'python',
+      WORKER_SCRIPT,
+      '--config',
+      VOICE_CONFIG,
+      '--models',
+      modelsDir,
+    ]
     this.startTimeoutMs = startTimeoutMs
   }
 
@@ -63,13 +107,16 @@ export class WorkerRenderer implements Renderer {
       // a worker that died between two jobs: the next write fails (EPIPE), which must not crash the server
       proc.stdin.on('error', fail)
       createInterface({ input: proc.stdout }).on('line', (line) => {
-        let msg: { ready?: boolean; id?: string; ok?: boolean; error?: string }
+        let msg: { ready?: boolean; versions?: Record<string, string>; id?: string; ok?: boolean; error?: string }
         try {
           msg = JSON.parse(line)
         } catch {
           return
         }
-        if (msg.ready) return started()
+        if (msg.ready) {
+          if (msg.versions) warnIfNotLocked(msg.versions)
+          return started()
+        }
         const job = msg.id !== undefined ? this.pending.get(msg.id) : undefined
         if (!job) return
         this.pending.delete(msg.id!)
@@ -123,4 +170,12 @@ export class WorkerRenderer implements Renderer {
   close() {
     this.stop(new Error('voice worker closed'))
   }
+}
+
+/** A local environment out of step with uv.lock (an old .venv) would render clips under the wrong key: say so. */
+function warnIfNotLocked(installed: Record<string, string>) {
+  const locked = lockedVersions(readFileSync(VOICE_LOCK, 'utf8'))
+  for (const [name, version] of Object.entries(installed))
+    if (locked.get(name) !== version)
+      console.error(`[voice] ${name} ${version} is installed but uv.lock says ${locked.get(name)}: run uv sync --project apps/server/voice`)
 }

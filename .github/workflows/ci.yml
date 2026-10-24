@@ -26,6 +26,9 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: astral-sh/setup-uv@v10
+      - name: Voice worker's uv.lock matches its pyproject.toml
+        run: uv lock --check --project apps/server/voice
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm type-check

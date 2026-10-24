@@ -1,0 +1,14 @@
+# FerMEANie's voice worker (worker.py): the Python side of her text-to-speech. See content/VOICE.md.
+# Locked in uv.lock; Dependabot updates it monthly (the voice-engine packages in one PR: listen before merging).
+[project]
+name = "fermi-voice"
+version = "0"
+description = "Renders FerMEANie's voice clips for the Fermi game server"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "kokoro-onnx>=0.4.9",
+  "numpy>=2",
+]
+
+[tool.uv]
+package = false

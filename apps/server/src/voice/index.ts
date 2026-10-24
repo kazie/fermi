@@ -5,11 +5,11 @@
 //   ahead: lines picked early (the next question's line, the final lines), and questions added while running
 //   sweep: the questions, every sentence that needs no variables, then players' names
 
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { sentences, speechText } from '@fermi/shared'
 import { clipKey } from './speech.ts'
-import { VOICE_CONFIG, WorkerRenderer, type Renderer } from './worker.ts'
+import { voiceFingerprint, WorkerRenderer, type Renderer } from './worker.ts'
 
 export type Tier = 'live' | 'ahead' | 'sweep'
 const RANK: Record<Tier, number> = { live: 0, ahead: 1, sweep: 2 }
@@ -61,7 +61,7 @@ export interface VoiceStatus {
 export interface VoiceOptions {
   dir: string
   renderer: Renderer
-  /** The voice settings (content/voice/voice.json); part of every clip's key. */
+  /** What shapes her sound (voiceFingerprint: voice.json and the engine's locked versions); part of every clip's key. */
   settings?: string
   now?: () => number
   /** The pauses after a few failures in a row, and after many (tests shorten them). */
@@ -97,7 +97,7 @@ export class Voice {
   constructor({
     dir,
     renderer,
-    settings = readFileSync(VOICE_CONFIG, 'utf8'),
+    settings = voiceFingerprint(),
     now = Date.now,
     pauseMs = PAUSE_MS,
     brokenMs = BROKEN_MS,

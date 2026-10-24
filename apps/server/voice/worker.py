@@ -1,18 +1,19 @@
-# /// script
-# requires-python = ">=3.11,<3.13"
-# dependencies = ["kokoro-onnx==0.4.9", "numpy"]
-# ///
 """FerMEANie's voice: renders sentences to Opus and MP3 clips. Spawned by the game server (src/voice/worker.ts).
 
 Reads JSON lines on stdin: {"id": "...", "text": "One sentence.", "out": "/data/voice/<key>"}
 Writes <out>.webm and <out>.mp3 (atomically), then answers on stdout:
   {"id": "...", "ok": true}   or   {"id": "...", "ok": false, "error": "..."}
-Prints {"ready": true} once the model is loaded. Settings come from content/voice/voice.json (see content/VOICE.md).
+Prints {"ready": true, "versions": {...}} once the model is loaded (the installed versions of the packages that
+shape the sound, for the server to compare with uv.lock). Settings come from content/voice/voice.json, dependencies
+from pyproject.toml and uv.lock next to this file (see content/VOICE.md).
 
-  uv run --script apps/server/voice/worker.py --config content/voice/voice.json --models DIR [--warm]
+  uv run --project apps/server/voice --frozen python apps/server/voice/worker.py \
+    --config content/voice/voice.json --models DIR [--warm]
 """
 
 import argparse
+import hashlib
+import importlib.metadata
 import json
 import os
 import socket
@@ -23,29 +24,42 @@ from pathlib import Path
 
 import numpy as np
 
-MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 SR = 24000
 OUT_SR = 48000
 
 
-def fetch(name: str, models: Path) -> Path:
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def fetch(file: dict, models: Path) -> Path:
+    """A model file ({url, sha256} in voice.json), downloaded once and checked: the exact file the voice was chosen with."""
     socket.setdefaulttimeout(60)  # a stalled download fails instead of hanging the server's worker
-    dest = models / name
-    if not dest.exists():
+    dest = models / file["url"].rsplit("/", 1)[-1]
+    if not dest.exists() or sha256(dest) != file["sha256"]:
         models.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".part")
-        urllib.request.urlretrieve(MODEL_URL + name, tmp)
+        urllib.request.urlretrieve(file["url"], tmp)
+        if sha256(tmp) != file["sha256"]:
+            tmp.unlink()
+            raise RuntimeError(f"{dest.name}: checksum mismatch (not the file voice.json names)")
         tmp.rename(dest)
     return dest
 
 
-class Voice:
-    def __init__(self, config: dict, models: Path):
-        from kokoro_onnx import Kokoro
+class Kokoro:
+    """Kokoro-82M through kokoro-onnx. Another engine would be another class like this one (see ENGINES)."""
 
-        onnx = fetch(f"{config['engine']}.onnx", models)
-        voices = fetch("voices-v1.0.bin", models)
-        self.k = Kokoro(str(onnx), str(voices))
+    def __init__(self, config: dict, models: Path):
+        from kokoro_onnx import Kokoro as Model
+
+        onnx = fetch(config["model"]["onnx"], models)
+        voices = fetch(config["model"]["voices"], models)
+        self.k = Model(str(onnx), str(voices))
         self.config = config
         self.style = sum(self.k.get_voice_style(v) * w for v, w in config["blend"])
         self.lang = config["lang"]
@@ -66,6 +80,9 @@ class Voice:
         samples, sr = self.k.create(text, voice=self.style, speed=self.config["speed"], lang=self.lang, is_phonemes=bool(swaps))
         assert sr == SR, sr
         return samples.astype(np.float32)
+
+
+ENGINES = {"kokoro": Kokoro}
 
 
 def ffmpeg(args: list[str], audio: np.ndarray | None = None) -> bytes:
@@ -108,13 +125,14 @@ def main() -> None:
     args = ap.parse_args()
 
     config = json.loads(args.config.read_text())
-    voice = Voice(config, args.models)
+    voice = ENGINES[config["engine"]](config, args.models)
     if args.warm:
         effects(voice.speak("Warm up."), config["effects"], config["loudnessDb"])
         print("warm", flush=True)
         return
 
-    print(json.dumps({"ready": True}), flush=True)
+    versions = {name: importlib.metadata.version(name) for name in config.get("engineDeps", [])}
+    print(json.dumps({"ready": True, "versions": versions}), flush=True)
     for line in sys.stdin:
         if not line.strip():
             continue
