@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { prepareDraft, type PrepareDeps } from '../src/questions/prepare.ts'
 import { quoteExcerpt } from '../src/questions/dedupe.ts'
 import { ingestQuestion } from '../src/questions/ingest.ts'
+import { addRejection } from '../src/questions/repo.ts'
 import { makeQuestion, testDb } from './fixtures.ts'
 
 const NOW = new Date('2026-10-17T00:00:00Z')
@@ -46,6 +47,20 @@ describe('prepareDraft', () => {
     expect(check.ok).toBe(false)
     expect(check.quotes.s1).toBe('missing')
     expect(check.problems.join()).toMatch(/no source quote contains the answer/)
+  })
+
+  it('fails a draft whose wording a verifier already rejected, but not one that is only similar', async () => {
+    const db = testDb()
+    const q = makeQuestion({ id: 'prep-rejected' })
+    const pages = { [q.sources[0].url]: q.sources[0].quote }
+    addRejection(db, q.question, 'weak source')
+    const { check } = await prepareDraft(q as never, deps(pages, db))
+    expect(check.ok).toBe(false)
+    expect(check.problems).toContain('previously rejected')
+
+    const other = makeQuestion({ id: 'prep-similar', question: 'How many rivets hold the Eiffel Tower’s lift shafts together?' })
+    const { check: similar } = await prepareDraft(other as never, deps(pages, db))
+    expect(similar.problems).not.toContain('previously rejected')
   })
 })
 

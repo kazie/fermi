@@ -9,7 +9,7 @@ import { extractNumbers, quoteContainsNumber } from '../apps/server/src/question
 import { prepareDraft, withDryRun, type DraftCheck } from '../apps/server/src/questions/prepare.ts'
 import { fetchPageText } from '../apps/server/src/questions/html.ts'
 import { archive as archiveWith, archiveOptionsFromEnv } from './archive.ts'
-import { createBatch, isDraftFile, mtime, sweepLeftovers } from './batch.ts'
+import { archiveRetryable, createBatch, isDecided, isDraftFile, mtime, sweepLeftovers } from './batch.ts'
 import { parseCli } from './cli-args.ts'
 import { rewordProblem, screenFilePath, type ScreenFile } from './review.ts'
 
@@ -231,8 +231,7 @@ async function main() {
       // every generator. Captures share a few slots across all runs (scripts/archive.ts).
       const dir = rest[0]
       if (!dir) die('usage: pnpm q prepare <drafts-dir>')
-      const verified = join(dir, '..', 'verified')
-      const files = readdirSync(dir).filter((f) => isDraftFile(f) && !existsSync(join(verified, f)))
+      const files = readdirSync(dir).filter((f) => isDraftFile(f) && !isDecided(dir, f))
       // One prepare per folder at a time: two would archive and write the same drafts. Wait for the other (it may be
       // a parallel call from the same run); a lock older than 15 minutes is from a crashed prepare.
       const lock = join(dir, '.prepare.lock')
@@ -260,8 +259,8 @@ async function main() {
         const cached: DraftCheck = JSON.parse(readFileSync(checkPath, 'utf8'))
         if (!cached.ok) {
           // Archiving fails for passing reasons (Wayback busy): try again on later calls, up to ARCHIVE_TRIES in all.
+          if (!archiveRetryable(cached)) return cached
           const tries = cached.archiveTries ?? 1
-          if (tries >= ARCHIVE_TRIES || !cached.problems.some((p) => p.includes('could not archive'))) return cached
           const prepared = await prepareDraft(JSON.parse(readFileSync(path, 'utf8')), { pageText, archive, dryRun })
           const check = prepared.check.ok ? prepared.check : { ...prepared.check, archiveTries: tries + 1 }
           writeFileSync(path, JSON.stringify(prepared.draft, null, 2))
@@ -311,6 +310,12 @@ async function main() {
       const reason = opts.reason
       if (!question || !reason) die('usage: pnpm q reject (--draft <file> | --question "…") --reason "…"')
       await call('POST', '/rejections', { question, reason })
+      // Mark the draft decided, so later runs don't claim its batch for it and verify it again.
+      if (opts.draft) {
+        const out = join(dirname(opts.draft), '..', 'rejected', basename(opts.draft))
+        mkdirSync(dirname(out), { recursive: true })
+        writeFileSync(out, JSON.stringify({ reason, rejectedAt: new Date().toISOString() }, null, 2))
+      }
       console.log('✓ rejection recorded')
       return
     }
@@ -438,7 +443,5 @@ async function main() {
 }
 
 const pageText = (url: string) => fetchPageText(url)
-/** How many `prepare` calls may try to archive a draft's sources before it is given up. */
-const ARCHIVE_TRIES = 3
 
 await main()

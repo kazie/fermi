@@ -165,8 +165,9 @@ Shown at the reveal, 1–4 sentences:
 
 ## 6. Duplicates
 
-Before writing a question, list what exists (`pnpm q list --texts --all`, which shows texts only and no answers;
-`--all` includes retired questions, which count as duplicates too).
+Writing by hand, list what exists first (`pnpm q list --texts --all`, which shows texts only and no answers;
+`--all` includes retired questions, which count as duplicates too). `pnpm grow`'s planner does this for its writers;
+an agent writer never runs it (the ingest checks catch duplicates).
 A question is a duplicate if it asks about the **same fact**, however it is worded ("bolts in the Eiffel
 Tower" = "rivets holding the Eiffel Tower together"). A different fact about the same subject is fine
 (the Eiffel Tower's steps vs its rivets).

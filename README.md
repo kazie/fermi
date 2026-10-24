@@ -148,11 +148,24 @@ and a Wayback Machine snapshot. Derived answers store their formula in calculato
 For steady growth, let `pnpm grow` run unattended. It runs the same pipeline as the skill, but as a script
 (`scripts/pipeline.ts`), so no Sonnet session is paid just to coordinate: it starts the generator and verifier agents
 directly as headless sessions (`claude -p --agent …`), runs `pnpm q prepare` in between, and counts what was added from
-the pool itself. Before verifying, it runs `pnpm review`'s Haiku screen on the drafts (category, question and unit
-only); the verifier gets the flags and must fix those drafts' wording or reject them ("N flagged by screen (M added)"
-in the report). Parallel workers each take a different topic, so they don't draft the same questions. Each run prints
-one line with counts, categories and its API-equivalent cost (from the sessions' `total_cost_usd`), and the end of the
-run prints the total:
+the pool itself. It differs from the skill in a few ways that make it cheaper per question:
+
+- **Planned ideas.** Each round starts with one tool-less Sonnet call (`scripts/plan.ts`) that sees the topic's existing
+  question texts (retired ones too) and lists about two ideas per question still needed, each a different fact, with a
+  likely source and sometimes a template slot. Each generator then drafts its own three ideas, so parallel generators
+  don't collide on the same famous facts, and none has to invent or check for duplicates itself. If the planner has
+  nothing usable, generators get the plain topic brief.
+- **Rules in the system prompt.** The question rules go into every agent's system prompt (`--append-system-prompt`), so
+  the same text is cached across sessions instead of each session reading the file.
+- **Full verifier sessions.** Passed drafts wait until there are five (or drafting is done) before a verifier starts.
+- **The screen.** Before verifying, it runs `pnpm review`'s Haiku screen on the drafts (category, question and unit
+  only); the verifier gets the flags and must fix those drafts' wording or reject them ("N flagged by screen (M added)"
+  in the report).
+
+Parallel workers each take a different topic. A category whose last two runs within a day added at most one question
+each gets a day's rest (`.fermi-work/topic-yield.json`). Each run prints one line with counts, the funnel
+(`ideas → drafts → passed`), categories and its API-equivalent cost (from the sessions' `total_cost_usd`), and the end
+of the run prints the total:
 
 ```
 pnpm grow                          # 3 workers × 4 runs, each taking the emptiest free category
@@ -164,7 +177,7 @@ retried after 20 minutes, and a worker gives up after 9 failures in a row. Only 
 Runs bill the Claude account whose config dir is in `FERMI_CLAUDE_CONFIG_DIR` (in `.env`, e.g. `~/.claude-personal`);
 `pnpm grow` won't start without it, so it can never fall back to whichever account the shell defaults to.
 The server must be running, and `.claude/settings.local.json` must allow the pipeline's tools (`pnpm q`, the two
-agents, WebSearch, WebFetch, writes in `.fermi-work/` and `date`), since headless runs can't ask. Runs can safely
+agents, WebSearch, WebFetch, writes in `.fermi-work/` and, for the skill, `date`), since headless runs can't ask. Runs can safely
 overlap: each works in its own batch folder, and a run only takes over another batch's drafts once that batch's run is
 gone (under `pnpm grow`, its heartbeat stops; for a hand-started run, nothing in it has changed for 45 minutes). If you script runs by hand, `flock` keeps them one at a time.
 
@@ -174,17 +187,27 @@ The pipeline is built to be cheap and crash-safe:
    `--model sonnet` (or run `/model sonnet` first) to keep the later turns cheap too. It only coordinates: it never searches, fetches
    or reads drafts.
 2. `fermi-generator` (**Haiku**, pinned in `.claude/agents/`) writes 5 drafts per agent, saving each file as soon as
-   it's done, with at most 2 searches and 3 page fetches per draft. It favours the categories with the fewest
-   questions, and never sees existing question texts (only ids and categories).
+   it's done, with at most 2 searches and 3 page fetches per draft. Under `pnpm grow` it drafts the ideas it's assigned;
+   from the skill it favours the categories with the fewest questions and picks its own. It never sees existing
+   question texts (only ids and categories) and has no shell.
 3. `pnpm q prepare` does the mechanical work with no LLM: it archives sources to the Wayback Machine, checks each quote
    against the live page or snapshot, saves the page text around it, and dry-runs ingest (which catches duplicates).
    Save Page Now refuses captures when too many run at once, so all runs share a few capture slots
    (`.fermi-work/.archive-slots`), a refused capture is retried after a pause, and a draft that still couldn't be
-   archived is tried again on the next two `prepare` calls. With free archive.org keys in `FERMI_ARCHIVE_KEYS`,
+   archived is tried again on the next two `prepare` calls. Such a draft stays pending, so a later run that takes over
+   its batch retries it too, and `pnpm grow` pauses two minutes at the end of each round for one more `prepare`. With free archive.org keys in `FERMI_ARCHIVE_KEYS`,
    captures use the logged-in API, which queues them instead of refusing them, so far fewer fail.
 4. `fermi-verifier` (**Sonnet**) makes the judgement calls from that page text: does the number mean exactly what the
    question asks, is it fair, is it fun. Then it ingests with `pnpm q approve`, which stamps and saves the draft, so
-   the verifier never re-types a whole file (output tokens are its biggest cost).
+   the verifier never re-types a whole file (output tokens are its biggest cost), or turns it down with
+   `pnpm q reject --draft`, which also marks the draft rejected in its batch (`rejected/<id>.json`). Decided drafts
+   are never checked or verified again, and `prepare` fails a draft whose wording a verifier already rejected.
+
+**Harvesting a table.** `pnpm harvest <url> <category> [--count 15]` makes many questions from one page of tables (a
+Wikipedia list whose rows are cited, or an official statistics table) for the price of one fetch, one archive and one
+Sonnet call. Each table row's text becomes the verbatim quote; Sonnet picks the rows that make good questions and words
+them, and the drafts then go through the same prepare, screen and verifier steps as `pnpm grow`'s, with the same
+counts-only report line. The page must be plain HTML, since the quote check doesn't run JavaScript.
 
 Templates ([`content/question-templates.md`](content/question-templates.md)) turn one source table into many
 questions; a game never asks two from the same template. The skill only ever reports counts, so the person running it
