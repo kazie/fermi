@@ -3,7 +3,7 @@ import type { SocketStatus } from '@/composables/useSocket'
 import { S } from '@/lib/strings'
 import FermeanieAvatar from './FermeanieAvatar.vue'
 
-/** `sound`: FerMEANie's voice on this device (on or off); left out when the server has no voice. */
+/** `sound`: sound on this device (her voice and the effects), on or off; left out on pages without a game. */
 withDefaults(defineProps<{ code?: string; status?: SocketStatus; version?: string; sound?: boolean }>(), {
   code: undefined,
   status: undefined,

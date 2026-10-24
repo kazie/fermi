@@ -263,9 +263,9 @@ test('with sound on, FerMEANie reads the question out and says her lines', async
   const clips: number[] = []
   host.on('response', (r) => r.url().includes('/voice/') && clips.push(r.status()))
   const url = await hostGame(host, 'Listener')
-  const speaker = host.getByRole('button', { name: /Let FerMEANie speak/ })
+  const speaker = host.getByRole('button', { name: /Turn sound on/ })
   await speaker.click()
-  await expect(host.getByRole('button', { name: /voice is on/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(host.getByRole('button', { name: /Sound is on/ })).toHaveAttribute('aria-pressed', 'true')
   await host.setViewportSize({ width: 360, height: 740 }) // the speaker fits in the header on a small phone
   await noHorizontalScroll(host)
   await host.setViewportSize({ width: 1280, height: 860 })

@@ -30,6 +30,9 @@ const sheet = computed(() => props.room.yourSheet)
 const playing = computed(() => !!sheet.value)
 const locked = computed(() => !!sheet.value?.locked)
 const text = ref(sheet.value?.text ?? '')
+const left = computed(() => round.value.endsAt - props.now)
+/** The last seconds: unlocked drafts are scored too, so nobody needs to panic about the Lock button. */
+const urgent = computed(() => playing.value && !locked.value && left.value > 0 && left.value <= 10_000)
 const lockedCount = computed(() => props.room.players.filter((p) => p.lockedIn).length)
 const playingCount = computed(() => props.room.players.filter((p) => !p.spectating).length)
 
@@ -153,6 +156,8 @@ function lock() {
           @blur="onEditorBlur"
         />
         <p v-else class="card spect">{{ S.spectating }}</p>
+        <p v-if="left <= 0" class="times-up" role="status">{{ S.timesUp }}</p>
+        <p v-else-if="urgent" class="last-line muted" role="status">{{ S.lastLineCounts }}</p>
       </div>
 
       <aside class="side">
@@ -192,6 +197,24 @@ function lock() {
   flex-direction: column;
   gap: var(--space-3);
   min-width: 0;
+}
+.times-up {
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--danger);
+  animation: pop var(--dur) var(--ease) both;
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+.last-line {
+  margin: 0;
+  text-align: center;
 }
 .question h1 {
   font-size: var(--text-xl);

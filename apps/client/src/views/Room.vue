@@ -5,6 +5,7 @@ import { providePlayerOrder } from '@/lib/playerColors'
 import { useSocket } from '@/composables/useSocket'
 import { useServerNow } from '@/composables/useNow'
 import { useVoice } from '@/composables/useVoice'
+import { useGameSfx } from '@/composables/useGameSfx'
 import { useWakeLock } from '@/composables/useWakeLock'
 import AppHeader from '@/components/AppHeader.vue'
 import FinalScreen from '@/components/FinalScreen.vue'
@@ -17,7 +18,6 @@ import RevealSequence from '@/components/RevealSequence.vue'
 import BreakScreen from '@/components/BreakScreen.vue'
 import ControllerReveal from '@/components/ControllerReveal.vue'
 import ViewToggle from '@/components/ViewToggle.vue'
-import { revealStage } from '@/lib/reveal'
 
 const props = defineProps<{ code: string }>()
 const code = props.code.toUpperCase()
@@ -49,14 +49,8 @@ function join(name: string) {
   send({ type: 'join', name })
 }
 
-// Phones buzz when FerMEANie steals the round (where supported, and not under reduced motion).
-const stealing = computed(() => {
-  const r = room.value?.reveal
-  return room.value?.phase === 'reveal' && !!r?.fermeanie?.beatsAll && revealStage(r, now.value) === 'fermeanie'
-})
-watch(stealing, (on) => {
-  if (on && !matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate?.([80, 60, 80, 60, 240])
-})
+// Sound effects and vibration: everything online; at a party (a big screen in the room), only this player's own moments.
+useGameSfx(room, now, voice)
 
 // remember our per-room public id, so the recap page can highlight our cards
 watch(

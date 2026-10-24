@@ -30,6 +30,7 @@ const playing = computed(() => props.room.players.filter((p) => !p.spectating).l
       Answer in <strong>{{ round.question.unit }}</strong> · on your phone
     </p>
     <RoundTimer :started-at="round.startedAt" :ends-at="round.endsAt" :now="now" />
+    <p v-if="now >= round.endsAt" class="times-up" role="status">{{ S.timesUp }}</p>
     <div class="locks">
       <span class="eyebrow">Locked in {{ locked }} / {{ playing }}</span>
       <PlayerStrip :players="room.players" you="" />
@@ -45,6 +46,13 @@ const playing = computed(() => props.room.players.filter((p) => !p.spectating).l
   gap: var(--space-5);
   max-width: 1100px;
   margin: 0 auto;
+}
+.times-up {
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--danger);
 }
 h1 {
   font-size: clamp(2rem, 4.5vw, 3.6rem);
