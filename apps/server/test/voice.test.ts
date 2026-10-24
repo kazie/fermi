@@ -368,6 +368,21 @@ describe('Room with a voice', () => {
     expect(a.conn.last.phase).toBe('final')
     expect(asked.filter((x) => x.tier === 'ahead').map((x) => x.text)).toContain(final.line)
   })
+
+  it('picks the award lines during the last reveal, so the ceremony has its clips', () => {
+    const { room, players, asked } = setup()
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'start' }, a.conn)
+    const sheets = ['x = 10\ny = 20\nz = x * y\nz * 5', '1000', '9e9']
+    for (let i = 0; i < 5; i++) {
+      ;[a, b, c].forEach((p, n) => room.handle(p.id, { type: 'lock', text: sheets[n] }, p.conn))
+      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now() + DEADLINE_GRACE_MS)
+    }
+    const { awards } = a.conn.last.final!
+    expect(awards.length).toBeGreaterThan(0)
+    const ahead = asked.filter((x) => x.tier === 'ahead').map((x) => x.text)
+    for (const w of awards) expect(ahead).toContain(w.line)
+  })
 })
 
 describe('the voice over HTTP', () => {

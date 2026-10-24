@@ -110,6 +110,14 @@ since the group has just heard the rules.
 FerMEANie's estimate beats every human (ties go to the humans), it takes all of that round's points. The **final
 question counts double**: rank points and bonuses, and a steal too; FerMEANie announces it. The best human wins the game; the tunable constants are in `packages/shared/src/scoring.ts` and `crowd.ts`.
 
+**Awards.** Before the winner is crowned, FerMEANie reads out up to three awards, each to a different player and only
+with a clear winner: Swarm Slayer (beat the swarm most often), Bullseye (most answers within 10%), Steady Hand (lowest
+average error), The Abacus (longest working), Gut Feeling (fastest to lock in), Contrarian (most often on the other
+side of the truth from everyone else), Bold Estimator (the furthest single miss), Last Minute, Swarm Twin, Comeback,
+Optimist, Pessimist, Late Bloomer, One-Liner, Round Numbers, Near Miss and Swarm Donor. Awards given in a room's
+previous game go to the back of the queue, so a group playing again hears different ones. The rules are in
+`packages/shared/src/awards.ts`; the recap lists a game's awards.
+
 ### The answer block
 
 The calculator is shared by client and server, and the server re-evaluates every sheet itself.

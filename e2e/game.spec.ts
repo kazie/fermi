@@ -108,6 +108,10 @@ async function answer(page: Page, text: string, last = false) {
  * with her voice (FERMI_VOICE=1) each message stays up until she has said it, so a talkative round takes longer.
  */
 const REVEAL_WAIT_MS = process.env.FERMI_VOICE === '1' ? 60_000 : 20_000
+/** An intro step lasts until her line is typed, and with her voice, said: slower with a busy voice renderer. */
+const INTRO_WAIT_MS = process.env.FERMI_VOICE === '1' ? 60_000 : 30_000
+/** The crown comes after the awards ceremony: up to three of her lines, each typed (and said) at full speed. */
+const FINAL_WAIT_MS = REVEAL_WAIT_MS + 40_000
 
 // Once per worker; a worker started after a failed test finds the questions already there.
 test.beforeAll(async ({ request }) => {
@@ -160,7 +164,7 @@ test('three players (one on a phone) play a full game against FerMEANie', async 
     await noHorizontalScroll(phone)
   }
 
-  for (const p of [host, phone, desk]) await expect(p.getByText('Best carbon-based organism')).toBeVisible({ timeout: REVEAL_WAIT_MS })
+  for (const p of [host, phone, desk]) await expect(p.getByText('Best carbon-based organism')).toBeVisible({ timeout: FINAL_WAIT_MS })
   await expect(host.getByRole('button', { name: /Play again/ })).toBeVisible()
   await expect(phone.getByRole('button', { name: /Play again/ })).toHaveCount(0)
   await noHorizontalScroll(phone)
@@ -237,7 +241,7 @@ test('big screen + three phones: the TV hosts, phones play, the break can be ski
     expect(Date.now() - t0).toBeLessThan(5000)
   }
 
-  await expect(tv.getByText('Best carbon-based organism')).toBeVisible({ timeout: REVEAL_WAIT_MS })
+  await expect(tv.getByText('Best carbon-based organism')).toBeVisible({ timeout: FINAL_WAIT_MS })
   await expect(tv.getByText(/start another game from their phone/)).toBeVisible()
   await expect(annie.getByRole('button', { name: /Play again/ })).toBeVisible()
 
@@ -277,7 +281,7 @@ test('with sound on, FerMEANie reads the question out and says her lines', async
   await host.getByRole('button', { name: /Start game/ }).click()
   await expect(host.getByText('Question 1 of')).toBeVisible()
   await expect
-    .poll(() => host.evaluate(() => (window as unknown as { played: number }).played), { timeout: 30_000 })
+    .poll(() => host.evaluate(() => (window as unknown as { played: number }).played), { timeout: INTRO_WAIT_MS })
     .toBeGreaterThanOrEqual(2)
   expect(clips.length).toBeGreaterThan(0)
   expect(clips.filter((status) => status !== 200)).toEqual([]) // only clips the server said were ready: never a 404
@@ -299,13 +303,13 @@ test('the intro: FerMEANie introduces everyone and explains the rules, and a maj
 
   // the roll call, in join order, on every device; each phone knows its own turn
   for (const name of ['Hosty', 'Phoney', 'Desky'])
-    await expect(desk.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: 30_000 })
-  await expect(phone.getByRole('heading', { name: 'Work it out' })).toBeVisible({ timeout: 30_000 })
+    await expect(desk.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: INTRO_WAIT_MS })
+  await expect(phone.getByRole('heading', { name: 'Work it out' })).toBeVisible({ timeout: INTRO_WAIT_MS })
   await noHorizontalScroll(phone)
-  await expect(phone.getByRole('heading', { name: 'The swarm' })).toBeVisible({ timeout: 30_000 })
+  await expect(phone.getByRole('heading', { name: 'The swarm' })).toBeVisible({ timeout: INTRO_WAIT_MS })
 
   // the example question: practice, no points; two of three vote to skip the rest
-  await expect(phone.getByText('Practice question · no points')).toBeVisible({ timeout: 30_000 })
+  await expect(phone.getByText('Practice question · no points')).toBeVisible({ timeout: INTRO_WAIT_MS })
   await phone.getByRole('button', { name: /Skip intro/ }).click()
   await expect(phone.getByRole('button', { name: /Waiting for others · 1\/2/ })).toBeVisible()
   await desk.getByRole('button', { name: /Skip intro/ }).click()

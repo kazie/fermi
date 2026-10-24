@@ -5,6 +5,7 @@ import type { DunceKind, FermeanieRelease } from './scoring.ts'
 import { LIMITS } from './calc/evaluate.ts'
 import { chatDuration, HOLD_MS, holdDuration } from './chat.ts'
 import { plainText } from './markup.ts'
+import type { Award } from './awards.ts'
 
 export const ROUND_OPTIONS = [5, 10, 15] as const
 export const TIMER_OPTIONS = [30, 60, 90] as const
@@ -225,6 +226,8 @@ export interface RevealCard {
   points: number
   stolen: number
   dunce: DunceKind | null
+  /** How long after the question appeared they locked in (ms); null if they never did (awards: Gut Feeling). */
+  lockMs?: number | null
   /** When this card flips (server ms). */
   at: number
 }
@@ -290,7 +293,20 @@ export interface FinalView extends FermeanieRelease {
   line: string
   /** After a win: the release notes, or the announcement of a new pie release. */
   versionLine?: string
+  /** The awards FerMEANie reads out one by one before the crown (server ms `at`), with her line for each. */
+  awards: FinalAward[]
+  /** When the winner is crowned and her final lines start (server ms): after the awards. */
+  crownAt: number
 }
+
+export interface FinalAward extends Award {
+  name: string
+  line: string
+  at: number
+}
+
+/** The awards ceremony (ms): a beat before the first, and the shortest each award stays up. */
+export const AWARD_TIMING = { lead: 1500, each: 5000 } as const
 
 /** One beat of the intro. `at`: when it starts (server ms); it lasts until the next one, or the intro's end. */
 export type IntroStep =
