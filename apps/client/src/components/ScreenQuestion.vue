@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { RoomView } from '@fermi/shared'
 import { useReadQuestion } from '@/composables/useVoice'
+import { S } from '@/lib/strings'
 import FermeanieSays from './FermeanieSays.vue'
 import PlayerStrip from './PlayerStrip.vue'
 import RoundTimer from './RoundTimer.vue'
@@ -20,7 +21,10 @@ const playing = computed(() => props.room.players.filter((p) => !p.spectating).l
 
 <template>
   <div class="tv-q">
-    <span class="eyebrow">Question {{ round.index + 1 }} of {{ round.total }} · {{ round.question.category.replace(/-/g, ' ') }}</span>
+    <span v-if="round.practice" class="eyebrow practice">{{ S.practice }}</span>
+    <span v-else class="eyebrow"
+      >Question {{ round.index + 1 }} of {{ round.total }} · {{ round.question.category.replace(/-/g, ' ') }}</span
+    >
     <h1>{{ round.question.question }}</h1>
     <p class="unit">
       Answer in <strong>{{ round.question.unit }}</strong> · on your phone

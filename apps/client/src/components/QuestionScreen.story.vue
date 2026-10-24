@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { logEvent } from 'histoire/client'
-import { questionRoom, SHEETS, T0 } from '@/fixtures/rooms'
+import { practiceRoom, questionRoom, SHEETS, T0 } from '@/fixtures/rooms'
 import QuestionScreen from './QuestionScreen.vue'
 
 const spectating = { ...questionRoom(), yourSheet: undefined }
@@ -9,6 +9,7 @@ const playingState = () => ({ left: 47, room: questionRoom({ text: SHEETS.good }
 const lockedRoom = questionRoom({ text: SHEETS.close, locked: true })
 const lastRoom = questionRoom({ text: '2.5M' })
 const firstRoom = questionRoom()
+const practice = practiceRoom()
 type State = ReturnType<typeof playingState>
 
 // players lock in one by one, and FerMEANie glances at each (a later round, with a quip)
@@ -62,5 +63,8 @@ const onUnlock = (state: State) => (state.room = { ...state.room, yourSheet: { t
     <Variant title="Phone, typing (keyboard open)">
       <div class="page"><QuestionScreen :room="playingState().room" :now="T0 + 21_000" preview-editing /></div>
     </Variant>
+    <Variant title="Intro example question"
+      ><div class="page"><QuestionScreen :room="practice" :now="T0 + 12_000" /></div
+    ></Variant>
   </Story>
 </template>

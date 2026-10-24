@@ -1,4 +1,4 @@
-import { MIN_PLAYERS, type RoomSettings } from '@fermi/shared'
+import { MIN_PLAYERS, type IntroMode, type Rule, type RoomSettings } from '@fermi/shared'
 
 // All user-facing copy in one place, so a translation can slot in later.
 export const S = {
@@ -29,6 +29,41 @@ export const S = {
         : 'No breaks: once it starts, it runs.',
   betweenRoundsShort: ({ pacing, breakSec }: RoomSettings) =>
     pacing === 'host' ? 'the host taps Next between rounds' : breakSec ? `${breakSec} s breaks` : 'no breaks',
+  intro: 'Intro',
+  introLabel: { full: 'Full', short: 'Short', off: 'Off' } satisfies Record<IntroMode, string>,
+  /** What the intro setting does, as a sentence (lobby) or a short status (big screen). */
+  introHint: (mode: IntroMode) =>
+    mode === 'full'
+      ? 'FerMEANie introduces herself and everyone, explains the rules and plays a practice question.'
+      : mode === 'short'
+        ? 'FerMEANie says hello and introduces everyone, then it starts.'
+        : 'No intro: straight to the first question.',
+  introShort: (mode: IntroMode) => (mode === 'full' ? 'full intro' : mode === 'short' ? 'short intro' : 'no intro'),
+  skipIntro: 'Skip intro',
+  skipIntroVotes: (votes: number, needed: number) => `${votes} of ${needed} want to skip the intro`,
+  thatsYou: 'That’s you!',
+  meetPlayers: 'Meet the test subjects',
+  practice: 'Practice question · no points',
+  firstRealIn: (s: number) => `First real question in ${s}s…`,
+  /** The intro's rule slides: a title and the short version of what she says. */
+  rules: {
+    sheet: {
+      title: 'Work it out',
+      text: 'Everyone gets the same question. Break it into steps, one per line. The last line is your answer, and everyone sees your working at the end.',
+    },
+    times_off: {
+      title: 'Times off',
+      text: 'Closeness is measured in “times off”: 2× too high is as good as 2× too low.',
+    },
+    points: {
+      title: 'Points',
+      text: 'The closest answer scores the most. Within 2× earns a bonus, within 10% a bigger one.',
+    },
+    swarm: {
+      title: 'The swarm',
+      text: 'FerMEANie plays the average of all your answers. If she beats every human, she steals the round’s points.',
+    },
+  } satisfies Record<Rule, { title: string; text: string }>,
   lookUp: 'Look at the big screen',
   controllerView: 'Controller',
   fullView: 'Full view',

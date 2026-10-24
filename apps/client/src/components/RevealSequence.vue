@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { formatCompact, formatFactor, revealChat, STEAL, type PlayerView, type RevealView } from '@fermi/shared'
 import { describeOff, flippedCount, revealStage, stealPlan } from '@/lib/reveal'
+import { S } from '@/lib/strings'
 import type { Release } from '@/lib/version'
 import AnswerCard from './AnswerCard.vue'
 import FermeanieSays from './FermeanieSays.vue'
@@ -105,7 +106,8 @@ watch([stage, flipped], async () => {
   <div ref="root" class="reveal" :class="{ stealing, narrow }">
     <StealFx v-if="plan && atLeast('fermeanie')" :root="root" :t="ferT" :starts="plan.starts" :points="stolenPoints" />
     <header class="q">
-      <span class="eyebrow">Round {{ reveal.index + 1 }} of {{ reveal.total }} · reveal</span>
+      <span v-if="reveal.practice" class="eyebrow practice">{{ S.practice }} · reveal</span>
+      <span v-else class="eyebrow">Round {{ reveal.index + 1 }} of {{ reveal.total }} · reveal</span>
       <h2>{{ reveal.question.question }}</h2>
       <span class="muted">in {{ reveal.question.unit }}</span>
     </header>
@@ -126,8 +128,8 @@ watch([stage, flipped], async () => {
         You were <strong>{{ describeOff(mine.factor, mine.direction, formatFactor) }}</strong>
       </p>
       <FermeanieSays
-        v-if="reveal.lines.everyone && !atLeast('cards')"
-        :text="reveal.lines.everyone"
+        v-if="(reveal.lines.everyone || reveal.lines.guide) && !atLeast('cards')"
+        :text="reveal.lines.guide ?? reveal.lines.everyone"
         :start-at="reveal.timeline.startedAt"
         :now="now"
         mood="smug"
@@ -137,7 +139,7 @@ watch([stage, flipped], async () => {
 
     <div class="grid">
       <div class="area-truth">
-        <TruthPanel v-if="atLeast('truth')" :question="reveal.question" />
+        <TruthPanel v-if="atLeast('truth')" :question="reveal.question" :example="reveal.practice" />
       </div>
 
       <section v-if="atLeast('cards')" class="cards" aria-label="Answers, furthest to closest">
@@ -169,7 +171,7 @@ watch([stage, flipped], async () => {
               </div>
               <div v-if="!verdictIn" class="haul mono" aria-hidden="true">{{ haul ? `+${haul}` : '' }}</div>
               <div v-else class="verdict" :class="{ steal: fer.beatsAll }">
-                {{ fer.beatsAll ? `Steals ${fer.points} points` : 'Beaten by a human' }}
+                {{ fer.beatsAll ? `${reveal.practice ? 'Would steal' : 'Steals'} ${fer.points} points` : 'Beaten by a human' }}
               </div>
             </template>
             <span v-else class="muted">Not enough answers to form a swarm.</span>
@@ -206,8 +208,9 @@ watch([stage, flipped], async () => {
           </dl>
         </section>
 
+        <p v-if="reveal.practice && atLeast('scoreboard')" class="muted center next">{{ S.firstRealIn(nextIn) }}</p>
         <Scoreboard
-          v-if="atLeast('scoreboard')"
+          v-if="!reveal.practice && atLeast('scoreboard')"
           :players="players"
           :scores-after="reveal.scoresAfter"
           :fermeanie-before="fermeanieBefore"
@@ -215,7 +218,9 @@ watch([stage, flipped], async () => {
           :you="you"
           :title="`Scores after round ${reveal.index + 1}`"
         />
-        <p v-if="atLeast('scoreboard')" class="muted center next">{{ isLast ? 'Final results' : 'Next question' }} in {{ nextIn }}s…</p>
+        <p v-if="!reveal.practice && atLeast('scoreboard')" class="muted center next">
+          {{ isLast ? 'Final results' : 'Next question' }} in {{ nextIn }}s…
+        </p>
       </div>
     </div>
   </div>

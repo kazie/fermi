@@ -265,7 +265,7 @@ describe('Room with a voice', () => {
       room.handle(id, { type: 'join', name }, conn)
       return { id, conn }
     })
-    room.handle(players[0].id, { type: 'settings', rounds: 5, timerSec: 60, breakSec: 0 }, players[0].conn)
+    room.handle(players[0].id, { type: 'settings', rounds: 5, timerSec: 60, breakSec: 0, intro: 'off' }, players[0].conn)
     return { db, room, players, voice, renderer, asked, named }
   }
 

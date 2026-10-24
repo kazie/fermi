@@ -22,6 +22,32 @@ export const PACING_OPTIONS = ['timer', 'host'] as const
 export type Pacing = (typeof PACING_OPTIONS)[number]
 /** With a break coming, the reveal's scoreboard step is short: the break shows the scores anyway. */
 export const SCOREBOARD_BEFORE_BREAK_MS = 3000
+
+/**
+ * The intro before the first question. `full`: FerMEANie says hello, introduces every player, explains the rules and
+ * plays an unscored example question. `short`: hello and the roll call only. Play again switches `full` to `short`.
+ */
+export const INTRO_OPTIONS = ['full', 'short', 'off'] as const
+export type IntroMode = (typeof INTRO_OPTIONS)[number]
+/** The rule slides, in order. */
+export const RULES = ['sheet', 'times_off', 'points', 'swarm'] as const
+export type Rule = (typeof RULES)[number]
+/**
+ * Intro pacing (ms): the shortest each step lasts. A step also lasts until her line is typed out (and said, with a
+ * voice) and can be read, like her reveal stage.
+ */
+export const INTRO_TIMING = {
+  hello: 6000,
+  player: 3000,
+  rule: 6000,
+  /** The example question's answering time. */
+  practiceSec: 45,
+  /** The example's reveal flips fewer cards, faster. */
+  practiceCardEach: 2500,
+  practiceCardsMaxTotal: 12000,
+  /** After the example's reveal, before the first real question. */
+  practiceOutro: 4000,
+} as const
 export const NAME_MAX = 24
 export const ROOM_CODE_RE = /^[A-Z]{4}$/
 /** A player's private key (never shown to other players): 32 random bytes, base64url. */
@@ -50,7 +76,7 @@ export function stealTiming(victims: number) {
 
 /** FerMEANie's chat in the reveal, in the order she says it. Missing lines are left out. */
 export function revealChat(lines: RevealView['lines']): string[] {
-  return [lines.twins, lines.bullseye, lines.ruleChange, lines.dunceGroup, lines.verdict].filter((l): l is string => !!l)
+  return [lines.lesson, lines.twins, lines.bullseye, lines.ruleChange, lines.dunceGroup, lines.verdict].filter((l): l is string => !!l)
 }
 
 /** How many cards FerMEANie steals from (null without a steal). The one count the steal and its timing use. */
@@ -93,12 +119,25 @@ export interface RoomSettings {
   timerSec: number
   breakSec: number
   pacing: Pacing
+  intro: IntroMode
+}
+
+/**
+ * About how long the intro takes (ms), for estimates. A roll-call line usually outlasts its 3 s minimum, and the
+ * example question rarely runs its full time, but its reveal adds about as much.
+ */
+export function introDuration(mode: IntroMode, players: number): number {
+  if (mode === 'off') return 0
+  const t = INTRO_TIMING
+  const greeting = t.hello + players * 4000
+  return mode === 'short' ? greeting : greeting + RULES.length * t.rule + t.practiceSec * 1000
 }
 
 /** Breaks count only when they're timed: with host pacing, nobody knows how long the talk takes. */
-export function estimateGameMinutes({ rounds, timerSec, breakSec, pacing }: RoomSettings, players: number): number {
+export function estimateGameMinutes({ rounds, timerSec, breakSec, pacing, intro }: RoomSettings, players: number): number {
   const breaks = pacing === 'host' ? 0 : Math.max(0, rounds - 1) * breakSec * 1000
-  return Math.max(1, Math.round((rounds * (timerSec * 1000 + revealDuration(Math.max(players, 2))) + breaks) / 60000))
+  const game = rounds * (timerSec * 1000 + revealDuration(Math.max(players, 2))) + breaks + introDuration(intro, players)
+  return Math.max(1, Math.round(game / 60000))
 }
 
 const name = z
@@ -119,6 +158,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
       .union(BREAK_OPTIONS.map((n) => z.literal(n)) as [z.ZodLiteral<0>, z.ZodLiteral<15>, z.ZodLiteral<30>, z.ZodLiteral<60>])
       .optional(),
     pacing: z.enum(PACING_OPTIONS).optional(),
+    intro: z.enum(INTRO_OPTIONS).optional(),
   }),
   z.object({ type: z.literal('start') }),
   /** Host pacing: end the break and start the next question. */
@@ -127,13 +167,15 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('lock'), text: sheet }),
   z.object({ type: z.literal('unlock') }),
   z.object({ type: z.literal('skip_break') }),
+  /** The host skips the intro at once; anyone else votes, and a majority skips it. */
+  z.object({ type: z.literal('skip_intro') }),
   z.object({ type: z.literal('play_again') }),
   z.object({ type: z.literal('ping'), t: z.number() }),
 ])
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>
 
-export type Phase = 'lobby' | 'question' | 'reveal' | 'break' | 'final'
+export type Phase = 'lobby' | 'intro' | 'question' | 'reveal' | 'break' | 'final'
 
 export interface PlayerView {
   id: string
@@ -161,6 +203,8 @@ export interface QuestionView {
   endsAt: number
   /** What FerMEANie says while the question is up: the intro in the first round, a quip after that. */
   line: string
+  /** The intro's example question: no points, and the real game starts after its reveal. */
+  practice?: true
 }
 
 export interface RevealCard {
@@ -186,6 +230,8 @@ export interface RevealCard {
 export interface RevealView {
   index: number
   total: number
+  /** The intro's example question: the points are what it would have scored, and nobody keeps them. */
+  practice?: true
   question: RevealedQuestion
   timeline: {
     startedAt: number
@@ -219,6 +265,10 @@ export interface RevealView {
     /** steal / defeated / sits_out / everyone_way_off */
     verdict: string
     bullseye?: string
+    /** The example question: what the number line shows, said as the answers drop. */
+    guide?: string
+    /** The example question: what the swarm is, said before her verdict. */
+    lesson?: string
   }
   scoresAfter: Record<string, number>
   fermeanieScoreAfter: number
@@ -236,6 +286,25 @@ export interface FinalView extends FermeanieRelease {
   line: string
   /** After a win: the release notes, or the announcement of a new pie release. */
   versionLine?: string
+}
+
+/** One beat of the intro. `at`: when it starts (server ms); it lasts until the next one, or the intro's end. */
+export type IntroStep =
+  | { kind: 'hello'; at: number; line: string }
+  | { kind: 'player'; at: number; line: string; playerId: string; name: string }
+  | { kind: 'rule'; at: number; line: string; rule: Rule }
+
+/**
+ * The intro: its steps (set when it starts, so late joiners aren't introduced), and the vote to skip it, which runs
+ * through the example question too. Set while the intro or its example question is on.
+ */
+export interface IntroView {
+  mode: Exclude<IntroMode, 'off'>
+  startedAt: number
+  steps: IntroStep[]
+  /** When the last step ends: then the example question, or the first real one. */
+  endsAt: number
+  skip: { votes: number; needed: number; youVoted: boolean }
 }
 
 export interface BreakView {
@@ -271,6 +340,8 @@ export interface RoomView {
   yourSheet?: { text: string; locked: boolean }
   reveal?: RevealView
   final?: FinalView
+  /** The intro, and its vote to skip (also during its example question). */
+  intro?: IntroView
   /** The discussion break after a reveal (`reveal` stays set alongside, for the recap of that round). */
   break?: BreakView
   /** With FerMEANie's voice on (the server's FERMI_VOICE): the clips for what she says in this view. */

@@ -3,7 +3,16 @@ import { formatApprox, formatNumber, type RevealedQuestion } from '@fermi/shared
 import SourceList from './SourceList.vue'
 import WorkingView from './WorkingView.vue'
 
-withDefaults(defineProps<{ question: RevealedQuestion; showSources?: boolean; link?: boolean }>(), { showSources: true, link: true })
+withDefaults(
+  defineProps<{
+    question: RevealedQuestion
+    showSources?: boolean
+    link?: boolean
+    /** The intro's example question: made up, so no date, sources or dispute link. */
+    example?: boolean
+  }>(),
+  { showSources: true, link: true, example: false },
+)
 </script>
 
 <template>
@@ -13,7 +22,8 @@ withDefaults(defineProps<{ question: RevealedQuestion; showSources?: boolean; li
       <strong class="mono">{{ formatNumber(question.answer) }}</strong>
       <span class="unit">{{ question.unit }}</span>
     </div>
-    <div v-if="formatApprox(question.answer)" class="muted approx">
+    <div v-if="example" class="muted approx">{{ formatApprox(question.answer) }}</div>
+    <div v-else-if="formatApprox(question.answer)" class="muted approx">
       {{ formatApprox(question.answer) }} · valid as of {{ question.validAsOf }}
     </div>
     <div v-else class="muted approx">valid as of {{ question.validAsOf }}</div>
@@ -22,11 +32,13 @@ withDefaults(defineProps<{ question: RevealedQuestion; showSources?: boolean; li
       <span class="eyebrow">How it’s calculated</span>
       <WorkingView :text="question.formula" compact />
     </div>
-    <details v-if="showSources" class="srcs">
+    <details v-if="showSources && !example" class="srcs">
       <summary>Sources ({{ question.sources.length }})</summary>
       <SourceList :sources="question.sources" />
     </details>
-    <a v-if="link" class="link" :href="`/q/${question.id}`" target="_blank" rel="noopener">Check the sources or dispute this answer ↗</a>
+    <a v-if="link && !example" class="link" :href="`/q/${question.id}`" target="_blank" rel="noopener"
+      >Check the sources or dispute this answer ↗</a
+    >
   </section>
 </template>
 

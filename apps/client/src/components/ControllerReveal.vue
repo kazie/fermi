@@ -27,6 +27,7 @@ const rank = computed(() => {
 const stolen = computed(() => atLeast('fermeanie') && !!fer.value?.beatsAll)
 // The same chat as the big screen, at the same moment.
 const ferMessages = computed(() => revealChat(props.reveal.lines))
+const nextIn = computed(() => Math.max(0, Math.ceil((props.reveal.timeline.endsAt - props.now) / 1000)))
 </script>
 
 <template>
@@ -64,7 +65,8 @@ const ferMessages = computed(() => revealChat(props.reveal.lines))
       size="s"
     />
 
-    <p v-if="atLeast('scoreboard') && mine" class="score card center">
+    <p v-if="reveal.practice && atLeast('scoreboard')" class="muted center">{{ S.firstRealIn(nextIn) }}</p>
+    <p v-else-if="atLeast('scoreboard') && mine" class="score card center">
       <span class="eyebrow">After round {{ reveal.index + 1 }}</span
       ><br />
       <strong class="mono big">{{ scoreAfter }}</strong> points · <strong>#{{ rank }}</strong>

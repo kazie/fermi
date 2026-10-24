@@ -156,6 +156,7 @@ describe('identity and abuse protection', () => {
     p.send({ type: 'join', name: 'Cleo' })
     await p.waitFor((m) => m.type === 'snapshot' && m.room.players.length === 1)
     const bench = await benchPlayers(code)
+    p.send({ type: 'settings', rounds: 10, timerSec: 60, intro: 'off' })
     p.send({ type: 'start' })
     const snap = (await p.waitFor((m) => m.type === 'snapshot' && m.room.phase === 'question')) as Snap
     bench.leave()
@@ -270,6 +271,7 @@ describe('websocket game', () => {
     ws.send(JSON.stringify({ type: 'join', name: 'Solo' }))
     await waitFor((m) => m.type === 'snapshot' && m.room.players.length === 1)
     const bench = await benchPlayers(code)
+    ws.send(JSON.stringify({ type: 'settings', rounds: 10, timerSec: 60, intro: 'off' }))
     ws.send(JSON.stringify({ type: 'start' }))
     const q = (await waitFor((m) => m.type === 'snapshot' && m.room.phase === 'question')) as Extract<ServerMessage, { type: 'snapshot' }>
     bench.leave()

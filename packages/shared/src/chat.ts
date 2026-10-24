@@ -92,6 +92,12 @@ export function chatState(messages: string[], t: number, opts: ChatOptions = {},
   return { index: i, at: starts[i], shown: len, dots: false, done: last }
 }
 
+/**
+ * How long one line of hers holds the stage on its own (plain text): typed out, then long enough to read (and, `paced`,
+ * to hear). The intro's steps and the example question's guide each last at least this long.
+ */
+export const lineDuration = (text: string, paced = false) => chatDuration([text], { paced }) + holdDuration(text, true, paced)
+
 /** Total time a sequence takes until its last message is fully typed. */
 export function chatDuration(messages: string[], opts: ChatOptions = {}): number {
   if (!messages.length) return 0

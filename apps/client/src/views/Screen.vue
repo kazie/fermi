@@ -8,9 +8,11 @@ import { providePlayerOrder } from '@/lib/playerColors'
 import AppHeader from '@/components/AppHeader.vue'
 import BreakScreen from '@/components/BreakScreen.vue'
 import FinalScreen from '@/components/FinalScreen.vue'
+import IntroSequence from '@/components/IntroSequence.vue'
 import RevealSequence from '@/components/RevealSequence.vue'
 import ScreenLobby from '@/components/ScreenLobby.vue'
 import ScreenQuestion from '@/components/ScreenQuestion.vue'
+import SkipIntro from '@/components/SkipIntro.vue'
 
 /** /screen/:code — the big screen (TV or laptop). It only watches; everyone plays on their phones. */
 const props = defineProps<{ code: string }>()
@@ -59,10 +61,25 @@ async function toggleFullscreen() {
     <p v-else-if="!room" class="muted">Connecting to room {{ code }}…</p>
     <template v-else>
       <ScreenLobby v-if="room.phase === 'lobby'" :room="room" :join-url="joinUrl" />
-      <ScreenQuestion v-else-if="room.phase === 'question' && room.round" :room="room" :now="now" />
+      <IntroSequence
+        v-else-if="room.phase === 'intro' && room.intro"
+        :intro="room.intro"
+        :players="room.players"
+        you=""
+        :now="now"
+        :is-host="false"
+        :release="room.fermeanie"
+        variant="tv"
+      />
+      <ScreenQuestion
+        v-else-if="room.phase === 'question' && room.round"
+        :key="room.round.practice ? 'practice' : room.round.index"
+        :room="room"
+        :now="now"
+      />
       <RevealSequence
         v-else-if="room.phase === 'reveal' && room.reveal"
-        :key="`r${room.reveal.index}`"
+        :key="`r${room.reveal.practice ? 'p' : room.reveal.index}`"
         :reveal="room.reveal"
         :players="room.players"
         you=""
@@ -72,6 +89,7 @@ async function toggleFullscreen() {
       />
       <BreakScreen v-else-if="room.phase === 'break' && room.break" :room="room" :now="now" variant="tv" />
       <FinalScreen v-else-if="room.phase === 'final' && room.final" :final="room.final" you="" :is-host="false" :now="now" screen />
+      <SkipIntro v-if="room.intro && room.phase !== 'intro'" class="practice-skip" :skip="room.intro.skip" :is-host="false" tv />
     </template>
   </main>
 </template>
@@ -80,6 +98,9 @@ async function toggleFullscreen() {
 .tv {
   --max-w: 1600px;
   position: relative;
+}
+.practice-skip {
+  margin-top: var(--space-5);
 }
 .fs {
   position: absolute;

@@ -8,6 +8,12 @@ Lines are [Fluent](https://projectfluent.org/) (`.ftl`) files under `content/fer
 
 ```
 content/fermeanie/
+├── hello.ftl                # key: hello
+├── hello_again.ftl          # key: hello_again
+├── for_real/
+│   ├── played.ftl           # key: for_real.played
+│   ├── intro.ftl            # key: for_real.intro
+│   └── skipped.ftl          # key: for_real.skipped
 ├── intro.ftl                # key: intro
 ├── welcome.ftl              # key: welcome (bundled for client name screen)
 ├── quip.ftl                 # key: quip
@@ -29,6 +35,20 @@ content/fermeanie/
 ├── humble_pie.ftl           # key: humble_pie
 ├── release_notes.ftl        # key: release_notes
 ├── pie_release.ftl          # key: pie_release
+├── roll_call/
+│   ├── new.ftl              # key: roll_call.new
+│   ├── returning.ftl        # key: roll_call.returning
+│   ├── dunces.ftl           # key: roll_call.dunces
+│   └── losses.ftl           # key: roll_call.losses
+├── rules/
+│   ├── sheet.ftl            # key: rules.sheet
+│   ├── times_off.ftl        # key: rules.times_off
+│   ├── points.ftl           # key: rules.points
+│   └── swarm.ftl            # key: rules.swarm
+├── practice/
+│   ├── question.ftl         # key: practice.question
+│   ├── guide.ftl            # key: practice.guide
+│   └── lesson.ftl           # key: practice.lesson
 └── dunce/
     ├── mild.ftl             # key: dunce.mild
     ├── severe.ftl           # key: dunce.severe
@@ -123,7 +143,23 @@ Use placeholders exactly as written. A line may use any of its situation's place
 
 | Key                     | When                                                                                | Always passed                                               | Only sometimes passed                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `intro`                 | Game start, as the first question appears                                           | `{ $count }` players                                        |                                                                                                   |
+| `hello`                 | The intro starts: she introduces herself, the average of everyone                   | `{ $count }` players                                        | `{ $version }`                                                                                    |
+| `hello_again`           | The intro starts again in a room that has finished a game: a welcome back           | `{ $count }` players                                        | `{ $version }`                                                                                    |
+| `roll_call.new`         | Intro roll call: a player she has no records on, with a backhanded compliment       | `{ $name }`                                                 |                                                                                                   |
+| `roll_call.returning`   | Intro roll call: a player who has finished games before                             | `{ $name }`, `{ $games }` finished before                   |                                                                                                   |
+| `roll_call.dunces`      | Roll call, also in the pool when the player has dunce caps on record (never forced) | `{ $name }`, `{ $dunces }` caps in earlier games (≥ 1)      |                                                                                                   |
+| `roll_call.losses`      | Roll call, also in the pool when she has won games against them (never forced)      | `{ $name }`, `{ $losses }` she won (≥ 1), `{ $games }`      |                                                                                                   |
+| `rules.sheet`           | Intro rule slide: everyone works it out in the answer block, one step per line      | none                                                        |                                                                                                   |
+| `rules.times_off`       | Intro rule slide: closeness is "times off", 2× high as good as 2× low               | none                                                        |                                                                                                   |
+| `rules.points`          | Intro rule slide: points by rank, a bonus for being very close                      | none                                                        |                                                                                                   |
+| `rules.swarm`           | Intro rule slide: she plays the average and steals the round if it beats everyone   | none                                                        |                                                                                                   |
+| `practice.question`     | The intro's example question appears (no points)                                    | none                                                        |                                                                                                   |
+| `practice.guide`        | The example's reveal, as answers drop on the number line: what the line shows       | none                                                        |                                                                                                   |
+| `practice.lesson`       | The example's reveal, before her verdict: what the swarm is                         | none                                                        |                                                                                                   |
+| `for_real.played`       | The first real question, after the intro's example question was played              | none                                                        |                                                                                                   |
+| `for_real.intro`        | The first real question, after a short intro (no rules, no practice)                | none                                                        |                                                                                                   |
+| `for_real.skipped`      | The first real question, after someone skipped the intro                            | none                                                        |                                                                                                   |
+| `intro`                 | Game start without an intro, as the first question appears                          | `{ $count }` players                                        |                                                                                                   |
 | `welcome`               | Name screen, under “Welcome to my little game, …” (picked in the client)            | none                                                        |                                                                                                   |
 | `quip`                  | A new question appears (second round on): stir up competition, Portal 2 co-op style | none                                                        | `{ $leader }` (ahead of everyone, FerMEANie too), `{ $last }` (behind everyone; never a newcomer) |
 | `final_round`           | The last question appears, instead of a quip                                        | none                                                        | `{ $leader }`, `{ $last }` (as for `quip`)                                                        |

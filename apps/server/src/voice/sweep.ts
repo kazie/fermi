@@ -1,10 +1,11 @@
 // What can be rendered before anyone needs it: every sentence of FerMEANie's lines that has no variables (most of
-// them), the ones that only count players, the questions, and, once a player has joined, every sentence that only
+// them), the ones that only count players, the questions (the intro's examples first), and, once a player has joined, every sentence that only
 // names them.
 
 import { sentences, speechText } from '@fermi/shared'
 import type { LinePool } from '@fermi/shared/lines'
 import type { DB } from '../db.ts'
+import { loadExamples } from '../intro.ts'
 import { lineArg } from '../lines.ts'
 import { activeQuestionTexts } from '../questions/repo.ts'
 import type { Voice } from './index.ts'
@@ -62,6 +63,6 @@ export function nameSentences(pool: LinePool, name: string): string[] {
  * while her lines get a typing beat), then her sentences without variables.
  */
 export function sweep(voice: Voice, pool: LinePool, db: DB) {
-  for (const text of activeQuestionTexts(db)) voice.request(text, { tier: 'sweep' })
+  for (const text of [...loadExamples().map((e) => e.question), ...activeQuestionTexts(db)]) voice.request(text, { tier: 'sweep' })
   voice.requestSentences(lineSentences(pool))
 }

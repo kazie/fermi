@@ -1,7 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { chatDelay, fermeanieStageMs, MIN_PLAYERS, stolenCards, type RoomView, type ServerMessage } from '@fermi/shared'
+import {
+  chatDelay,
+  chatDuration,
+  evaluateSheet,
+  fermeanieStageMs,
+  holdDuration,
+  MIN_PLAYERS,
+  stolenCards,
+  type RoomView,
+  type ServerMessage,
+} from '@fermi/shared'
 import { Room, DEADLINE_GRACE_MS, HOST_HANDOVER_MS, LOBBY_DROP_MS, quipNames } from '../src/game.ts'
 import { getQuestion } from '../src/questions/repo.ts'
+import { loadExamples } from '../src/intro.ts'
 import { makeQuestion, seed, testDb, testLines } from './fixtures.ts'
 import { insertQuestion } from '../src/questions/repo.ts'
 
@@ -36,7 +47,7 @@ function setup(playerCount: number, questions = 6) {
   const room = new Room('ABCD', { db, lines: testLines, rand: () => 0 })
   const players = joinPlayers(room, playerCount)
   // most tests play straight through; the break has its own tests below
-  if (players[0]) room.handle(players[0].id, { type: 'settings', rounds: 10, timerSec: 60, breakSec: 0 }, players[0].conn)
+  if (players[0]) room.handle(players[0].id, { type: 'settings', rounds: 10, timerSec: 60, breakSec: 0, intro: 'off' }, players[0].conn)
   const answerOf = () => getQuestion(db, players[0].conn.last.round!.question.id)!.question.answer
   return { db, room, players, answerOf }
 }
@@ -55,7 +66,7 @@ describe('Room', () => {
     room.handle(players[1].id, { type: 'start' }, players[1].conn)
     expect(players[1].conn.errors.at(-1)).toMatchObject({ message: /Only the host/ })
     room.handle(players[0].id, { type: 'settings', rounds: 5, timerSec: 30 }, players[0].conn)
-    expect(players[1].conn.last.settings).toEqual({ rounds: 5, timerSec: 30, breakSec: 0, pacing: 'timer' })
+    expect(players[1].conn.last.settings).toEqual({ rounds: 5, timerSec: 30, breakSec: 0, pacing: 'timer', intro: 'off' })
   })
 
   it('de-duplicates names and reserves FerMEANie', () => {
@@ -247,7 +258,7 @@ describe('Room', () => {
     const room = new Room('TMPL', { db, lines: testLines })
     const players = joinPlayers(room, 3)
     const c = players[0].conn
-    room.handle(players[0].id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0 }, c)
+    room.handle(players[0].id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0, intro: 'off' }, c)
     room.handle(players[0].id, { type: 'start' }, c)
     const asked: string[] = []
     for (let i = 0; i < 5; i++) {
@@ -516,6 +527,198 @@ describe('Room', () => {
   })
 })
 
+describe('the intro', () => {
+  const count = (db: ReturnType<typeof testDb>, table: string) =>
+    (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
+
+  /** Three players in a room with the given intro, started. */
+  function started(intro: 'full' | 'short') {
+    const ctx = setup(3)
+    const [a] = ctx.players
+    ctx.room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0, intro }, a.conn)
+    ctx.room.handle(a.id, { type: 'start' }, a.conn)
+    return ctx
+  }
+
+  it('full: hello, every player in join order, the rules, an unscored example, then the first real question', () => {
+    const { db, room, players } = started('full')
+    const [a, b, c] = players
+    const intro = a.conn.last.intro!
+    expect(a.conn.last.phase).toBe('intro')
+    expect(intro.steps.map((s) => (s.kind === 'player' ? s.name : s.kind === 'rule' ? s.rule : s.kind))).toEqual([
+      'hello',
+      'Ada',
+      'Bob',
+      'Cyd',
+      'sheet',
+      'times_off',
+      'points',
+      'swarm',
+    ])
+    expect(intro.steps[0].line).toBe('HELLO 3.')
+    expect(intro.steps[1].line).toBe('NEW Ada.')
+    expect(intro.steps.every((s, i) => i === 0 || s.at > intro.steps[i - 1].at)).toBe(true)
+    expect(intro.skip).toEqual({ votes: 0, needed: 2, youVoted: false })
+
+    vi.advanceTimersByTime(intro.endsAt - Date.now())
+    const practice = a.conn.last
+    expect(practice.phase).toBe('question')
+    expect(practice.round).toMatchObject({ practice: true, line: 'PRACTICE QUESTION.' })
+    expect(practice.round!.question.id).toMatch(/^practice-/)
+    expect(practice.intro).toBeDefined() // the vote to skip runs on
+
+    room.handle(a.id, { type: 'lock', text: '1' }, a.conn) // wildly off: a dunce cap, but only as a demonstration
+    for (const p of [b, c]) room.handle(p.id, { type: 'lock', text: '100000' }, p.conn)
+    const rv = a.conn.last.reveal!
+    expect(rv.practice).toBe(true)
+    expect(rv.lines).toMatchObject({ guide: 'PRACTICE GUIDE.', lesson: 'PRACTICE LESSON.' })
+    expect(rv.cards.some((card) => card.points > 0)).toBe(true) // what it would have scored
+
+    vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
+    const real = a.conn.last
+    expect(real.phase).toBe('question')
+    expect(real.round).toMatchObject({ index: 0, line: 'FOR REAL AFTER PRACTICE.' })
+    expect(real.round!.practice).toBeUndefined()
+    expect(real.intro).toBeUndefined()
+    expect(real.players.map((p) => [p.score, p.dunces])).toEqual([
+      [0, 0],
+      [0, 0],
+      [0, 0],
+    ])
+    expect(count(db, 'played_questions')).toBe(0)
+    expect(count(db, 'player_seen')).toBe(3) // only the real question
+    // Ada's dunce cap in the example used up no insult she'd otherwise hear later
+    expect((db.prepare("SELECT COUNT(*) AS n FROM player_lines WHERE line_key LIKE 'dunce%'").get() as { n: number }).n).toBe(0)
+    expect(rv.lines.dunce[a.id]).toBeDefined()
+    const { rounds } = db.prepare('SELECT rounds FROM games').get() as { rounds: string }
+    expect(JSON.parse(rounds)).toEqual([])
+  })
+
+  it('the host skips it at once; anyone else votes, and a majority skips it, even during the example', () => {
+    const { room, players } = started('full')
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'skip_intro' }, a.conn)
+    expect(c.conn.last.round).toMatchObject({ index: 0, line: 'FOR REAL AFTER SKIP.' })
+
+    const other = started('full')
+    const [, y, z] = other.players
+    vi.advanceTimersByTime(other.players[0].conn.last.intro!.endsAt - Date.now())
+    expect(z.conn.last.round!.practice).toBe(true)
+    other.room.handle(y.id, { type: 'skip_intro' }, y.conn)
+    other.room.handle(y.id, { type: 'skip_intro' }, y.conn) // one vote each
+    expect(z.conn.last.intro!.skip).toMatchObject({ votes: 1, needed: 2, youVoted: false })
+    expect(y.conn.last.intro!.skip.youVoted).toBe(true)
+    other.room.handle(z.id, { type: 'skip_intro' }, z.conn)
+    expect(z.conn.last.round).toMatchObject({ index: 0, line: 'FOR REAL AFTER SKIP.' })
+    expect(z.conn.last.round!.practice).toBeUndefined()
+    void b
+  })
+
+  it('short: hello and the roll call only; off: straight to the question with the usual greeting', () => {
+    const { players } = started('short')
+    const a = players[0]
+    const intro = a.conn.last.intro!
+    expect(intro.steps.map((s) => s.kind)).toEqual(['hello', 'player', 'player', 'player'])
+    vi.advanceTimersByTime(intro.endsAt - Date.now())
+    expect(a.conn.last.round).toMatchObject({ index: 0, line: 'FOR REAL AFTER INTRO.' })
+    expect(a.conn.last.round!.practice).toBeUndefined()
+
+    const { room, players: others } = setup(3)
+    room.handle(others[0].id, { type: 'start' }, others[0].conn)
+    expect(others[0].conn.last.phase).toBe('question')
+    expect(others[0].conn.last.round!.line).toMatch(/^Welcome/)
+  })
+
+  it('remembers returning players for the roll call, and Play again makes the next intro short', () => {
+    const { db, room, players } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0, intro: 'full' }, a.conn)
+    room.handle(a.id, { type: 'skip_intro' }, a.conn) // no intro running: ignored
+    room.handle(a.id, { type: 'start' }, a.conn)
+    expect(a.conn.last.intro!.steps[1].line).toBe('NEW Ada.')
+    room.handle(a.id, { type: 'skip_intro' }, a.conn)
+    for (let i = 0; i < 5; i++) {
+      for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
+      if (i === 4) joinPlayers(room, 4).slice(3) // Dee joins during the last reveal and never plays
+      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+    }
+    expect(a.conn.last.phase).toBe('final')
+    expect(a.conn.last.players).toHaveLength(4)
+    expect(count(db, 'player_games')).toBe(3) // Dee has no game to remember
+
+    room.handle(a.id, { type: 'play_again' }, a.conn)
+    expect(a.conn.last.settings.intro).toBe('short')
+    room.handle(a.id, { type: 'start' }, a.conn)
+    const steps = a.conn.last.intro!.steps
+    expect(steps.map((s) => s.kind)).toEqual(['hello', 'player', 'player', 'player', 'player'])
+    expect(steps[0].line).toBe('AGAIN 4.') // a welcome back, not another introduction
+    expect(steps[1].line).toBe('BACK Ada AFTER 1.')
+    expect(steps[4].line).toBe('NEW Dee.')
+    void [b, c]
+  })
+})
+
+describe('the intro, in detail', () => {
+  /** A room of three where Ada has finished games before, with this history; `rand` steps through `rolls`. */
+  function withHistory(history: { dunces: number; fermeanieWon: number }[], rolls: number[]) {
+    const db = testDb()
+    seed(db, 6)
+    let i = 0
+    const room = new Room('HIST', { db, lines: testLines, rand: () => rolls[i++ % rolls.length] })
+    const players = joinPlayers(room, 3)
+    const insert = db.prepare(
+      'INSERT INTO player_games (player_id, game_id, finished_at, score, dunces, fermeanie_won) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    history.forEach((g, n) => insert.run(players[0].id, `old-${n}`, '2026-10-01T00:00:00Z', 100, g.dunces, g.fermeanieWon))
+    room.handle(players[0].id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0, intro: 'short' }, players[0].conn)
+    room.handle(players[0].id, { type: 'start' }, players[0].conn)
+    const step = players[0].conn.last.intro!.steps.find((s) => s.kind === 'player' && s.name === 'Ada')!
+    return { line: step.line, other: players[0].conn.last.intro!.steps.find((s) => s.kind === 'player' && s.name === 'Bob')!.line }
+  }
+
+  it('roll call: caps and losses join the pool of a returning player, never forced, never invented', () => {
+    // without caps or losses on record, every roll gives a general welcome back
+    for (const r of [0, 0.5, 0.99]) expect(withHistory([{ dunces: 0, fermeanieWon: 0 }], [r]).line).toBe('BACK Ada AFTER 1.')
+    // with both, the three pools share the draw (one line each in the test files)
+    const both = [
+      { dunces: 2, fermeanieWon: 1 },
+      { dunces: 0, fermeanieWon: 0 },
+    ]
+    expect(withHistory(both, [0.1]).line).toBe('BACK Ada AFTER 2.')
+    expect(withHistory(both, [0.5]).line).toBe('CAPPED Ada 2.')
+    expect(withHistory(both, [0.9]).line).toBe('BEATEN Ada 1 OF 2.')
+    // with losses only, a cap line is never possible
+    expect(withHistory([{ dunces: 0, fermeanieWon: 1 }], [0.99]).line).toBe('BEATEN Ada 1 OF 1.')
+    expect(withHistory([{ dunces: 0, fermeanieWon: 1 }], [0.1]).line).toBe('BACK Ada AFTER 1.')
+    // a newcomer is always new
+    expect(withHistory([], [0.5]).other).toBe('NEW Bob.')
+  })
+
+  it('the example: the number line waits for the guide; no swarm lesson without a swarm', () => {
+    const { room, players } = setup(3)
+    const [a, b] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0, intro: 'full' }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    vi.advanceTimersByTime(a.conn.last.intro!.endsAt - Date.now())
+    room.handle(a.id, { type: 'lock', text: '100000' }, a.conn)
+    room.handle(b.id, { type: 'lock', text: '50000' }, b.conn)
+    vi.advanceTimersByTime(46_000) // the third never answers: two answers, no swarm
+    const rv = a.conn.last.reveal!
+    expect(rv.practice).toBe(true)
+    expect(rv.fermeanie).toBeNull()
+    expect(rv.lines.guide).toBe('PRACTICE GUIDE.')
+    expect(rv.lines.lesson).toBeUndefined()
+    const guideMs = chatDuration([rv.lines.guide!]) + holdDuration(rv.lines.guide!, true)
+    expect(rv.timeline.truthAt - rv.timeline.startedAt).toBeGreaterThanOrEqual(guideMs)
+  })
+})
+
+describe('the example questions', () => {
+  it('each worked sheet comes out at its answer', () => {
+    for (const e of loadExamples()) expect(evaluateSheet(e.sheet).answer, e.id).toBeCloseTo(e.answer, 6)
+  })
+})
+
 describe('quipNames', () => {
   const p = (name: string, score: number, fromStart = true, here = true) => ({ name, score, fromStart, here })
 
@@ -608,7 +811,7 @@ describe('Room robustness', () => {
     seed(db, 6)
     const room = new Room('FAST', { db, lines: testLines, rand: () => 0, timeScale: 0.25 })
     const [a] = joinPlayers(room, 3)
-    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 60, breakSec: 0 }, a.conn)
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 60, breakSec: 0, intro: 'off' }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS) // the question timer itself is never sped up
     const rv = a.conn.last.reveal!

@@ -15,6 +15,9 @@ const screens = [
   { title: 'Big screen: lobby', story: 'screenlobby', variant: 1 },
   { title: 'Break (phone)', story: 'breakscreen', variant: 0 },
   { title: 'Controller reveal', story: 'controllerreveal', variant: 0 },
+  { title: 'Intro: roll call', story: 'introsequence', variant: 1 },
+  { title: 'Intro: rule', story: 'introsequence', variant: 4 },
+  { title: 'Intro: example question', story: 'questionscreen', variant: 7 },
 ]
 const devices = [
   { label: 'Small phone', w: 360, h: 740, scale: 0.75 },

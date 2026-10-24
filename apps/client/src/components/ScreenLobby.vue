@@ -56,7 +56,8 @@ const minutes = computed(() => estimateGameMinutes(s.value, props.room.players.l
         >Waiting for <strong>{{ host.name }}</strong> to start</template
       >
       <template v-else>The first player to join becomes the host</template>
-      · {{ s.rounds }} rounds · {{ s.timerSec }} s per question · {{ S.betweenRoundsShort(s) }} · about {{ minutes }} min
+      · {{ s.rounds }} rounds · {{ s.timerSec }} s per question · {{ S.betweenRoundsShort(s) }} · {{ S.introShort(s.intro) }} · about
+      {{ minutes }} min
     </p>
   </div>
 </template>
