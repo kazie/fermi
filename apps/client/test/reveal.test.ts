@@ -11,22 +11,27 @@ const mountAt = (r: ReturnType<typeof reveals.normal>, now: number) =>
   mount(RevealSequence, { props: { reveal: r, players: players(r.cards.length), you: 'p0', now, fermeanieBefore: 0, noScroll: true } })
 
 describe('reveal suspense', () => {
-  it('only pins the answers whose cards have flipped, and counts the rest', () => {
+  it('puts every answer on the line as an unnamed dot, and names each as its card flips', () => {
     const r = reveals.normal()
+    const answered = r.cards.filter((c) => c.value !== null)
+    const lineText = (w: ReturnType<typeof mountAt>) => w.find('.nl').text()
+
     const before = mountAt(r, r.timeline.truthAt)
-    expect(before.findAll('.pin')).toHaveLength(0)
-    expect(before.findAll('.pending .chip')).toHaveLength(r.cards.length)
+    expect(before.findAll('.pin')).toHaveLength(answered.length)
+    for (const c of r.cards) expect(lineText(before)).not.toContain(c.name) // nobody's name yet
 
     const mid = mountAt(r, r.cards[1].at)
     expect(flippedCount(r, r.cards[1].at)).toBe(2)
-    expect(mid.findAll('.pin')).toHaveLength(2)
-    expect(mid.findAll('.pending .chip')).toHaveLength(r.cards.length - 2)
+    expect(mid.findAll('.pin')).toHaveLength(answered.length)
+    expect(lineText(mid)).toContain(r.cards[0].name)
+    expect(lineText(mid)).toContain(r.cards[1].name)
+    expect(lineText(mid)).not.toContain(r.cards[3].name)
     // face-down cards don't show whose they are
     expect(mid.findAll('.ac:not(.flipped)').every((c) => !c.text().includes(r.cards[3].name))).toBe(true)
 
     const end = mountAt(r, r.timeline.fermeanieAt)
-    expect(end.findAll('.pin')).toHaveLength(r.cards.filter((c) => c.value !== null).length)
-    expect(end.find('.pending').exists()).toBe(false)
+    expect(end.findAll('.pin.anon')).toHaveLength(0)
+    for (const c of answered) expect(lineText(end)).toContain(c.name)
   })
 
   it('marks the statistic FerMEANie played', () => {

@@ -66,7 +66,8 @@ content/fermeanie/
 │   ├── one_liner.ftl        # key: award.one_liner
 │   ├── round_numbers.ftl    # key: award.round_numbers
 │   ├── near_miss.ftl        # key: award.near_miss
-│   └── swarm_donor.ftl      # key: award.swarm_donor
+│   ├── swarm_donor.ftl      # key: award.swarm_donor
+│   └── hindsight.ftl        # key: award.hindsight
 └── dunce/
     ├── mild.ftl             # key: dunce.mild
     ├── severe.ftl           # key: dunce.severe
@@ -221,6 +222,7 @@ Use placeholders exactly as written. A line may use any of its situation's place
 | `award.round_numbers`   | Award: the most answers with one significant digit                                  | `{ $name }`, `{ $count }` answers (≥ 3)                     |                                                                                                   |
 | `award.near_miss`       | Award: the most answers within 2× without a bullseye                                | `{ $name }`, `{ $count }` answers (≥ 2)                     |                                                                                                   |
 | `award.swarm_donor`     | Award: lost the most points to her steals (thank the generosity)                    | `{ $name }`, `{ $points }` taken                            |                                                                                                   |
+| `award.hindsight`       | Award: the most right calls on "higher or lower than your answer"                   | `{ $name }`, `{ $count }` right calls (≥ 3)                 |                                                                                                   |
 
 Notes: `{ $factor }` arrives pre-formatted (e.g. "3 200×"), so write `{ $factor } off`, not `{ $factor }× off`. Write `{ $version }` without a leading "v" or "version" (e.g. "FerMEANie { $version }"), so the line works whether or not the value includes "v".
 

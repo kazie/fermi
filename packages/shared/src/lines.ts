@@ -47,6 +47,7 @@ export const LINE_VARIABLES = {
   'award.round_numbers': ['name', 'count'],
   'award.near_miss': ['name', 'count'],
   'award.swarm_donor': ['name', 'points'],
+  'award.hindsight': ['name', 'count'],
   lead_change: ['name', 'previous'],
   sits_out: ['count'],
   rule_change: ['name', 'count'],

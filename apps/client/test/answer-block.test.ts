@@ -66,9 +66,10 @@ describe('syntax overlay', () => {
 })
 
 describe('reveal stages', () => {
-  it('walks numberLine → truth → cards → fermeanie → scoreboard', () => {
+  it('walks call → numberLine → truth → cards → fermeanie → scoreboard', () => {
     const r = reveals.normal()
-    expect(revealStage(r, T0)).toBe('numberLine')
+    expect(revealStage(r, T0)).toBe('call')
+    expect(revealStage(r, r.timeline.callEndsAt)).toBe('numberLine')
     expect(revealStage(r, r.timeline.truthAt)).toBe('truth')
     expect(revealStage(r, r.cards[0].at)).toBe('cards')
     expect(flippedCount(r, r.cards[1].at)).toBe(2)

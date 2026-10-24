@@ -152,8 +152,16 @@ test('three players (one on a phone) play a full game against FerMEANie', async 
     await answer(host, 'pianos = 2k\npianos * 3')
     await answer(phone, '5 thousand')
     await answer(desk, round === 1 ? '1e99' : '7_500', true)
+    if (round === 1) {
+      // the call: higher or lower than your answer, before the truth lands; then a reaction reaches everyone
+      await phone.getByRole('button', { name: /Higher/ }).click()
+      await expect(phone.getByRole('button', { name: /Higher/ })).toHaveAttribute('aria-pressed', 'true')
+      await expect(phone.getByText(/You called it|Wrong twice/)).toBeVisible({ timeout: REVEAL_WAIT_MS })
+      await desk.getByRole('button', { name: 'React 🔥' }).click()
+      await expect(host.locator('.layer').getByText('🔥')).toBeVisible()
+    }
     // reveal
-    await expect(phone.getByText('The answer', { exact: true })).toBeVisible()
+    await expect(phone.getByText('The answer', { exact: true })).toBeVisible({ timeout: REVEAL_WAIT_MS })
     if (round === 1) {
       await expect(desk.locator('.ac.dunce')).toBeVisible()
       await expect(desk.getByText('because someone was wildly off')).toBeVisible()
@@ -222,11 +230,11 @@ test('big screen + three phones: the TV hosts, phones play, the break can be ski
     await answer(annie, 'pianos = 2k\npianos * 3')
     await answer(bert, '5 thousand')
     await answer(cleo, '3000', true)
-    await expect(tv.getByText('The answer', { exact: true })).toBeVisible()
+    await expect(tv.getByText('The answer', { exact: true })).toBeVisible({ timeout: REVEAL_WAIT_MS })
     if (round === 1) {
       await expect(annie.getByText('Look at the big screen')).toBeVisible() // controller mode by default
       await bert.getByRole('button', { name: 'Full view' }).click()
-      await expect(bert.getByText('The answer', { exact: true })).toBeVisible()
+      await expect(bert.getByText('The answer', { exact: true })).toBeVisible({ timeout: REVEAL_WAIT_MS })
       await noHorizontalScroll(annie)
     }
     if (round === 5) break

@@ -1,5 +1,5 @@
 import { onUnmounted, ref, shallowRef } from 'vue'
-import type { ClientMessage, RoomView, ServerMessage } from '@fermi/shared'
+import type { ClientMessage, Reaction, RoomView, ServerMessage } from '@fermi/shared'
 import { playerKey } from '@/lib/storage'
 
 export type SocketStatus = 'connecting' | 'open' | 'reconnecting' | 'closed'
@@ -9,12 +9,26 @@ export const PONG_TIMEOUT_MS = 5000
 /** Coming back to the tab: how long to wait for the probe ping's answer before reconnecting. */
 export const PROBE_MS = 3000
 
+/** How long a reaction floats on screen (ms). */
+export const REACTION_SHOW_MS = 3000
+
+/** A reaction as the floating layer shows it: who, which emoji, and when it arrived (server ms). */
+export interface FloatingReaction {
+  id: number
+  playerId: string
+  emoji: Reaction
+  t: number
+}
+
 /** One websocket per room page. Reconnects with backoff; the server resends a full snapshot each time. */
 /** @param opts.screen connect as a big screen (TV): watches only, no player key. */
 export function useSocket(code: string, opts: { screen?: boolean } = {}) {
   const room = shallowRef<RoomView | null>(null)
   /** Her voice's clips rendered since the last snapshot (kept apart, so a clip arriving doesn't redraw the room). */
   const voiceReady = shallowRef<string[]>([])
+  /** Recent emoji reactions (newest last), for the floating layer. */
+  const reactions = shallowRef<FloatingReaction[]>([])
+  let reactionId = 0
   const status = ref<SocketStatus>('connecting')
   const fatal = ref<string | null>(null)
   const lastError = ref<string | null>(null)
@@ -72,6 +86,10 @@ export function useSocket(code: string, opts: { screen?: boolean } = {}) {
         if (bestRtt === Infinity) offset.value = msg.serverNow - Date.now()
         room.value = msg.room
         voiceReady.value = [] // the snapshot lists every ready clip itself
+      } else if (msg.type === 'reaction') {
+        // a short-lived list: each reaction floats up for a few seconds, then it's dropped
+        const t = Date.now() + offset.value
+        reactions.value = [...reactions.value.filter((r) => t - r.t < REACTION_SHOW_MS), { ...msg, id: ++reactionId, t }]
       } else if (msg.type === 'voice') {
         voiceReady.value = [...voiceReady.value, ...msg.ready]
       } else if (msg.type === 'pong') {
@@ -185,5 +203,5 @@ export function useSocket(code: string, opts: { screen?: boolean } = {}) {
     ws?.close()
   })
 
-  return { room, voiceReady, status, fatal, lastError, offset, send }
+  return { room, voiceReady, status, fatal, lastError, offset, send, reactions }
 }

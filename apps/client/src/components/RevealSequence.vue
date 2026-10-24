@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { formatCompact, formatFactor, revealChat, STEAL, type PlayerView, type RevealView } from '@fermi/shared'
+import { formatCompact, formatFactor, revealChat, STEAL, type Call, type PlayerView, type RevealView } from '@fermi/shared'
 import { describeOff, flippedCount, revealStage, stealPlan } from '@/lib/reveal'
 import { S } from '@/lib/strings'
 import type { Release } from '@/lib/version'
 import AnswerCard from './AnswerCard.vue'
+import CallPanel from './CallPanel.vue'
 import DoubleBadge from './DoubleBadge.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import LogNumberLine from './LogNumberLine.vue'
@@ -22,12 +23,15 @@ const props = withDefaults(
     release?: Release
     /** Disable auto-scrolling (stories). */
     noScroll?: boolean
+    /** Your call at the start of the reveal, if you made one. */
+    yourCall?: Call
   }>(),
-  { release: undefined, noScroll: false },
+  { release: undefined, noScroll: false, yourCall: undefined },
 )
+const emit = defineEmits<{ call: [Call] }>()
 
 const stage = computed(() => revealStage(props.reveal, props.now))
-const order = ['numberLine', 'truth', 'cards', 'fermeanie', 'scoreboard'] as const
+const order = ['call', 'numberLine', 'truth', 'cards', 'fermeanie', 'scoreboard'] as const
 const atLeast = (s: (typeof order)[number]) => order.indexOf(stage.value) >= order.indexOf(s)
 const flipped = computed(() => flippedCount(props.reveal, props.now))
 const latestId = computed(() => (flipped.value > 0 && stage.value === 'cards' ? props.reveal.cards[flipped.value - 1].playerId : null))
@@ -42,9 +46,9 @@ const guesses = computed(() =>
     you: c.playerId === props.you,
   })),
 )
-// Pins only appear as their card flips, so nobody can tell who answered what ahead of time.
-const shownIds = computed(() => (atLeast('fermeanie') ? null : props.reveal.cards.slice(0, flipped.value).map((c) => c.playerId)))
-const pending = computed(() => (atLeast('fermeanie') ? 0 : props.reveal.cards.length - flipped.value))
+// Every answer is on the line from the start, as an unnamed dot; each gets its name as its card flips, so nobody can
+// tell who answered what ahead of time.
+const namedIds = computed(() => (atLeast('fermeanie') ? null : props.reveal.cards.slice(0, flipped.value).map((c) => c.playerId)))
 
 const fer = computed(() => props.reveal.fermeanie)
 const crowd = computed(() => props.reveal.crowd)
@@ -122,11 +126,9 @@ watch([stage, flipped], async () => {
         :truth="atLeast('truth') ? reveal.question.answer : null"
         :fermeanie="atLeast('fermeanie') && fer ? fer.value : null"
         :highlight="latestId"
-        :shown="shownIds"
+        :named="namedIds"
       />
-      <div v-if="pending" class="pending" :aria-label="`${pending} answers still to come`">
-        <span v-for="n in pending" :key="n" class="chip mono" aria-hidden="true">?</span>
-      </div>
+      <CallPanel v-if="!atLeast('cards')" :reveal="reveal" :you="you" :your-call="yourCall" :now="now" @call="(c) => emit('call', c)" />
       <p v-if="stage === 'numberLine'" class="muted center">Everyone’s answers are in. The truth is about to land…</p>
       <p v-else-if="mine && atLeast('cards') && flipped > reveal.cards.indexOf(mine)" class="center you-were">
         You were <strong>{{ describeOff(mine.factor, mine.direction, formatFactor) }}</strong>
@@ -252,25 +254,6 @@ watch([stage, flipped], async () => {
 .reveal.stealing::before {
   opacity: 1;
   transition-duration: 0.35s;
-}
-.pending {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  margin-top: var(--space-2);
-}
-.chip {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-s);
-  background: var(--surface-3);
-  border: 1px dashed var(--border-strong);
-  color: var(--muted);
-  font-weight: 800;
-  font-size: 12px;
 }
 .q h2 {
   font-size: var(--text-l);

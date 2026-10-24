@@ -156,6 +156,14 @@ describe('awards', () => {
     expect(kinds(rounds).near_miss).toBe('bob')
   })
 
+  it('Hindsight: the most right calls on higher or lower, at least three', () => {
+    const rounds = [0, 1, 2, 3].map(() => ({
+      ...round([card('ada', 0.3, { direction: 'high' }), card('bob', 0.3, { direction: 'low' })]),
+      calls: { ada: 'lower' as const, bob: 'lower' as const },
+    }))
+    expect(awardWinners(rounds).find((a) => a.kind === 'hindsight')).toMatchObject({ playerId: 'ada', value: 4 })
+  })
+
   it('every award has its line category, with its number as the variable', () => {
     for (const kind of AWARDS) expect(LINE_VARIABLES[`award.${kind}`], kind).toEqual(['name', AWARD_VALUES[kind]])
   })

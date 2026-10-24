@@ -2,6 +2,8 @@
 // hand them out and tests can check every rule. Each award needs one clear winner (a tie means nobody gets it), at
 // most three are given, and each to a different player, so the game's winner can't sweep them.
 
+import { callRight, type Call } from './protocol.ts'
+
 export const AWARDS = [
   'swarm_slayer',
   'bullseye',
@@ -20,6 +22,7 @@ export const AWARDS = [
   'round_numbers',
   'near_miss',
   'swarm_donor',
+  'hindsight',
 ] as const
 export type AwardKind = (typeof AWARDS)[number]
 
@@ -49,6 +52,7 @@ export const AWARD_VALUES = {
   round_numbers: 'count',
   near_miss: 'count',
   swarm_donor: 'points',
+  hindsight: 'count',
 } as const satisfies Record<AwardKind, string>
 
 /** Her line for an award: its category, and its number as the line shows it (factors formatted, like "3.2×"). */
@@ -83,6 +87,8 @@ export interface AwardRound {
   fermeanie: { err: number; value?: number } | null
   /** Everyone's score after this round, as the server applied it (Comeback). */
   scoresAfter?: Record<string, number>
+  /** The call: whether each player said the truth was higher or lower than their answer (Hindsight). */
+  calls?: Record<string, Call>
 }
 
 export interface Award {
@@ -275,6 +281,20 @@ export function awardWinners(rounds: AwardRound[]): Award[] {
           const mine = cardsOf(id)
           const n = mine.filter((c) => c.bonusKind === 'close').length
           return n >= 2 && !mine.some((c) => c.bonusKind === 'bullseye') ? n : 0
+        }),
+      ),
+      'max',
+    ),
+  )
+
+  // knew which way they were wrong: the most right calls, at least three
+  add(
+    'hindsight',
+    unique(
+      counts(
+        per((id) => {
+          const n = rounds.filter((r) => callRight(r.calls?.[id], r.cards.find((c) => c.playerId === id)?.direction ?? null)).length
+          return n >= 3 ? n : 0
         }),
       ),
       'max',

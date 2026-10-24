@@ -10,6 +10,7 @@ import {
   REVEAL_TIMING,
   scoreRound,
   stolenCards,
+  type CallView,
   type FinalView,
   type IntroStep,
   type IntroView,
@@ -160,7 +161,8 @@ export function revealFor(
   const tier = (x: (typeof score.results)[number]) => (x.value === null ? 0 : x.err === null ? 1 : 2)
   const sorted = [...score.results].sort((a, b) => tier(a) - tier(b) || (b.err ?? 0) - (a.err ?? 0))
   const t = REVEAL_TIMING
-  const truthAt = T0 + t.numberLine
+  const callEndsAt = T0 + t.call
+  const truthAt = callEndsAt + t.numberLine
   const cardsStart = truthAt + t.truth
   const per = Math.min(t.cardEach, t.cardsMaxTotal / Math.max(1, sorted.length))
   const fermeanieAt = cardsStart + sorted.length * per
@@ -192,6 +194,7 @@ export function revealFor(
     question,
     timeline: {
       startedAt: T0,
+      callEndsAt,
       truthAt,
       fermeanieAt,
       chatAt: fermeanieAt + chatDelay(stolen),
@@ -459,5 +462,26 @@ export function practiceRoom(): RoomView {
       practice: true,
     },
     intro: { ...introRoom().intro!, skip: { votes: 1, needed: 3, youVoted: false } },
+  }
+}
+
+/** The call as the server sends it while it's open: the reveal's answers without names, and `you`'s. */
+export function callFor(reveal: RevealView, you: string, made = 0): CallView {
+  const values = reveal.cards.map((c) => c.value).filter((v): v is number => v !== null && v > 0)
+  const yours = reveal.cards.find((c) => c.playerId === you)?.value
+  return {
+    index: reveal.index,
+    total: reveal.total,
+    question: {
+      id: reveal.question.id,
+      question: reveal.question.question,
+      unit: reveal.question.unit,
+      category: reveal.question.category,
+    },
+    startedAt: reveal.timeline.startedAt,
+    endsAt: reveal.timeline.callEndsAt,
+    values: values.sort((a, b) => a - b),
+    ...(yours && yours > 0 ? { yours } : {}),
+    made,
   }
 }

@@ -10,10 +10,12 @@ import AppHeader from '@/components/AppHeader.vue'
 import BreakScreen from '@/components/BreakScreen.vue'
 import FinalScreen from '@/components/FinalScreen.vue'
 import IntroSequence from '@/components/IntroSequence.vue'
+import CallStage from '@/components/CallStage.vue'
 import RevealSequence from '@/components/RevealSequence.vue'
 import ScreenLobby from '@/components/ScreenLobby.vue'
 import ScreenQuestion from '@/components/ScreenQuestion.vue'
 import SkipIntro from '@/components/SkipIntro.vue'
+import ReactionLayer from '@/components/ReactionLayer.vue'
 
 /** /screen/:code — the big screen (TV or laptop). It only watches; everyone plays on their phones. */
 const props = defineProps<{ code: string }>()
@@ -80,6 +82,7 @@ async function toggleFullscreen() {
         :room="room"
         :now="now"
       />
+      <CallStage v-else-if="room.phase === 'reveal' && room.call" :call="room.call" you="" :now="now" variant="tv" />
       <RevealSequence
         v-else-if="room.phase === 'reveal' && room.reveal"
         :key="`r${room.reveal.practice ? 'p' : room.reveal.index}`"
@@ -92,6 +95,7 @@ async function toggleFullscreen() {
       />
       <BreakScreen v-else-if="room.phase === 'break' && room.break" :room="room" :now="now" variant="tv" />
       <FinalScreen v-else-if="room.phase === 'final' && room.final" :final="room.final" you="" :is-host="false" :now="now" screen />
+      <ReactionLayer :reactions="socket.reactions.value" :players="room.players" :now="now" big />
       <SkipIntro v-if="room.intro && room.phase !== 'intro'" class="practice-skip" :skip="room.intro.skip" :is-host="false" tv />
     </template>
   </main>

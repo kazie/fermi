@@ -19,6 +19,7 @@ const variants = [
 type Reveal = (typeof variants)[number]['reveal']
 const duration = (r: Reveal) => r.timeline.endsAt - T0
 // default: the end of the reveal, so everything is visible; scrub back with the slider
+// default: the end of the reveal, so everything is visible; scrub back with the slider
 const times = reactive<Record<string, number>>(Object.fromEntries(variants.map((v) => [v.title, duration(v.reveal) - 1000])))
 
 // "Play" variants: real time, looping

@@ -27,8 +27,14 @@ const props = withDefaults(
      * guess, so pins can appear one by one during the reveal without anything jumping.
      */
     shown?: string[] | null
+    /**
+     * ids of the guesses shown with their names, or null for all. The others are unnamed dots in one neutral colour
+     * (only `you` is marked): everyone's answer can be on the line before anyone knows whose is whose. While any are
+     * unnamed, every label is the same width, so the layout can't hint at whose name is longer, and doesn't jump.
+     */
+    named?: string[] | null
   }>(),
-  { truth: null, fermeanie: null, highlight: null, shown: null },
+  { truth: null, fermeanie: null, highlight: null, shown: null, named: null },
 )
 
 const colorOf = usePlayerColors()
@@ -108,7 +114,7 @@ const pins = computed(() => {
     .sort((a, b) => a.x - b.x)
   const rowEnds: number[] = []
   for (const it of items) {
-    const width = Math.min(30, 4 + it.name.length * 1.6)
+    const width = props.named ? 7 : Math.min(30, 4 + it.name.length * 1.6)
     let row = rowEnds.findIndex((end) => end <= it.x - 1)
     if (row === -1) {
       row = rowEnds.length
@@ -132,6 +138,9 @@ const pins = computed(() => {
 const rows = computed(() => Math.max(1, ...pins.value.map((p) => p.row + 1)))
 const visiblePins = computed(() => (props.shown ? pins.value.filter((p) => props.shown!.includes(p.id)) : pins.value))
 
+/** Not (yet) named: an unnamed dot. */
+const anon = (p: { id: string }) => !!props.named && !props.named.includes(p.id)
+
 const truthPos = computed(() => (props.truth ? pos(props.truth) : null))
 const ferPos = computed(() => (props.fermeanie ? pos(props.fermeanie) : null))
 </script>
@@ -149,14 +158,14 @@ const ferPos = computed(() => (props.fermeanie ? pos(props.fermeanie) : null))
         v-for="p in visiblePins"
         :key="p.id"
         class="pin"
-        :class="{ you: p.you, hl: p.id === highlight, dunce: p.dunce, clipped: p.clipped }"
-        :style="{ left: `${p.x}%`, '--row': p.row, '--pc': colorOf(p.id) }"
-        :title="p.value !== null ? `${p.name}: ${formatCompact(p.value)}` : p.name"
+        :class="{ you: p.you, hl: p.id === highlight, dunce: p.dunce && !anon(p), clipped: p.clipped, anon: anon(p) && !p.you }"
+        :style="{ left: `${p.x}%`, '--row': p.row, '--pc': anon(p) && !p.you ? undefined : colorOf(p.id) }"
+        :title="anon(p) ? undefined : p.value !== null ? `${p.name}: ${formatCompact(p.value)}` : p.name"
       >
         <span class="label">
           <span v-if="p.clipped === 'lo'" aria-hidden="true">←</span>
-          <DunceCap v-if="p.dunce" still />
-          {{ p.name }}
+          <DunceCap v-if="p.dunce && !anon(p)" still />
+          {{ anon(p) ? (p.you ? 'you' : '?') : p.name }}
           <span v-if="p.clipped === 'hi'" aria-hidden="true">→</span>
         </span>
         <span class="stem"></span>
@@ -230,6 +239,9 @@ const ferPos = computed(() => (props.fermeanie ? pos(props.fermeanie) : null))
   border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 700;
+}
+.pin.anon .label {
+  color: var(--muted);
 }
 .pin.dunce .label {
   border-style: dashed;
