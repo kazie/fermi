@@ -105,9 +105,9 @@ ready: [...] }` over the websocket (clips finishing within 100 ms go in one mess
   device, sound on or off, so they all stay in step. Only lines she says are paced and voiced: those the server sent
   clips for, in a bubble on the server clock. The lobby and recaps (their own clock) keep the plain reading pauses.
 
-Measured speed: on dhole (an Intel i3-1115G4, no GPU) about 1 s per sentence in the container, about 3× faster than
-real time. A full render (about 1,850 clips) takes roughly half an hour, on dhole and on a 24-core workstation alike:
-one worker renders one sentence at a time, so more cores barely help.
+Measured speed: a full render (about 1,850 clips) took 20 minutes on a 24-core workstation, about 0.65 s per
+sentence. One worker renders one sentence at a time, so more cores barely help. A small server (a 2-core laptop CPU,
+no GPU) took about twice as long per sentence in the same test, so expect about 40 minutes there.
 
 ## Running it
 
@@ -153,7 +153,7 @@ merging one:
 1. Listen. Play a game with sound on, or render the audition script: `pnpm test:e2e:video` doesn't help, because its
    videos are silent.
 2. Merging changes the fingerprint, so every clip gets a new key. The server's sweep renders everything again (about
-   35–40 min on dhole). Or render ahead with `pnpm voice:render` on another machine (so the server stays free) and rsync the folder.
+   20 minutes on a fast machine, about 40 on a small server). Or render ahead with `pnpm voice:render` on another machine (so the server stays free) and rsync the folder.
 
 kokoro-onnx was locked at 0.4.9, the version the voice was auditioned with; newer versions exist, so the first
 `voice-engine` PR is worth a listen.
