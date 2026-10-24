@@ -1,0 +1,24 @@
+{
+  "engine": "kokoro",
+  "model": {
+    "onnx": {
+      "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx",
+      "sha256": "6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb"
+    },
+    "voices": {
+      "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+      "sha256": "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d"
+    }
+  },
+  "engineDeps": ["kokoro-onnx", "onnxruntime", "espeakng-loader", "phonemizer-fork"],
+  "blend": [
+    ["af_nicole", 0.4],
+    ["bf_emma", 0.6]
+  ],
+  "lang": "en-gb",
+  "speed": 1.0,
+  "pronounce": [{ "word": "FerMEANie", "placeholder": "Hermione", "ipa": "fɚmˈiːni" }],
+  "effects": "afftfilt=real='hypot(re,im)*sin(0)':imag='hypot(re,im)*cos(0)':win_size=1024:overlap=0.75,asetrate=24000*1.06,aresample=24000,atempo=0.9434,aecho=0.8:0.4:18:0.3,highpass=f=150,lowpass=f=8500",
+  "loudnessDb": -19,
+  "opusKbps": 32
+}

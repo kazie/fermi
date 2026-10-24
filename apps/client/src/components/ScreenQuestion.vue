@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { RoomView } from '@fermi/shared'
+import { useReadQuestion } from '@/composables/useVoice'
 import FermeanieSays from './FermeanieSays.vue'
 import PlayerStrip from './PlayerStrip.vue'
 import RoundTimer from './RoundTimer.vue'
@@ -8,6 +9,11 @@ import RoundTimer from './RoundTimer.vue'
 /** The question on a big screen: big text, the timer, who has locked in. Answering happens on phones. */
 const props = defineProps<{ room: RoomView; now: number }>()
 const round = computed(() => props.room.round!)
+
+useReadQuestion(
+  () => round.value,
+  () => props.now,
+)
 const locked = computed(() => props.room.players.filter((p) => p.lockedIn).length)
 const playing = computed(() => props.room.players.filter((p) => !p.spectating).length)
 </script>

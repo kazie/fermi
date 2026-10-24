@@ -4,6 +4,7 @@ import { rememberGameId, saveName, savedName, savedPhoneView, savePhoneView, typ
 import { providePlayerOrder } from '@/lib/playerColors'
 import { useSocket } from '@/composables/useSocket'
 import { useServerNow } from '@/composables/useNow'
+import { useVoice } from '@/composables/useVoice'
 import { useWakeLock } from '@/composables/useWakeLock'
 import AppHeader from '@/components/AppHeader.vue'
 import FinalScreen from '@/components/FinalScreen.vue'
@@ -18,7 +19,10 @@ import { revealStage } from '@/lib/reveal'
 
 const props = defineProps<{ code: string }>()
 const code = props.code.toUpperCase()
-const { room, status, fatal, lastError, offset, send } = useSocket(code)
+const socket = useSocket(code)
+const { room, status, fatal, lastError, offset, send } = socket
+// FerMEANie's voice: off until this device turns it on (the speaker in the header)
+const voice = useVoice(socket)
 const now = useServerNow(offset)
 // keep the phone awake through a game, so it doesn't lock (and drop off) mid-question
 useWakeLock(() => ['question', 'reveal', 'break'].includes(room.value?.phase ?? ''))
@@ -59,7 +63,7 @@ watch(
 </script>
 
 <template>
-  <AppHeader :code="code" :status="status" :version="room?.fermeanie.version" />
+  <AppHeader :code="code" :status="status" :version="room?.fermeanie.version" :sound="voice.sound.value" @sound="voice.toggle()" />
   <main class="page">
     <div v-if="fatal" class="card fatal">
       <h1>Hmm.</h1>
@@ -118,6 +122,7 @@ watch(
       <FinalScreen
         v-else-if="room.phase === 'final' && room.final"
         :final="room.final"
+        :now="now"
         :you="room.you"
         :is-host="room.hostId === room.you"
         @play-again="send({ type: 'play_again' })"

@@ -123,6 +123,14 @@ export function addRejection(db: DB, questionText: string, reason: string) {
   )
 }
 
+/** The texts of the questions that can come up, for FerMEANie's voice to read out. Spoilers: never print them. */
+export function activeQuestionTexts(db: DB): string[] {
+  const rows = db
+    .prepare("SELECT json_extract(data, '$.question') AS question FROM questions WHERE status = 'active' ORDER BY created_at")
+    .all() as { question: string }[]
+  return rows.map((r) => r.question)
+}
+
 /** IDs and texts only: safe to show a generator agent without spoiling answers. */
 export function listTexts(db: DB) {
   return db

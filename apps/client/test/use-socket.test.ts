@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
 import { mount } from '@vue/test-utils'
 import { PROBE_MS, useSocket } from '../src/composables/useSocket'
+import { lobbyRoom } from '../src/fixtures/rooms'
 
 class FakeWS {
   static OPEN = 1
@@ -47,6 +48,21 @@ describe('useSocket', () => {
     mountSocket(() => (useSocket('ABCD'), () => h('div')))
     expect(FakeWS.all[0].url).toMatch(/[?&]key=[A-Za-z0-9_-]{43}/)
     expect(FakeWS.all[0].url).not.toMatch(/player=/)
+  })
+
+  it("adds her voice's clips rendered since the snapshot to the room's view", () => {
+    vi.stubGlobal('WebSocket', FakeWS)
+    let api!: ReturnType<typeof useSocket>
+    mountSocket(() => ((api = useSocket('ABCD')), () => h('div')))
+    const ws = FakeWS.all[0]
+    ws.open()
+    const room = { ...lobbyRoom(), voice: { lines: { 'Hello. There.': ['k1', 'k2'] }, pending: ['k2'] } }
+    ws.onmessage?.({ data: JSON.stringify({ type: 'snapshot', room, serverNow: Date.now() }) })
+    ws.onmessage?.({ data: JSON.stringify({ type: 'voice', ready: ['k2'] }) })
+    expect(api.room.value!.voice).toEqual(room.voice) // the room isn't rebuilt for it
+    expect(api.voiceReady.value).toEqual(['k2'])
+    ws.onmessage?.({ data: JSON.stringify({ type: 'snapshot', room, serverNow: Date.now() }) })
+    expect(api.voiceReady.value).toEqual([]) // a snapshot lists what's ready itself
   })
 
   it('keeps the latest draft typed while offline and sends it first on reconnect', async () => {

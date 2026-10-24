@@ -16,6 +16,19 @@ updates:
         dependency-type: production
         update-types: [minor, patch]
 
+  # FerMEANie's voice worker (apps/server/voice/uv.lock). Monthly; the packages that shape how she sounds come in one
+  # PR of their own: listen before merging (play a game, or audition), as merging re-renders every clip.
+  - package-ecosystem: uv
+    directory: /apps/server/voice
+    schedule:
+      interval: monthly
+    labels: [dependencies, voice]
+    groups:
+      voice-engine:
+        patterns: [kokoro-onnx, onnxruntime*, espeakng-loader, phonemizer-fork]
+      python:
+        patterns: ['*']
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

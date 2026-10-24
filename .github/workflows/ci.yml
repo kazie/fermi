@@ -26,6 +26,9 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: astral-sh/setup-uv@v10.3.2 # this action publishes exact tags only (no moving v10)
+      - name: Voice worker's uv.lock matches its pyproject.toml
+        run: uv lock --check --project apps/server/voice
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm type-check
@@ -59,6 +62,8 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install-deps chromium
       - run: pnpm test:e2e
+        env:
+          PW_VIDEO: '0' # no videos in CI (PW_VIDEO=1 records them locally)
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v7

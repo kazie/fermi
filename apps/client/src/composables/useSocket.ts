@@ -13,6 +13,8 @@ export const PROBE_MS = 3000
 /** @param opts.screen connect as a big screen (TV): watches only, no player key. */
 export function useSocket(code: string, opts: { screen?: boolean } = {}) {
   const room = shallowRef<RoomView | null>(null)
+  /** Her voice's clips rendered since the last snapshot (kept apart, so a clip arriving doesn't redraw the room). */
+  const voiceReady = shallowRef<string[]>([])
   const status = ref<SocketStatus>('connecting')
   const fatal = ref<string | null>(null)
   const lastError = ref<string | null>(null)
@@ -69,6 +71,9 @@ export function useSocket(code: string, opts: { screen?: boolean } = {}) {
       if (msg.type === 'snapshot') {
         if (bestRtt === Infinity) offset.value = msg.serverNow - Date.now()
         room.value = msg.room
+        voiceReady.value = [] // the snapshot lists every ready clip itself
+      } else if (msg.type === 'voice') {
+        voiceReady.value = [...voiceReady.value, ...msg.ready]
       } else if (msg.type === 'pong') {
         pingSentAt = null
         unconfirmed = []
@@ -180,5 +185,5 @@ export function useSocket(code: string, opts: { screen?: boolean } = {}) {
     ws?.close()
   })
 
-  return { room, status, fatal, lastError, offset, send }
+  return { room, voiceReady, status, fatal, lastError, offset, send }
 }

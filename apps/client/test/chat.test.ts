@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { chatDuration, chatState, DOTS_MS, HOLD_MS, leadDuration, typeDuration } from '@fermi/shared'
+import { chatDuration, chatState, DOTS_MS, holdDuration, leadDuration, typeDuration } from '@fermi/shared'
 import FermeanieSays from '../src/components/FermeanieSays.vue'
 
 const msgs = ['First message here.', 'Second one.']
 const lead = leadDuration(msgs[0].length)
+const hold = holdDuration(msgs[0], false)
 
 describe('FerMEANie chat timing', () => {
   it('starts with a typing beat, then types, holds, shows dots and types the next message', () => {
@@ -12,8 +13,8 @@ describe('FerMEANie chat timing', () => {
     expect(chatState(msgs, 0)).toMatchObject({ index: 0, shown: 0, dots: true, done: false })
     expect(chatState(msgs, lead + 10)).toMatchObject({ index: 0, dots: false, done: false })
     expect(chatState(msgs, lead + d0 + 10)).toMatchObject({ index: 0, shown: msgs[0].length, dots: false })
-    expect(chatState(msgs, lead + d0 + HOLD_MS + 10)).toMatchObject({ index: 1, shown: 0, dots: true })
-    expect(chatState(msgs, lead + d0 + HOLD_MS + DOTS_MS + 10)).toMatchObject({ index: 1, dots: false, done: false })
+    expect(chatState(msgs, lead + d0 + hold + 10)).toMatchObject({ index: 1, shown: 0, dots: true })
+    expect(chatState(msgs, lead + d0 + hold + DOTS_MS + 10)).toMatchObject({ index: 1, dots: false, done: false })
     expect(chatState(msgs, chatDuration(msgs) + 1)).toMatchObject({ index: 1, shown: msgs[1].length, done: true })
   })
   it('can skip the typing beat', () => {
@@ -44,7 +45,7 @@ describe('FermeanieSays', () => {
     const d0 = typeDuration(msgs[0].length)
     expect(visible(at(lead + d0 + 10))).toContain('First message here.')
     expect(
-      at(lead + d0 + HOLD_MS + 10)
+      at(lead + d0 + hold + 10)
         .find('.dots')
         .exists(),
     ).toBe(true)

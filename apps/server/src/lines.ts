@@ -24,6 +24,16 @@ export interface ChosenLine<K extends LineCategory> {
   vars: LineArgs<K>
 }
 
+/**
+ * A value as it goes into a line: numbers without digit grouping (the game formats big numbers itself), text escaped
+ * so a name like "**Bob**" shows as typed instead of as markup. Her voice's sweep fills lines the same way.
+ */
+export function lineArg(v: string): string
+export function lineArg(v: string | number): string | FluentNumber
+export function lineArg(v: string | number): string | FluentNumber {
+  return typeof v === 'number' ? new FluentNumber(v, { useGrouping: false }) : escapeMarkup(v)
+}
+
 export class LinePicker {
   private used = new Set<string>()
   private pool: LinePool
@@ -82,19 +92,21 @@ export class LinePicker {
     return { msg: choice.msg, vars }
   }
 
+  /** A line chosen but never said (a line picked ahead for a situation that changed): it may be picked again. */
+  unuse(key: LineCategory, { msg }: ChosenLine<LineCategory>) {
+    this.used.delete(`${key}#${msg.id}`)
+  }
+
   /**
    * The line as text. `update` replaces values; a value left out or undefined keeps the one the line was picked for,
-   * so every variable the line uses is always there.
-   * Numbers become FluentNumbers without digit grouping (the game formats big numbers itself), and text is escaped so
-   * a name like "**Bob**" shows as typed instead of as markup.
+   * so every variable the line uses is always there. Values go in as `lineArg` puts them.
    */
   say<K extends LineCategory>({ msg, vars }: ChosenLine<K>, update: Partial<LineArgs<K>> = {}): string {
     const picked: Record<string, string | number | undefined> = vars
     const updated = update as Record<string, string | number | undefined> // a Partial of a generic loses its value types
     const args = Object.fromEntries(
       msg.variables.map((name) => {
-        const v = (updated[name] ?? picked[name])!
-        return [name, typeof v === 'number' ? new FluentNumber(v, { useGrouping: false }) : escapeMarkup(v)]
+        return [name, lineArg((updated[name] ?? picked[name])!)]
       }),
     )
     return this.pool.bundle.formatPattern(msg.value, args)

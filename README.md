@@ -36,6 +36,12 @@ docker run -d -p 3000:3000 -v fermi-data:/data -e FERMI_ADMIN_TOKEN=… fermi
 One container serves the client, the websocket and the API; the SQLite database lives in `/data`. See
 [Self-hosting](#self-hosting) for the settings.
 
+**FerMEANie's voice.** With `FERMI_VOICE=1` she says her lines and reads each question aloud, on every device that
+turns sound on (the speaker in the header). It's free and local: Kokoro text-to-speech in a Python worker the server
+starts (the Docker image includes it; for `pnpm dev`, install uv and ffmpeg: uv sets up the worker's locked Python
+packages from `apps/server/voice/`). See [content/VOICE.md](content/VOICE.md)
+for the chosen voice, how clips are rendered ahead of time, `pnpm q voice` and `pnpm voice:render`.
+
 ## Playing
 
 ### Hosting
@@ -190,26 +196,27 @@ whole conversation.
 `pnpm q` is a thin client for the admin API, authenticated with `FERMI_ADMIN_TOKEN`. Use `--server URL` to target a
 deployment. Commands marked ⚠ print question texts or answers: don't run them if you want to play.
 
-| Command                                                          |                                                                                            |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `pnpm q add file.json… [--batch id] [--replaces id] [--dry-run]` | Insert, with all checks                                                                    |
-| `pnpm q prepare <dir>`                                           | Archive sources, check quotes, dry-run ingest for a directory of drafts                    |
-| `pnpm q approve <draft> --notes "…" [--batch id]`                | The verifier's OK: stamp the draft verified, save it and ingest it                         |
-| `pnpm q reject (--draft <file> \| --question "…") --reason "…"`  | Remember a rejected candidate                                                              |
-| `pnpm q reword <id> --question "…" [--unit "…"] --reason "…"`    | Replace a question with a clearer wording of the same fact (`<id>-v2`)                     |
-| `pnpm q flag <flag> <id…> [--remove]`                            | Add or remove a flag, e.g. `reviewed:v1`, on questions                                     |
-| `pnpm q purge [--yes]`                                           | Delete retired versions replaced by a newer one and never played (preview without `--yes`) |
-| `pnpm q list [--all]`                                            | IDs, categories and statuses (retired ones only with `--all`)                              |
-| `pnpm q list --texts` ⚠                                          | The same, with question texts (never answers)                                              |
-| `pnpm q get <id>` ⚠                                              | A question's full JSON                                                                     |
-| `pnpm q stats [--categories]`                                    | Pool counts; `--categories` lists active questions per category                            |
-| `pnpm q disputes [file]`                                         | Open disputes (to a file if given)                                                         |
-| `pnpm q batch`                                                   | New `.fermi-work` batch plus a sweep of earlier batches (used by the skill)                |
-| `pnpm q check [--links]`                                         | Re-validate the pool and live sources (a server-side job; the CLI polls)                   |
-| `pnpm q status <id> active\|retired\|disputed`                   | Change a question's status                                                                 |
-| `pnpm q archive <url>`                                           | Find or create a Wayback snapshot                                                          |
-| `pnpm q quote <url> "<quote>" [n]` ⚠                             | Check a quote is on the page and contains `n`; prints the text around it                   |
-| `pnpm q export [file]` ⚠ / `pnpm q import <file>`                | Backup and restore (see below)                                                             |
+| Command                                                          |                                                                                              |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `pnpm q add file.json… [--batch id] [--replaces id] [--dry-run]` | Insert, with all checks                                                                      |
+| `pnpm q prepare <dir>`                                           | Archive sources, check quotes, dry-run ingest for a directory of drafts                      |
+| `pnpm q approve <draft> --notes "…" [--batch id]`                | The verifier's OK: stamp the draft verified, save it and ingest it                           |
+| `pnpm q reject (--draft <file> \| --question "…") --reason "…"`  | Remember a rejected candidate                                                                |
+| `pnpm q reword <id> --question "…" [--unit "…"] --reason "…"`    | Replace a question with a clearer wording of the same fact (`<id>-v2`)                       |
+| `pnpm q flag <flag> <id…> [--remove]`                            | Add or remove a flag, e.g. `reviewed:v1`, on questions                                       |
+| `pnpm q purge [--yes]`                                           | Delete retired versions replaced by a newer one and never played (preview without `--yes`)   |
+| `pnpm q list [--all]`                                            | IDs, categories and statuses (retired ones only with `--all`)                                |
+| `pnpm q list --texts` ⚠                                          | The same, with question texts (never answers)                                                |
+| `pnpm q get <id>` ⚠                                              | A question's full JSON                                                                       |
+| `pnpm q stats [--categories]`                                    | Pool counts; `--categories` lists active questions per category                              |
+| `pnpm q disputes [file]`                                         | Open disputes (to a file if given)                                                           |
+| `pnpm q batch`                                                   | New `.fermi-work` batch plus a sweep of earlier batches (used by the skill)                  |
+| `pnpm q check [--links]`                                         | Re-validate the pool and live sources (a server-side job; the CLI polls)                     |
+| `pnpm q status <id> active\|retired\|disputed`                   | Change a question's status                                                                   |
+| `pnpm q archive <url>`                                           | Find or create a Wayback snapshot                                                            |
+| `pnpm q quote <url> "<quote>" [n]` ⚠                             | Check a quote is on the page and contains `n`; prints the text around it                     |
+| `pnpm q export [file]` ⚠ / `pnpm q import <file>`                | Backup and restore (see below)                                                               |
+| `pnpm q voice [--sweep]`                                         | FerMEANie's voice: clips rendered and queued, counts only (`--sweep` renders what's missing) |
 
 `import` **merges**: it keeps statuses and flags, skips ids the target already has, de-duplicates the rest, merges
 rejections, and is safe to run repeatedly.
@@ -256,6 +263,8 @@ Disputes from anyone else are kept for the recheck but don't count.
 | `FERMI_SERVER`            | `http://localhost:3000`                        | Where `pnpm q` sends requests                                                               |
 | `FERMI_TRUST_PROXY`       | off                                            | Set to `1` behind a reverse proxy, so rate limits see the real client address               |
 | `FERMI_TIME_SCALE`        | `1`                                            | Speeds up reveals and breaks; for tests only                                                |
+| `FERMI_VOICE`             | off                                            | `1` turns on FerMEANie's voice (see [content/VOICE.md](content/VOICE.md))                   |
+| `FERMI_VOICE_DIR`         | `voice/` next to the database                  | Where her voice's clips are kept                                                            |
 
 - **Fully self-hosted.** The game loads nothing from other servers: no CDNs, web fonts, analytics or icon services. It
   works with access to the game server alone, even on a closed LAN. The server's `Content-Security-Policy` makes
@@ -272,6 +281,8 @@ Disputes from anyone else are kept for the recheck but don't count.
 ```bash
 pnpm check          # what CI checks: format, lint, types, unit tests
 pnpm test:e2e       # Playwright: three browsers (one emulating a phone) play a whole game
+pnpm test:e2e:video # the same with FerMEANie's voice, recording each browser to test-results/<test>/videos/ (no sound)
+                    # PW_VIDEO=1 / FERMI_VOICE=1 do either alone; the voice needs uv and ffmpeg
 pnpm format         # Prettier (pnpm format:check to only check)
 pnpm lint           # ESLint for TS + Vue (pnpm lint:fix to autofix)
 pnpm story:dev      # Histoire stories for every component; "Screens / Devices" shows each screen at 360, 390 and 1280 px

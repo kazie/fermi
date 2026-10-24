@@ -376,6 +376,15 @@ async function main() {
       else console.log(JSON.stringify(json, null, 2))
       return
     }
+    case 'voice': {
+      // FerMEANie's voice: what's rendered and queued (counts only). --sweep renders whatever is missing.
+      const { status, json } = await call(opts.sweep ? 'POST' : 'GET', opts.sweep ? '/voice/sweep' : '/voice')
+      if (json.error) die(json.error)
+      if (json.enabled === false) die('FerMEANie’s voice is off on this server (FERMI_VOICE=1 turns it on)')
+      if (status === 202) console.log('sweep queued')
+      console.log(JSON.stringify(json, null, 2))
+      return
+    }
     case 'archive': {
       // Find or create a Wayback snapshot for a source URL. Prints JSON {archiveUrl, archivedAt}.
       const url = rest[0]
@@ -420,6 +429,7 @@ async function main() {
   status <id> <active|retired|disputed> [--resolution "…"]
   check [--links]                                     re-validate the pool (and live sources)
   stats [--categories]                                pool counts (--categories: active questions per category, fewest first)
+  voice [--sweep]                                     FerMEANie's voice: clips rendered and queued (--sweep: render what's missing)
   archive <url>                                       find/create a Wayback snapshot → {archiveUrl, archivedAt}
   quote <url> "<quote>" [number]                      verify a quote is on the page and contains the number (⚠ prints page text)
 

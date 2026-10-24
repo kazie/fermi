@@ -7,6 +7,9 @@ const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'migrations
 
 export type DB = DatabaseSync
 
+/** The database: FERMI_DB, or data/fermi.db in the repository. */
+export const defaultDbPath = () => process.env.FERMI_DB ?? fileURLToPath(new URL('../../../data/fermi.db', import.meta.url))
+
 export function openDb(path: string): DB {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
   const db = new DatabaseSync(path)

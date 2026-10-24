@@ -13,6 +13,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': api,
+      '/voice': api, // FerMEANie's voice clips
       '/ws': { target: api.replace(/^http/, 'ws'), ws: true },
     },
   },

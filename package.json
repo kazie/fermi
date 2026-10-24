@@ -18,13 +18,15 @@
     "story:build": "pnpm --filter @fermi/client story:build",
     "q": "node scripts/questions-cli.ts",
     "test:e2e": "playwright test",
+    "test:e2e:video": "PW_VIDEO=1 FERMI_VOICE=1 playwright test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "check": "pnpm format:check && pnpm lint && pnpm type-check && pnpm test",
     "grow": "node scripts/grow.ts",
-    "review": "node scripts/review-pool.ts"
+    "review": "node scripts/review-pool.ts",
+    "voice:render": "node scripts/voice-render.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

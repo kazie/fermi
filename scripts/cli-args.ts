@@ -23,6 +23,7 @@ export function parseCli(argv: string[]) {
       texts: { type: 'boolean' },
       links: { type: 'boolean' },
       categories: { type: 'boolean' },
+      sweep: { type: 'boolean' },
     },
   })
   const [cmd, ...rest] = positionals

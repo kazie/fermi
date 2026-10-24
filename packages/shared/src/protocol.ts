@@ -3,7 +3,7 @@ import { MIN_CROWD, type CrowdStats } from './crowd.ts'
 import type { PublicQuestion, RevealedQuestion } from './question.ts'
 import type { DunceKind, FermeanieRelease } from './scoring.ts'
 import { LIMITS } from './calc/evaluate.ts'
-import { chatDuration, HOLD_MS } from './chat.ts'
+import { chatDuration, HOLD_MS, holdDuration } from './chat.ts'
 import { plainText } from './markup.ts'
 
 export const ROUND_OPTIONS = [5, 10, 15] as const
@@ -63,11 +63,18 @@ export const chatDelay = (stolen: number | null) => (stolen === null ? 0 : steal
 
 /**
  * How long FerMEANie's stage lasts (ms): at least `minMs`, and long enough for the steal, her whole chat after it and
- * a moment to read her last line. Those are real time: clients play them at normal speed, even in sped-up test games,
- * which only shorten `minMs`.
+ * a moment to read (and hear) her last line. Those are real time: clients play them at normal speed, even in sped-up
+ * test games, which only shorten `minMs`.
  */
-export function fermeanieStageMs(lines: RevealView['lines'], stolen: number | null, minMs: number = REVEAL_TIMING.fermeanie): number {
-  return Math.max(minMs, chatDelay(stolen) + chatDuration(revealChat(lines).map(plainText)) + HOLD_MS)
+export function fermeanieStageMs(
+  lines: RevealView['lines'],
+  stolen: number | null,
+  minMs: number = REVEAL_TIMING.fermeanie,
+  { paced = false } = {},
+): number {
+  const chat = revealChat(lines).map(plainText)
+  if (!chat.length) return Math.max(minMs, chatDelay(stolen) + HOLD_MS) // a moment to see the stolen points land
+  return Math.max(minMs, chatDelay(stolen) + chatDuration(chat, { paced }) + holdDuration(chat.at(-1)!, true, paced))
 }
 
 /**
@@ -224,6 +231,8 @@ export interface FinalView extends FermeanieRelease {
   winnerId: string | null
   fermeanieScore: number
   fermeanieWon: boolean
+  /** When the game ended: her final lines start then (server ms). */
+  startedAt: number
   line: string
   /** After a win: the release notes, or the announcement of a new pie release. */
   versionLine?: string
@@ -264,9 +273,23 @@ export interface RoomView {
   final?: FinalView
   /** The discussion break after a reveal (`reveal` stays set alongside, for the recap of that round). */
   break?: BreakView
+  /** With FerMEANie's voice on (the server's FERMI_VOICE): the clips for what she says in this view. */
+  voice?: VoiceView
+}
+
+/**
+ * For each line she says or question she reads, its clips, sentence by sentence (`/voice/<key>.webm` or `.mp3`), and
+ * which of them aren't rendered yet (nearly always none). Clients only fetch clips that are ready: never one that isn't
+ * there yet. The server announces pending ones as they're rendered (`{ type: 'voice' }`).
+ */
+export interface VoiceView {
+  lines: Record<string, string[]>
+  pending: string[]
 }
 
 export type ServerMessage =
   | { type: 'snapshot'; room: RoomView; serverNow: number }
+  /** Clips in this room's view that have just been rendered (between snapshots). */
+  | { type: 'voice'; ready: string[] }
   | { type: 'pong'; t: number; serverNow: number }
   | { type: 'error'; message: string; fatal?: boolean }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chatDuration } from '../src/chat.ts'
+import { chatDuration, holdDuration, messageStarts, speechDuration } from '../src/chat.ts'
 import { plainText } from '../src/markup.ts'
 import {
   fermeanieStageMs,
@@ -28,6 +28,28 @@ describe("FerMEANie's reveal stage", () => {
     const stage = fermeanieStageMs(l, 8)
     expect(stage).toBeGreaterThanOrEqual(stealTiming(8).doneAt + chatDuration(revealChat(l).map(plainText)) + HOLD_MS)
     expect(stage).toBeGreaterThan(REVEAL_TIMING.fermeanie)
+  })
+  it('with a voice, keeps each message up until she has said it, and the stage until she has said the last one', () => {
+    const chat = ['Twins. Two of you said the same thing, which is not a strategy.', 'I win this round.']
+    const [first, second] = messageStarts(chat, { paced: true })
+    expect(second - first).toBeGreaterThan(speechDuration(chat[0]))
+    const l = lines({ twins: chat[0], verdict: chat[1] })
+    expect(fermeanieStageMs(l, null, 0, { paced: true })).toBeGreaterThan(second + speechDuration(chat[1]))
+    expect(holdDuration('Hi.', true, true)).toBe(HOLD_MS)
+  })
+  it('after a steal with nothing to say, still gives a moment to see the points land', () => {
+    const stage = fermeanieStageMs({ dunce: {}, verdict: '' }, 8, 0)
+    expect(stage).toBe(stealTiming(8).doneAt + HOLD_MS)
+  })
+  it('without a voice, keeps the plain reading pause', () => {
+    const long = 'Twins. Two of you said the same thing, which is not a strategy, and I have notes.'
+    expect(holdDuration(long, false)).toBe(HOLD_MS)
+    expect(holdDuration(long, false, true)).toBeGreaterThan(HOLD_MS)
+  })
+  it('estimates more time for more sentences and characters, and for numbers read out', () => {
+    expect(speechDuration('One. Two.')).toBeGreaterThan(speechDuration('One two.'))
+    expect(speechDuration('x'.repeat(100))).toBeGreaterThan(speechDuration('x'.repeat(50)))
+    expect(speechDuration('Off by 3.2 × 10⁻⁵.')).toBeGreaterThan(speechDuration('Off by abcdefghijk.') + 500)
   })
   it('estimates a round with a typical chat, longer than the minimum stage', () => {
     expect(TYPICAL_FERMEANIE_MS).toBeGreaterThan(REVEAL_TIMING.fermeanie)

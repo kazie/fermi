@@ -149,6 +149,7 @@ watch([stage, flipped], async () => {
           :latest="c.playerId === latestId"
           :stolen="drained(c.playerId)"
           :dunce-line="reveal.lines.dunce[c.playerId]"
+          :now="now"
           :you="c.playerId === you"
           :unit="reveal.question.unit"
         />
