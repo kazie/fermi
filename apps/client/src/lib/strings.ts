@@ -50,6 +50,8 @@ export const S = {
   timer: 'Seconds per question',
   connecting: 'Connecting…',
   reconnecting: 'Reconnecting…',
+  soundOn: 'FerMEANie’s voice is on. Tap to mute her.',
+  soundOff: 'Let FerMEANie speak (sound on this device)',
   spectating: 'You joined mid-round. You’re in from the next question!',
   noAnswer: 'No answer',
   yourAnswer: 'Your answer',

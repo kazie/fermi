@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer, type Server } from 'node:http'
 import { getRequestListener } from '@hono/node-server'
@@ -6,10 +8,13 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { ClientMessageSchema, KEY_RE, ROOM_CODE_RE, type ServerMessage } from '@fermi/shared'
 import { createApp, type AppDeps } from './app.ts'
-import { openDb, type DB } from './db.ts'
+import { defaultDbPath, openDb, type DB } from './db.ts'
 import { loadLines, type LinePool } from './lines.ts'
 import { RoomRegistry } from './rooms.ts'
 import { hashKey } from './keys.ts'
+import { voiceFromEnv, type Voice } from './voice/index.ts'
+import { CLIP_KEY_RE } from './voice/speech.ts'
+import { sweep } from './voice/sweep.ts'
 
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -33,12 +38,43 @@ export interface StartOptions {
   adminToken?: string
   staticDir?: string
   rateLimits?: AppDeps['rateLimits']
+  /** FerMEANie's voice; by default on with FERMI_VOICE=1. */
+  voice?: Voice
 }
 
+const VOICE_TYPES = { webm: 'audio/webm', mp3: 'audio/mpeg' } as const
+
 export function startServer(opts: StartOptions = {}) {
-  const db = opts.db ?? openDb(opts.dbPath ?? process.env.FERMI_DB ?? `${ROOT}data/fermi.db`)
-  const rooms = new RoomRegistry({ db, lines: opts.lines ?? loadLines(), timeScale: Number(process.env.FERMI_TIME_SCALE ?? 1) || 1 })
-  const app = createApp({ db, rooms, adminToken: opts.adminToken ?? process.env.FERMI_ADMIN_TOKEN, rateLimits: opts.rateLimits })
+  const dbPath = opts.dbPath ?? defaultDbPath()
+  const db = opts.db ?? openDb(dbPath)
+  const lines = opts.lines ?? loadLines()
+  const voice = opts.voice ?? (process.env.FERMI_VOICE === '1' ? voiceFromEnv(dbPath) : undefined)
+  // After the server is up: the sweep works out a few thousand clip keys and checks the folder for each (unless the
+  // voice renders only what is said: FERMI_VOICE_SWEEP=0).
+  if (voice && !opts.voice) setImmediate(() => sweep(voice, lines, db))
+  const rooms = new RoomRegistry({ db, lines, voice, timeScale: Number(process.env.FERMI_TIME_SCALE ?? 1) || 1 })
+  const app = createApp({
+    db,
+    rooms,
+    lines,
+    voice,
+    adminToken: opts.adminToken ?? process.env.FERMI_ADMIN_TOKEN,
+    rateLimits: opts.rateLimits,
+  })
+
+  // Her voice's clips. A key names its content for good, so browsers may keep a clip forever; one not rendered yet is
+  // a 404 the client tries again.
+  if (voice)
+    app.get('/voice/:file', async (c) => {
+      const [key, ext] = c.req.param('file').split('.')
+      const type = VOICE_TYPES[ext as keyof typeof VOICE_TYPES]
+      const body = CLIP_KEY_RE.test(key) && type ? await readFile(join(voice.dir, `${key}.${ext}`)).catch(() => null) : null
+      if (!body) {
+        if (type) voice.forget(key) // not rendered yet, or deleted from the folder: rendered when it's next needed
+        return c.body(null, 404, { 'Cache-Control': 'no-store' })
+      }
+      return c.body(body, 200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=31536000, immutable' })
+    })
 
   const staticDir = opts.staticDir ?? `${ROOT}apps/client/dist`
   if (existsSync(staticDir)) {
@@ -128,11 +164,12 @@ export function startServer(opts: StartOptions = {}) {
 
   const close = async () => {
     rooms.dispose()
+    if (!opts.voice) voice?.close()
     for (const c of wss.clients) c.terminate()
     await new Promise<void>((r) => server.close(() => r()))
     if (!opts.db) db.close()
   }
-  return { server, db, rooms, ready, close }
+  return { server, db, rooms, voice, ready, close }
 }
 
 if (import.meta.main) {
@@ -146,6 +183,7 @@ if (import.meta.main) {
     process.on('unhandledRejection', (e) => console.error('[fermi] unhandled rejection', e))
     console.log(`[fermi] listening on http://localhost:${port}`)
     if (!process.env.FERMI_ADMIN_TOKEN) console.log('[fermi] FERMI_ADMIN_TOKEN not set: the question admin API is disabled')
+    if (s.voice) console.log(`[fermi] FerMEANie's voice is on: clips in ${s.voice.dir}`)
   })
   const stop = () => s.close().then(() => process.exit(0))
   process.on('SIGINT', stop)

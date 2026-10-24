@@ -1,0 +1,13 @@
+{
+  "engine": "kokoro-v1.0.int8",
+  "blend": [
+    ["af_nicole", 0.4],
+    ["bf_emma", 0.6]
+  ],
+  "lang": "en-gb",
+  "speed": 1.0,
+  "pronounce": [{ "word": "FerMEANie", "placeholder": "Hermione", "ipa": "fɚmˈiːni" }],
+  "effects": "afftfilt=real='hypot(re,im)*sin(0)':imag='hypot(re,im)*cos(0)':win_size=1024:overlap=0.75,asetrate=24000*1.06,aresample=24000,atempo=0.9434,aecho=0.8:0.4:18:0.3,highpass=f=150,lowpass=f=8500",
+  "loudnessDb": -19,
+  "opusKbps": 32
+}

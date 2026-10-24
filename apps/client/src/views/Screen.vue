@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useSocket } from '@/composables/useSocket'
 import { useServerNow } from '@/composables/useNow'
+import { useVoice } from '@/composables/useVoice'
 import { useWakeLock } from '@/composables/useWakeLock'
 import { providePlayerOrder } from '@/lib/playerColors'
 import AppHeader from '@/components/AppHeader.vue'
@@ -14,7 +15,10 @@ import ScreenQuestion from '@/components/ScreenQuestion.vue'
 /** /screen/:code — the big screen (TV or laptop). It only watches; everyone plays on their phones. */
 const props = defineProps<{ code: string }>()
 const code = props.code.toUpperCase()
-const { room, status, fatal, offset } = useSocket(code, { screen: true })
+const socket = useSocket(code, { screen: true })
+const { room, status, fatal, offset } = socket
+// FerMEANie's voice: off until this device turns it on (the speaker in the header)
+const voice = useVoice(socket)
 const now = useServerNow(offset)
 useWakeLock(() => !!room.value) // a TV page should never fall asleep
 providePlayerOrder(computed(() => room.value?.players.map((p) => p.id) ?? []))
@@ -42,7 +46,7 @@ async function toggleFullscreen() {
 </script>
 
 <template>
-  <AppHeader :code="code" :status="status" :version="room?.fermeanie.version" />
+  <AppHeader :code="code" :status="status" :version="room?.fermeanie.version" :sound="voice.sound.value" @sound="voice.toggle()" />
   <main class="page tv">
     <button class="btn btn-ghost fs" type="button" @click="toggleFullscreen">
       {{ isFullscreen ? 'Exit full screen' : '⛶ Full screen' }}
@@ -67,7 +71,7 @@ async function toggleFullscreen() {
         :release="room.fermeanie"
       />
       <BreakScreen v-else-if="room.phase === 'break' && room.break" :room="room" :now="now" variant="tv" />
-      <FinalScreen v-else-if="room.phase === 'final' && room.final" :final="room.final" you="" :is-host="false" screen />
+      <FinalScreen v-else-if="room.phase === 'final' && room.final" :final="room.final" you="" :is-host="false" :now="now" screen />
     </template>
   </main>
 </template>

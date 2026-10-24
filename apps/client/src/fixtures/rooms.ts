@@ -234,6 +234,7 @@ export function finalView(fermeanieWon: boolean): FinalView {
     winnerId: 'p0',
     fermeanieScore: fermeanieWon ? 3400 : 1200,
     fermeanieWon,
+    startedAt: T0,
     ...fermeanieRelease(fermeanieWon ? 10 : 9),
     line: fermeanieWon
       ? 'Congratulations, Ada. You are the best of the humans. That is like being the tallest blade of grass. FerMEANie v3.14159 thanks you for your data.'

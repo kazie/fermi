@@ -60,6 +60,16 @@ describe('LinePicker', () => {
     expect(picker.pick('dunce.mild', { name: 'Ada', factor: '3×' })).toBe('Ada was 3× off.')
   })
 
+  it('can take back a line chosen but never said, so it may come up later', () => {
+    const names = { leader: 'Ada', last: 'Bob' }
+    const used = new LinePicker(testLines, undefined, () => 0)
+    const chosen = used.choose('quip', names)
+    expect(used.pick('quip', names)).not.toBe(used.say(chosen)) // chosen counts as used: the other line comes first
+    const taken = new LinePicker(testLines, undefined, () => 0)
+    taken.unuse('quip', taken.choose('quip', names))
+    expect(taken.pick('quip', names)).toBe(taken.say(chosen))
+  })
+
   it('escapes markup in names, so they show as typed', () => {
     const picker = new LinePicker(testLines)
     expect(picker.pick('defeated', { name: '**Bob**' })).toBe('\\*\\*Bob\\*\\* beat me.')

@@ -42,6 +42,7 @@ const ferMessages = computed(() => revealChat(props.reveal.lines))
         you
         :stolen="stolen && mine.stolen > 0"
         :dunce-line="reveal.lines.dunce[mine.playerId]"
+        :now="now"
         :unit="reveal.question.unit"
       />
       <p v-else class="wait card center">

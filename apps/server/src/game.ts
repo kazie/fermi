@@ -11,8 +11,11 @@ import {
   formatFactor,
   formatNumber,
   isPieRelease,
+  messageStarts,
   MIN_PLAYERS,
+  plainText,
   REVEAL_TIMING,
+  revealChat,
   SCOREBOARD_BEFORE_BREAK_MS,
   scoreRound,
   stolenCards,
@@ -29,8 +32,11 @@ import {
   type ServerMessage,
 } from '@fermi/shared'
 import { nowIso, type DB } from './db.ts'
+import type { LineArgs, LineCategory } from '@fermi/shared/lines'
 import { LinePicker, type ChosenLine, type LinePool } from './lines.ts'
 import { countActive, markPlayed, markSeen, pickQuestion } from './questions/repo.ts'
+import type { Voice } from './voice/index.ts'
+import { nameSentences } from './voice/sweep.ts'
 
 export const MAX_PLAYERS = 30
 
@@ -55,6 +61,8 @@ export function quipNames(players: { name: string; score: number; fromStart: boo
 /** Extra time after the deadline for last drafts in flight. */
 export const DEADLINE_GRACE_MS = 750
 export const HOST_HANDOVER_MS = 15_000
+/** Clips rendered within this long of each other are announced to a room in one message. */
+export const VOICE_READY_BATCH_MS = 100
 export const LOBBY_DROP_MS = 60_000
 
 export interface Conn {
@@ -100,6 +108,9 @@ type BreakState =
   | { index: number; startedAt: number; line: string; timed: { endsAt: number; votes: Set<string> } }
   | { index: number; startedAt: number; hostWait: ChosenLine<'host_wait'>; timed?: undefined }
 
+/** A line to pick: its category and values. */
+type LineCall = { [K in LineCategory]: { key: K; vars: LineArgs<K> } }[LineCategory]
+
 interface GameState {
   id: string
   usedQuestionIds: string[]
@@ -109,6 +120,11 @@ interface GameState {
   startedAt: number
   /** The leader the last question's line could name (see quipNames), to spot a lead change. */
   leader?: string
+  /**
+   * Lines picked before they're said, so her voice can render them while the reveal plays: the next question's line
+   * and the final lines, by slot. Used when the situation turned out as expected (same category), else picked anew.
+   */
+  prepared: Map<string, { key: LineCategory; chosen: ChosenLine<LineCategory> }>
 }
 
 export interface RoomDeps {
@@ -118,6 +134,8 @@ export interface RoomDeps {
   rand?: () => number
   /** Speeds up reveals for end-to-end tests (FERMI_TIME_SCALE). 1 = normal. */
   timeScale?: number
+  /** FerMEANie's voice (FERMI_VOICE): renders what she says, in time for it to be said. */
+  voice?: Voice
 }
 
 export class Room {
@@ -138,6 +156,13 @@ export class Room {
   private reveal: RevealView | null = null
   private final: FinalView | null = null
   private timer: ReturnType<typeof setTimeout> | undefined
+  /** The clips in the last snapshot, and those rendered since that haven't been announced yet. */
+  private voiceKeys = new Set<string>()
+  private voiceReady = new Set<string>()
+  private voiceTimer: ReturnType<typeof setTimeout> | undefined
+  private stopListening: (() => void) | undefined
+  /** Names her voice has rendered ahead for (capped, so renaming in a loop can't keep the renderer busy). */
+  private voicedNames = new Set<string>()
   private hostTimer: ReturnType<typeof setTimeout> | undefined
   lastActivity: number
 
@@ -145,6 +170,7 @@ export class Room {
     this.code = code
     this.deps = deps
     this.lastActivity = this.now()
+    this.stopListening = deps.voice?.onRendered((key) => this.voiceRendered(key))
   }
 
   private now() {
@@ -306,6 +332,7 @@ export class Room {
           p.spectating = this.phase === 'question' || this.phase === 'reveal'
         }
         p.name = this.uniqueName(msg.name, p.id)
+        this.voiceName(p.name)
         this.ensureHost()
         this.broadcast()
         return
@@ -397,7 +424,14 @@ export class Room {
       p.spectating = false
     }
     this.fermeanieScore = 0
-    this.game = { id, usedQuestionIds: [], usedTemplateIds: [], lines: new LinePicker(lines, db, this.deps.rand), startedAt: this.now() }
+    this.game = {
+      id,
+      usedQuestionIds: [],
+      usedTemplateIds: [],
+      lines: new LinePicker(lines, db, this.deps.rand),
+      startedAt: this.now(),
+      prepared: new Map(),
+    }
     this.final = null
     db.prepare('INSERT INTO games (id, created_at, settings) VALUES (?, ?, ?)').run(id, nowIso(), JSON.stringify(this.settings))
     this.startRound(0)
@@ -450,25 +484,87 @@ export class Room {
     markSeen(this.deps.db, [p.seenKey], r.question.id)
   }
 
-  /** Who a line may single out right now (see quipNames). */
-  private standings() {
+  /** Who a line may single out right now (see quipNames), or with the scores a reveal is about to give. */
+  private standings(scores?: Scores) {
     const game = this.game!
     return quipNames(
-      this.joinedPlayers().map((p) => ({ name: p.name!, score: p.score, fromStart: p.joinedAt <= game.startedAt, here: p.conns.size > 0 })),
-      this.fermeanieScore,
+      this.joinedPlayers().map((p) => ({
+        name: p.name!,
+        score: scores?.players[p.id] ?? p.score,
+        fromStart: p.joinedAt <= game.startedAt,
+        here: p.conns.size > 0,
+      })),
+      scores?.fermeanie ?? this.fermeanieScore,
     )
   }
 
   /** What FerMEANie says as a question appears: the intro, then the final round, a lead change or a quip. */
+  private questionLineCall(
+    index: number,
+    { count = 0, scores }: { count?: number; scores?: Scores } = {},
+  ): {
+    call: LineCall
+    leader?: string
+  } {
+    if (index === 0) return { call: { key: 'intro', vars: { count } } }
+    const names = this.standings(scores)
+    const previous = this.game!.leader
+    const call: LineCall =
+      index === this.settings.rounds - 1
+        ? { key: 'final_round', vars: names }
+        : names.leader && previous && names.leader !== previous
+          ? { key: 'lead_change', vars: { name: names.leader, previous } }
+          : { key: 'quip', vars: names }
+    return { call, leader: names.leader }
+  }
+
   private questionLine(index: number, count: number): string {
+    const { call, leader } = this.questionLineCall(index, { count })
+    if (leader) this.game!.leader = leader // a tie keeps the last leader, so Ada → tie → Bob is still a lead change
+    return this.take(questionSlot(index), call)
+  }
+
+  /** Picks a line now, to be said later (`take`), and lets her voice render it in the meantime. */
+  private prepare(slot: string, call: LineCall, at: number) {
     const game = this.game!
-    if (index === 0) return game.lines.pick('intro', { count })
-    const names = this.standings()
-    const previous = game.leader
-    if (names.leader) game.leader = names.leader // a tie keeps the last leader, so Ada → tie → Bob is still a lead change
-    if (index === this.settings.rounds - 1) return game.lines.pick('final_round', names)
-    if (names.leader && previous && names.leader !== previous) return game.lines.pick('lead_change', { name: names.leader, previous })
-    return game.lines.pick('quip', names)
+    const chosen = game.lines.choose(call.key, call.vars)
+    game.prepared.set(slot, { key: call.key, chosen })
+    this.deps.voice?.request(game.lines.say(chosen), { tier: 'ahead', at })
+  }
+
+  /**
+   * The line for a slot: the prepared one with today's values if it's still the right kind and every name or number it
+   * uses is still given (a quip about the last player can't stay once nobody is last), else a fresh pick.
+   */
+  private take(slot: string, call: LineCall): string {
+    const game = this.game!
+    const prepared = game.prepared.get(slot)
+    game.prepared.delete(slot)
+    const given: Record<string, unknown> = call.vars
+    if (prepared?.key === call.key && prepared.chosen.msg.variables.every((v) => given[v] !== undefined))
+      return game.lines.say(prepared.chosen, call.vars)
+    if (prepared) game.lines.unuse(prepared.key, prepared.chosen) // never said: it may come up later in the game
+    return game.lines.pick(call.key, call.vars)
+  }
+
+  /** Her voice gets a head start on every sentence that only names this player. */
+  private voiceName(name: string) {
+    if (!this.deps.voice || this.voicedNames.has(name) || this.voicedNames.size >= MAX_PLAYERS * 2) return
+    this.voicedNames.add(name)
+    // speculative (only a few get said), so after the sweep's questions and the lines picked ahead
+    this.deps.voice.requestSentences(nameSentences(this.deps.lines, name))
+  }
+
+  /** With a voice, her chat waits for her to finish each message (on every device, so all stay in step). */
+  private get paced() {
+    return !!this.deps.voice
+  }
+
+  /** The players, best first; with `scores`, as a reveal is about to leave them. */
+  private ranking(scores?: Record<string, number>) {
+    return this.joinedPlayers()
+      .map((p) => ({ playerId: p.id, name: p.name!, score: scores?.[p.id] ?? p.score }))
+      .sort(byStanding)
   }
 
   private get hostPaced() {
@@ -578,7 +674,7 @@ export class Room {
     // off. Her chat isn't sped up by FERMI_TIME_SCALE: clients type at normal speed, test games included.
     const stolen = stolenCards(score.fermeanie, score.results)
     const chatAt = fermeanieAt + chatDelay(stolen)
-    const scoreboardAt = fermeanieAt + fermeanieStageMs(revealLines, stolen, t.fermeanie)
+    const scoreboardAt = fermeanieAt + fermeanieStageMs(revealLines, stolen, t.fermeanie, { paced: this.paced })
     // With a break coming, the scoreboard step is short: the break shows the scores anyway.
     const endsAt = scoreboardAt + (this.breakAfter(r.index) ? SCOREBOARD_BEFORE_BREAK_MS * k : t.scoreboard)
 
@@ -623,6 +719,13 @@ export class Room {
       fermeanieScoreAfter: this.fermeanieScore + (score.fermeanie?.points ?? 0),
     }
     this.phase = 'reveal'
+    if (this.deps.voice) {
+      // What she says next, picked now so her voice can render it while this reveal plays.
+      const upcoming: Scores = { players: scoresAfter, fermeanie: this.reveal.fermeanieScoreAfter }
+      if (r.index + 1 < this.settings.rounds)
+        this.prepare(questionSlot(r.index + 1), this.questionLineCall(r.index + 1, { scores: upcoming }).call, endsAt)
+      else this.prepareFinal(upcoming, endsAt)
+    }
     markPlayed(db, q.id)
     this.saveRound()
     this.schedule(endsAt - start, () => this.finishReveal())
@@ -702,36 +805,49 @@ export class Room {
     clearTimeout(this.timer)
     const { db } = this.deps
     const game = this.game!
-    const ranking = this.joinedPlayers()
-      .map((p) => ({ playerId: p.id, name: p.name!, score: p.score }))
-      .sort(byStanding)
-    const top = ranking[0]
-    const fermeanieWon = this.fermeanieScore > (top?.score ?? 0)
-    const { wins, losses } = db
+    const ranking = this.ranking()
+    const outcome = gameOutcome(ranking, this.fermeanieScore)
+    // one statement, so two games ending at once both count
+    const record = db
       .prepare(
         `UPDATE fermeanie SET games_played = games_played + 1, wins = wins + ?1,
            loss_streak = CASE WHEN ?1 THEN 0 ELSE loss_streak + 1 END
          WHERE id = 1 RETURNING wins, loss_streak AS losses`,
       )
-      .get(fermeanieWon ? 1 : 0) as { wins: number; losses: number }
-    const release = fermeanieRelease(wins)
-    const winner = top?.name ?? 'nobody'
-    const tied = !!top && this.fermeanieScore === top.score
+      .get(outcome.fermeanieWon ? 1 : 0) as { wins: number; losses: number }
+    const o = withRecord(outcome, record)
     this.final = {
       gameId: game.id,
       ranking,
-      winnerId: top?.playerId ?? null,
+      winnerId: ranking[0]?.playerId ?? null,
       fermeanieScore: this.fermeanieScore,
-      fermeanieWon,
-      ...release,
-      line: finalLine(game.lines, { ...release, winner, fermeanieWon, tied, losses }),
-      ...(fermeanieWon ? { versionLine: versionLine(game.lines, { ...release, winner }) } : {}),
+      fermeanieWon: o.fermeanieWon,
+      startedAt: this.now(),
+      ...o.release,
+      line: this.take('final', finalCall(o)),
+      ...(o.fermeanieWon ? { versionLine: this.take('version', versionCall(o)) } : {}),
     }
     db.prepare('UPDATE games SET finished_at = ?, final = ? WHERE id = ?').run(nowIso(), JSON.stringify(this.final), game.id)
     this.round = null
     this.reveal = null
     this.phase = 'final'
     this.broadcast()
+  }
+
+  /**
+   * During the last reveal: her final lines as the game is about to end (the scores are known; her record is read now,
+   * so another game ending first only means a fresh pick), so her voice can render them while the reveal plays.
+   */
+  private prepareFinal(upcoming: Scores, at: number) {
+    const outcome = gameOutcome(this.ranking(upcoming.players), upcoming.fermeanie)
+    const o = withRecord(outcome, recordAfter(this.fermeanieRecord(), outcome.fermeanieWon))
+    this.prepare('final', finalCall(o), at)
+    if (o.fermeanieWon) this.prepare('version', versionCall(o), at)
+  }
+
+  /** FerMEANie's record before this game ends. */
+  private fermeanieRecord() {
+    return this.deps.db.prepare('SELECT wins, loss_streak AS losses FROM fermeanie WHERE id = 1').get() as { wins: number; losses: number }
   }
 
   private toLobby() {
@@ -766,9 +882,7 @@ export class Room {
     } catch (e) {
       console.error(`[fermi] room ${this.code}: ${what} failed`, e)
       // The message first: going back to the lobby broadcasts, which may hit the same bug.
-      const msg: ServerMessage = { type: 'error', message: 'Something broke on our side, so the game went back to the lobby. Sorry!' }
-      for (const p of this.players.values()) for (const c of p.conns) c.send(msg)
-      for (const c of this.screens) c.send(msg)
+      this.sendAll({ type: 'error', message: 'Something broke on our side, so the game went back to the lobby. Sorry!' })
       try {
         if (this.phase !== 'lobby') this.toLobby()
       } catch (again) {
@@ -779,6 +893,8 @@ export class Room {
 
   dispose() {
     clearTimeout(this.timer)
+    clearTimeout(this.voiceTimer)
+    this.stopListening?.()
     this.stopHostTimer()
     for (const p of this.players.values()) clearTimeout(p.dropTimer)
   }
@@ -804,12 +920,74 @@ export class Room {
     return { score: this.fermeanieScore, ...fermeanieRelease(wins) }
   }
 
+  /** The same message to every connection: players' and screens'. */
+  private sendAll(msg: ServerMessage) {
+    for (const p of this.players.values()) for (const c of p.conns) c.send(msg)
+    for (const c of this.screens) c.send(msg)
+  }
+
   /** The parts of a view that are the same for everyone, worked out once per broadcast. */
   private sharedView() {
     return {
       fermeanie: this.fermeanieView(),
       poolSize: countActive(this.deps.db),
+      voice: this.voiceMap(),
     }
+  }
+
+  /**
+   * Everything she says (or reads out) in this state, and when (server ms): the question, then her line; in a reveal
+   * her remark, each dunce line as its card flips, then her chat; the break line; the final lines. The one list her
+   * voice renders from and clients get clips for.
+   */
+  private utterances(): { text: string; at: number }[] {
+    const out: { text: string; at: number }[] = []
+    const say = (text: string | undefined, at: number) => text && out.push({ text, at })
+    const chat = (texts: (string | undefined)[], at: number) => {
+      const said = texts.filter((t): t is string => !!t)
+      messageStarts(said.map(plainText), { paced: this.paced }).forEach((t, i) => say(said[i], at + t))
+    }
+    const r = this.round
+    if (this.phase === 'question' && r) {
+      say(r.question.question, r.startedAt)
+      say(r.line, r.startedAt)
+    }
+    const rv = this.reveal
+    if ((this.phase === 'reveal' || this.phase === 'break') && rv) {
+      say(rv.lines.everyone, rv.timeline.startedAt)
+      for (const card of rv.cards) say(rv.lines.dunce[card.playerId], card.at)
+      chat(revealChat(rv.lines), rv.timeline.chatAt)
+    }
+    if (this.phase === 'break' && this.breakState) say(this.breakLine(this.breakState), this.breakState.startedAt)
+    const f = this.final
+    if (this.phase === 'final' && f) chat([f.line, f.versionLine], f.startedAt)
+    return out
+  }
+
+  /**
+   * Her voice's clips for everything in this snapshot, by text. Asking her voice for them on every broadcast is cheap
+   * (rendered and queued clips are skipped, and late ones dropped) and covers a line that changed since it was picked.
+   */
+  private voiceMap(): RoomView['voice'] {
+    const voice = this.deps.voice
+    if (!voice) return undefined
+    const lines = Object.fromEntries(this.utterances().map(({ text, at }) => [text, voice.request(text, { at })]))
+    this.voiceKeys = new Set(Object.values(lines).flat())
+    return { lines, pending: [...this.voiceKeys].filter((k) => !voice.has(k)) }
+  }
+
+  /**
+   * A clip was rendered: if this room's view uses it, tell everyone here (in one message with any others rendered
+   * around then), so clients fetch it the moment it exists instead of asking for it until it does.
+   */
+  private voiceRendered(key: string) {
+    if (!this.voiceKeys.has(key)) return
+    this.voiceReady.add(key)
+    this.voiceTimer ??= setTimeout(() => {
+      this.voiceTimer = undefined
+      this.sendAll({ type: 'voice', ready: [...this.voiceReady] })
+      this.voiceReady.clear()
+    }, VOICE_READY_BATCH_MS)
   }
 
   view(forId: string, shared = this.sharedView()): RoomView {
@@ -841,6 +1019,7 @@ export class Room {
       players,
       fermeanie: shared.fermeanie,
       poolSize: shared.poolSize,
+      voice: shared.voice,
       ...(this.phase === 'question' && r
         ? {
             round: {
@@ -891,23 +1070,48 @@ function sameAnswer(entries: { playerId: string; value: number | null }[]): stri
   return largest.length >= 2 ? largest : []
 }
 
+/** How a game ends, from the final ranking (best first) and her score: she wins only by beating every player. */
+function gameOutcome(ranking: { name: string; score: number }[], fermeanieScore: number) {
+  const top = ranking[0]
+  return {
+    winner: top?.name ?? 'nobody',
+    fermeanieWon: fermeanieScore > (top?.score ?? 0),
+    tied: !!top && fermeanieScore === top.score, // a tie goes to the humans
+  }
+}
+
+/** Her record after a game: one more win, or one more loss in a row (what finishGame's UPDATE does, worked out ahead). */
+function recordAfter(record: { wins: number; losses: number }, won: boolean) {
+  return { wins: record.wins + (won ? 1 : 0), losses: won ? 0 : record.losses + 1 }
+}
+
+/** How the game ended, with her record (and release) after it: what her final lines say. */
+type GameOutcome = ReturnType<typeof gameOutcome> & { wins: number; losses: number; release: FermeanieRelease }
+const withRecord = (outcome: ReturnType<typeof gameOutcome>, record: { wins: number; losses: number }): GameOutcome => ({
+  ...outcome,
+  ...record,
+  release: fermeanieRelease(record.wins),
+})
+
+/** Scores as a reveal is about to leave them: each player's, and hers. */
+type Scores = { players: Record<string, number>; fermeanie: number }
+
 /** FerMEANie's verdict on the game. A tie goes to the humans; three losses in a row is humble pie. */
-function finalLine(
-  lines: LinePicker,
-  r: FermeanieRelease & { winner: string; fermeanieWon: boolean; tied: boolean; losses: number },
-): string {
-  const { winner, version, wins, losses } = r
-  if (r.fermeanieWon) return lines.pick('game_win', { winner, version, wins })
-  if (r.tied) return lines.pick('game_tie', { winner, version })
-  if (losses >= 3) return lines.pick('humble_pie', { winner, version, losses })
-  return lines.pick('game_loss', { winner, version })
+function finalCall({ winner, fermeanieWon, tied, wins, losses, release: { version } }: GameOutcome): LineCall {
+  if (fermeanieWon) return { key: 'game_win', vars: { winner, version, wins } }
+  if (tied) return { key: 'game_tie', vars: { winner, version } }
+  if (losses >= 3) return { key: 'humble_pie', vars: { winner, version, losses } }
+  return { key: 'game_loss', vars: { winner, version } }
 }
 
 /** After a win: a pie release every fifth win, release notes otherwise. */
-function versionLine(lines: LinePicker, { codename, version, wins, winner }: FermeanieRelease & { winner: string }): string {
-  if (codename && isPieRelease(wins)) return lines.pick('pie_release', { codename, version, wins })
-  return lines.pick('release_notes', { winner, version, wins })
+function versionCall({ winner, wins, release: { codename, version } }: GameOutcome): LineCall {
+  if (codename && isPieRelease(wins)) return { key: 'pie_release', vars: { codename, version, wins } }
+  return { key: 'release_notes', vars: { winner, version, wins } }
 }
+
+/** The slot for the line said as question `index` appears (see Room.prepare). */
+const questionSlot = (index: number) => `question ${index}`
 
 function joinNames(names: string[]): string {
   if (names.length <= 1) return names.join('')

@@ -2,12 +2,14 @@ import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { CATEGORIES, fermeanieRelease, KEY_RE, toRevealed } from '@fermi/shared'
 import { tx, type DB } from './db.ts'
+import type { LinePool } from './lines.ts'
 import { RoomsFullError, type RoomRegistry } from './rooms.ts'
 import { hashKey, rateLimiter } from './keys.ts'
 import { randomUUID } from 'node:crypto'
 import { checkPool, type CheckReport } from './questions/check.ts'
 import { ingestQuestion } from './questions/ingest.ts'
 import {
+  activeQuestionTexts,
   addDispute,
   addRejection,
   countActive,
@@ -24,12 +26,18 @@ import {
   setFlags,
   setStatus,
 } from './questions/repo.ts'
+import type { Voice } from './voice/index.ts'
+import { sweep } from './voice/sweep.ts'
 
 export interface AppDeps {
   db: DB
   rooms: RoomRegistry
   adminToken?: string
   rateLimits?: typeof RATE_LIMITS
+  /** FerMEANie's voice, if on; new questions are rendered as they're added. */
+  voice?: Voice
+  /** FerMEANie's lines, for her voice's sweep. */
+  lines: LinePool
 }
 
 export const RATE_LIMITS = { rooms: { max: 10, windowMs: 60_000 }, disputes: { max: 20, windowMs: 3_600_000 } }
@@ -44,7 +52,7 @@ function clientIp(c: Context): string {
   return env?.incoming?.socket?.remoteAddress ?? 'unknown'
 }
 
-export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: AppDeps) {
+export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS, voice, lines }: AppDeps) {
   const app = new Hono()
   const roomLimit = rateLimiter(rateLimits.rooms.max, rateLimits.rooms.windowMs)
   const disputeLimit = rateLimiter(rateLimits.disputes.max, rateLimits.disputes.windowMs)
@@ -160,6 +168,11 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
     })
     if (body.data.replaces && !body.data.dryRun && results[0].status === 'added')
       resolveDisputes(db, body.data.replaces, `replaced by ${results[0].id}`)
+    if (voice && !body.data.dryRun)
+      for (const r of results) {
+        const q = r.status === 'added' && r.id ? getQuestion(db, r.id) : undefined
+        if (q?.status === 'active') voice.request(q.question.question, { tier: 'ahead' }) // ahead of the startup sweep
+      }
     const anyConflict = results.some((r) => r.status === 'duplicate' || r.status === 'needs_review')
     const anyInvalid = results.some((r) => r.status === 'invalid')
     const status = body.data.dryRun
@@ -258,6 +271,18 @@ export function createApp({ db, rooms, adminToken, rateLimits = RATE_LIMITS }: A
     return c.json(checkJob, 202)
   })
   admin.get('/check', (c) => (checkJob ? c.json(checkJob) : c.json({ error: 'No check has run yet' }, 404)))
+
+  // FerMEANie's voice: counts only (never a text), and a way to render whatever is missing.
+  admin.get('/voice', (c) => {
+    if (!voice) return c.json({ enabled: false })
+    const missing = activeQuestionTexts(db).filter((t) => voice.keys(t).some((k) => !voice.has(k))).length
+    return c.json({ ...voice.status(), questionsMissing: missing })
+  })
+  admin.post('/voice/sweep', (c) => {
+    if (!voice) return c.json({ error: 'FerMEANie’s voice is off: set FERMI_VOICE=1' }, 409)
+    sweep(voice, lines, db)
+    return c.json(voice.status(), 202)
+  })
 
   admin.get('/stats', (c) =>
     c.json({

@@ -7,7 +7,10 @@ export default defineConfig({
   timeout: 180_000,
   fullyParallel: false,
   reporter: [['list']],
-  use: { baseURL: `http://127.0.0.1:${PORT}`, trace: 'retain-on-failure' },
+  use: {
+    baseURL: `http://127.0.0.1:${PORT}`,
+    trace: 'retain-on-failure',
+  },
   webServer: {
     command: `rm -f test-results/e2e.db* && pnpm --filter @fermi/client build && node apps/server/src/index.ts`,
     url: `http://127.0.0.1:${PORT}/api/health`,
@@ -19,6 +22,8 @@ export default defineConfig({
       FERMI_DB: 'test-results/e2e.db',
       FERMI_ADMIN_TOKEN: 'e2e-token',
       FERMI_TIME_SCALE: '0.25',
+      // with FERMI_VOICE=1: render only what the game says, not every sentence she knows
+      FERMI_VOICE_SWEEP: process.env.FERMI_VOICE_SWEEP ?? '0',
     },
   },
 })

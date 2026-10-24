@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { S } from '@/lib/strings'
-import { chatState, plainText, typeDuration } from '@fermi/shared'
+import { chatState, messageStarts, plainText, typeDuration } from '@fermi/shared'
 import { spoken } from '@/lib/markup'
+import { useVoicePlayer } from '@/composables/useVoice'
 import { versionTag, type Release } from '@/lib/version'
 import { useMediaQuery } from '@/composables/useMediaQuery'
 import FermeanieAvatar from './FermeanieAvatar.vue'
@@ -30,6 +31,8 @@ const props = withDefaults(
     size?: 's' | 'm' | 'l'
     gloat?: boolean
     look?: { x: number; y: number } | null
+    /** A remark on the side (a dunce cap): her voice says it only when she isn't already talking. */
+    aside?: boolean
   }>(),
   {
     text: '',
@@ -42,6 +45,7 @@ const props = withDefaults(
     size: 'm',
     gloat: false,
     look: null,
+    aside: false,
   },
 )
 
@@ -68,8 +72,15 @@ const t = computed(() =>
     ? props.now - (props.startAt ?? 0) + Math.min(Math.max(0, frame.value - nowAt), SMOOTH_MAX_MS)
     : frame.value - ownStart.value,
 )
+// With a voice on the server, bubbles on the server clock (her lines in a game) stay up until she has said them, on
+// every device, sound on or off, as the server paces the game. Other bubbles (the lobby, recaps) are never voiced.
+const voice = useVoicePlayer()
+const voiced = computed(() => props.now !== undefined && !!voice?.voiced)
+const chatOpts = computed(() => ({ lead: props.now !== undefined || lead.value, paced: voiced.value }))
+// when each message starts: fixed for a sequence, so not worked out again every frame
+const starts = computed(() => messageStarts(plainSeq.value, chatOpts.value))
 const live = computed(() =>
-  props.instant ? chatState(plainSeq.value, Infinity) : chatState(plainSeq.value, t.value, { lead: props.now !== undefined || lead.value }),
+  props.instant ? chatState(plainSeq.value, Infinity) : chatState(plainSeq.value, t.value, chatOpts.value, starts.value),
 )
 // What renders changes only when one of these does, not on every frame.
 const state = shallowRef(live.value)
@@ -145,6 +156,18 @@ const complete = computed(() => {
   if (s.done) return seq.value.length
   return s.index + (s.dots || typing.value ? 0 : 1)
 })
+// ---- her voice ----
+// Each message is said as she starts typing it (on devices with sound on). A bubble that mounts mid-message (a
+// reconnect) stays quiet for that one: the player missed its start.
+watch(
+  () => (state.value.dots ? null : seq.value[state.value.index]),
+  (message) => {
+    const { index, at } = state.value
+    const keys = message && voiced.value && !props.instant ? voice?.keys(message) : undefined
+    if (keys) voice!.say(keys, { id: `${props.startAt} ${index} ${message}`, late: Math.max(0, t.value - at), aside: props.aside })
+  },
+)
+
 /** Stacked mode shows a message as soon as it starts. */
 const stackedCount = computed(() => (state.value.dots ? state.value.index : Math.min(seq.value.length, state.value.index + 1)))
 const avatarSize = computed(() => ({ s: 28, m: 44, l: 64 })[props.size])

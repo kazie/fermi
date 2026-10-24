@@ -1,5 +1,5 @@
 # One container: the Node server serves the built client, the websocket and the admin API.
-# SQLite lives on the /data volume.
+# SQLite (and FerMEANie's voice clips, if on) live on the /data volume.
 FROM node:24-slim AS base
 RUN npm install -g pnpm@12.8.1 && npm cache clean --force
 WORKDIR /app
@@ -18,6 +18,16 @@ RUN pnpm --filter @fermi/client build
 
 FROM base AS runtime
 ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 FERMI_DB=/data/fermi.db
+# FerMEANie's voice (on with FERMI_VOICE=1; see content/VOICE.md): ffmpeg, uv, and the Python worker with its
+# dependencies and model baked in, so it starts offline. Clips go to /data/voice.
+ENV FERMI_VOICE_MODELS=/opt/voice/models UV_CACHE_DIR=/opt/voice/uv-cache UV_PYTHON_INSTALL_DIR=/opt/voice/python
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /usr/local/bin/uv
+COPY apps/server/voice apps/server/voice
+COPY content/voice content/voice
+RUN uv run --script apps/server/voice/worker.py --config content/voice/voice.json --models "$FERMI_VOICE_MODELS" --warm \
+  && chown -R node:node /opt/voice
+ENV UV_OFFLINE=1
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/server/package.json apps/server/

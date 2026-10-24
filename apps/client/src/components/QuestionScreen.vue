@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import type { RoomView } from '@fermi/shared'
 import { S } from '@/lib/strings'
 import { useMediaQuery } from '@/composables/useMediaQuery'
+import { useReadQuestion } from '@/composables/useVoice'
 import AnswerBlock from './AnswerBlock.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import PlayerStrip from './PlayerStrip.vue'
@@ -20,6 +21,11 @@ const props = withDefaults(
 const emit = defineEmits<{ draft: [string]; lock: [string]; unlock: [] }>()
 
 const round = computed(() => props.room.round!)
+
+useReadQuestion(
+  () => round.value,
+  () => props.now,
+)
 const sheet = computed(() => props.room.yourSheet)
 const playing = computed(() => !!sheet.value)
 const locked = computed(() => !!sheet.value?.locked)

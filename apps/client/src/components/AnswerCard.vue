@@ -16,11 +16,13 @@ const props = withDefaults(
     /** FerMEANie took this card's points: it drains to grey and cracks. */
     stolen?: boolean
     dunceLine?: string
+    /** Server time, in a live reveal: the dunce line plays from the flip (card.at), and her voice may say it. */
+    now?: number
     you?: boolean
     unit?: string
     latest?: boolean
   }>(),
-  { stolen: false, dunceLine: '', you: false, unit: '', latest: false },
+  { stolen: false, dunceLine: '', you: false, unit: '', latest: false, now: undefined },
 )
 
 const lines = computed(() => props.card.text.split('\n').filter((l) => l.trim()).length)
@@ -72,7 +74,16 @@ const off = computed(() => describeOff(props.card.factor, props.card.direction, 
         <span v-else-if="card.bonusKind === 'close'" class="badge close">Within 2× +{{ card.bonus }}</span>
       </div>
 
-      <FermeanieSays v-if="dunceLine" class="dunce-says" :text="dunceLine" size="s" mood="smug" />
+      <FermeanieSays
+        v-if="dunceLine"
+        class="dunce-says"
+        :text="dunceLine"
+        :start-at="now === undefined ? undefined : card.at"
+        :now="now"
+        size="s"
+        mood="smug"
+        aside
+      />
 
       <div v-if="card.text.trim()" class="work">
         <WorkingView :text="expanded || lines <= 6 ? card.text : card.text.split('\n').slice(0, 6).join('\n')" compact />
