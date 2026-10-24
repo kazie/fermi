@@ -9,6 +9,7 @@ import {
   scoreRound,
   ClientMessageSchema,
   estimateGameMinutes,
+  introDuration,
 } from '../src/index.ts'
 
 const entries = (...values: (number | null)[]) => values.map((value, i) => ({ playerId: `p${i}`, value }))
@@ -142,10 +143,16 @@ describe('protocol', () => {
     expect(ClientMessageSchema.parse({ type: 'settings', rounds: 10, timerSec: 30 })).toBeTruthy()
   })
   it('estimates game length, counting timed breaks only', () => {
-    const settings = { rounds: 10, timerSec: 60, breakSec: 0, pacing: 'timer' as const }
+    const settings = { rounds: 10, timerSec: 60, breakSec: 0, pacing: 'timer' as const, intro: 'off' as const }
     expect(estimateGameMinutes(settings, 4)).toBeGreaterThan(10)
     expect(estimateGameMinutes({ ...settings, breakSec: 60 }, 4)).toBe(estimateGameMinutes(settings, 4) + 9)
     expect(estimateGameMinutes({ ...settings, breakSec: 60, pacing: 'host' }, 4)).toBe(estimateGameMinutes(settings, 4))
+  })
+  it('counts the intro: about two minutes in full, less when short', () => {
+    expect(introDuration('off', 5)).toBe(0)
+    expect(introDuration('short', 5)).toBeLessThan(introDuration('full', 5))
+    expect(introDuration('full', 5)).toBeGreaterThan(90_000)
+    expect(introDuration('full', 5)).toBeLessThan(150_000)
   })
   it('accepts pacing and the Next message', () => {
     expect(ClientMessageSchema.parse({ type: 'settings', rounds: 10, timerSec: 30, pacing: 'host' })).toMatchObject({ pacing: 'host' })

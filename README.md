@@ -69,11 +69,20 @@ If the host disconnects, the earliest-joined connected player takes over after 1
 | Seconds per question | 30, 60, 90                            | 60      |
 | Pacing               | Timed breaks, Host taps Next          | Timed   |
 | Break between rounds | Off, 15, 30, 60 s (timed pacing only) | 30 s    |
+| Intro                | Full, Short, Off                      | Full    |
 
 **Pacing.** With timed breaks, the game runs by itself; when more than half of the connected players tap **Skip
 break**, the next question starts early. With **Host taps Next**, everyone talks the round over until the host taps
 **Next question**, which suits a group that likes to argue about the answers. Either way the answer timer and the
 reveal run on their own, and the host can't cut answering short.
+
+**Intro.** Before the first question FerMEANie introduces herself, then each player in the order they joined, with a
+backhanded compliment (players she has records on hear about their past games and dunce caps). **Full** goes on to
+explain the rules on four slides and play an unscored example question from a small static pool
+([`content/intro/examples.json`](content/intro/examples.json)): it's a real round with a short reveal, but nothing is
+scored, saved or marked as seen. **Short** is the hello and the roll call only. The host can skip the intro at any
+point, its example included, and anyone else can vote: a majority skips it. **Play again** switches Full to Short,
+since the group has just heard the rules.
 
 ### A round
 

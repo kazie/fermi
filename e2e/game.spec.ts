@@ -139,6 +139,7 @@ test('three players (one on a phone) play a full game against FerMEANie', async 
   await host.getByRole('group', { name: 'Seconds per question' }).getByRole('button', { name: '30s' }).click()
   await host.getByRole('group', { name: 'Break between rounds' }).getByRole('button', { name: 'Off' }).click()
   await expect(phone.getByText('About')).toContainText('min')
+  await host.getByRole('group', { name: 'Intro' }).getByRole('button', { name: 'Off' }).click()
   await host.getByRole('button', { name: /Start game/ }).click()
 
   for (let round = 1; round <= 5; round++) {
@@ -208,6 +209,7 @@ test('big screen + three phones: the TV hosts, phones play, the break can be ski
   await annie.getByRole('group', { name: 'Rounds' }).getByRole('button', { name: '5', exact: true }).click()
   await annie.getByRole('group', { name: 'Seconds per question' }).getByRole('button', { name: '30s' }).click()
   await annie.getByRole('group', { name: 'Break between rounds' }).getByRole('button', { name: '60s' }).click()
+  await annie.getByRole('group', { name: 'Intro' }).getByRole('button', { name: 'Off' }).click()
   await annie.getByRole('button', { name: /Start game/ }).click()
 
   for (let round = 1; round <= 5; round++) {
@@ -271,6 +273,7 @@ test('with sound on, FerMEANie reads the question out and says her lines', async
   await joinAs(browser, url, 'Quiet one')
   await joinAs(browser, url, 'Quiet two')
   await host.getByRole('group', { name: 'Break between rounds' }).getByRole('button', { name: 'Off' }).click()
+  await host.getByRole('group', { name: 'Intro' }).getByRole('button', { name: 'Off' }).click()
   await host.getByRole('button', { name: /Start game/ }).click()
   await expect(host.getByText('Question 1 of')).toBeVisible()
   await expect
@@ -278,4 +281,33 @@ test('with sound on, FerMEANie reads the question out and says her lines', async
     .toBeGreaterThanOrEqual(2)
   expect(clips.length).toBeGreaterThan(0)
   expect(clips.filter((status) => status !== 200)).toEqual([]) // only clips the server said were ready: never a 404
+})
+
+test('the intro: FerMEANie introduces everyone and explains the rules, and a majority skips the example', async ({ browser }) => {
+  const hostCtx = await newContext(browser, 'Hosty', { viewport: { width: 1280, height: 860 } })
+  watch(hostCtx)
+  const host = await hostCtx.newPage()
+  const url = await hostGame(host, 'Hosty')
+  const phone = await joinAs(browser, url, 'Phoney', true)
+  const desk = await joinAs(browser, url, 'Desky')
+  await expect(host.getByText('Test subjects (3)')).toBeVisible()
+
+  // Full is the default
+  await expect(host.getByRole('group', { name: 'Intro' }).getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'true')
+  await host.getByRole('group', { name: 'Rounds' }).getByRole('button', { name: '5', exact: true }).click()
+  await host.getByRole('button', { name: /Start game/ }).click()
+
+  // the roll call, in join order, on every device; each phone knows its own turn
+  for (const name of ['Hosty', 'Phoney', 'Desky'])
+    await expect(desk.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(phone.getByRole('heading', { name: 'Work it out' })).toBeVisible({ timeout: 30_000 })
+  await noHorizontalScroll(phone)
+  await expect(phone.getByRole('heading', { name: 'The swarm' })).toBeVisible({ timeout: 30_000 })
+
+  // the example question: practice, no points; two of three vote to skip the rest
+  await expect(phone.getByText('Practice question · no points')).toBeVisible({ timeout: 30_000 })
+  await phone.getByRole('button', { name: /Skip intro/ }).click()
+  await expect(phone.getByRole('button', { name: /Waiting for others · 1\/2/ })).toBeVisible()
+  await desk.getByRole('button', { name: /Skip intro/ }).click()
+  for (const page of [host, phone, desk]) await expect(page.getByText(/Question 1 of 5/)).toBeVisible()
 })

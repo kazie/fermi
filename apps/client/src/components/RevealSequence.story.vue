@@ -13,6 +13,7 @@ const variants = [
   { title: 'Derived answer', reveal: reveals.derived() },
   { title: 'Big swarm (8)', reveal: reveals.crowd() },
   { title: 'Early lock-ins and twins', reveal: reveals.twins() },
+  { title: 'Intro example question', reveal: reveals.practice() },
 ]
 type Reveal = (typeof variants)[number]['reveal']
 const duration = (r: Reveal) => r.timeline.endsAt - T0

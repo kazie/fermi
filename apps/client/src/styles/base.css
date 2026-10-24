@@ -223,6 +223,10 @@ select {
   color: var(--muted);
   font-weight: 600;
 }
+/* the intro's example question: no points */
+.eyebrow.practice {
+  color: var(--accent);
+}
 
 .segmented {
   display: inline-flex;

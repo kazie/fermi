@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import {
   BREAK_OPTIONS,
   estimateGameMinutes,
+  INTRO_OPTIONS,
   playersMissing,
   PACING_OPTIONS,
   ROUND_OPTIONS,
@@ -159,7 +160,18 @@ function set(change: Partial<RoomSettings>) {
           </div>
           <strong v-else>{{ room.settings.breakSec ? `${room.settings.breakSec}s` : 'Off' }}</strong>
         </div>
-        <p class="muted est">About {{ minutes }} min of play. {{ S.betweenRounds(room.settings) }}</p>
+        <div class="setting">
+          <span class="label">{{ S.intro }}</span>
+          <div v-if="isHost" class="segmented" role="group" :aria-label="S.intro">
+            <button v-for="m in INTRO_OPTIONS" :key="m" type="button" :aria-pressed="room.settings.intro === m" @click="set({ intro: m })">
+              {{ S.introLabel[m] }}
+            </button>
+          </div>
+          <strong v-else>{{ S.introLabel[room.settings.intro] }}</strong>
+        </div>
+        <p class="muted est">
+          About {{ minutes }} min of play. {{ S.betweenRounds(room.settings) }} {{ S.introHint(room.settings.intro) }}
+        </p>
         <p v-if="room.poolSize === 0" class="warn">There are no questions in the database yet. Generate some first (see README).</p>
         <p v-else-if="tooFewQuestions" class="warn">Only {{ room.poolSize }} questions available; the game will end early.</p>
         <p v-if="missingPlayers" class="warn">{{ S.needPlayers(missingPlayers) }}</p>

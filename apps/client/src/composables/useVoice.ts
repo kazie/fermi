@@ -284,7 +284,8 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
 export function useReadQuestion(round: () => { index: number; startedAt: number; question: { question: string } }, now: () => number) {
   const voice = useVoicePlayer()
   watch(
-    () => round().index,
+    // a new question starts at a new time (the intro's example and the first question share index 0)
+    () => round().startedAt,
     () => {
       const keys = voice?.keys(round().question.question)
       const { startedAt } = round()

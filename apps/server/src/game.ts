@@ -1,4 +1,4 @@
-// One room: lobby → question → reveal → … → final. The server is authoritative for
+// One room: lobby → intro → question → reveal → … → final. The server is authoritative for
 // timers, answers (re-evaluated from the raw sheets) and scoring.
 
 import { randomUUID } from 'node:crypto'
@@ -10,12 +10,15 @@ import {
   fermeanieStageMs,
   formatFactor,
   formatNumber,
+  INTRO_TIMING,
   isPieRelease,
+  lineDuration,
   messageStarts,
   MIN_PLAYERS,
   plainText,
   REVEAL_TIMING,
   revealChat,
+  RULES,
   SCOREBOARD_BEFORE_BREAK_MS,
   scoreRound,
   stolenCards,
@@ -23,6 +26,8 @@ import {
   type ClientMessage,
   type FermeanieRelease,
   type FinalView,
+  type IntroStep,
+  type IntroView,
   type PlayerView,
   type Question,
   type RevealCard,
@@ -33,6 +38,7 @@ import {
 } from '@fermi/shared'
 import { nowIso, type DB } from './db.ts'
 import type { LineArgs, LineCategory } from '@fermi/shared/lines'
+import { exampleQuestion, loadExamples } from './intro.ts'
 import { LinePicker, type ChosenLine, type LinePool } from './lines.ts'
 import { countActive, markPlayed, markSeen, pickQuestion } from './questions/repo.ts'
 import type { Voice } from './voice/index.ts'
@@ -80,6 +86,8 @@ interface Player {
   dunces: number
   /** Joined mid-round: plays from the next question. */
   spectating: boolean
+  /** Took part in a real round of this game (not just the intro's example): only they get the game in their history. */
+  played: boolean
   joinedAt: number
   dropTimer?: ReturnType<typeof setTimeout>
 }
@@ -98,6 +106,20 @@ interface RoundState {
   sheets: Map<string, Sheet>
   /** What FerMEANie says while the question is up. */
   line: string
+  /** The intro's example question: nothing is scored, saved or marked as seen. */
+  practice?: true
+}
+
+/**
+ * The intro, from Start until the first real question: its steps, then (full intro) the example question. Skip votes
+ * count throughout.
+ */
+interface IntroState {
+  mode: IntroView['mode']
+  startedAt: number
+  steps: IntroStep[]
+  endsAt: number
+  votes: Set<string>
 }
 
 /**
@@ -107,6 +129,12 @@ interface RoundState {
 type BreakState =
   | { index: number; startedAt: number; line: string; timed: { endsAt: number; votes: Set<string> } }
   | { index: number; startedAt: number; hostWait: ChosenLine<'host_wait'>; timed?: undefined }
+
+/** A tally as clients see it. */
+const skipView = ({ votes, needed, youVoted }: { votes: number; needed: number; youVoted: boolean }) => ({ votes, needed, youVoted })
+
+/** How the intro ended (see GameState.introEnd). */
+type IntroEnd = 'played' | 'intro' | 'skipped'
 
 /** A line to pick: its category and values. */
 type LineCall = { [K in LineCategory]: { key: K; vars: LineArgs<K> } }[LineCategory]
@@ -118,6 +146,11 @@ interface GameState {
   usedTemplateIds: string[]
   lines: LinePicker
   startedAt: number
+  /**
+   * How the intro ended, for the first question's line: `for_real.played` after the example question, `for_real.intro`
+   * after a short one, `for_real.skipped` when someone skipped it. Unset without an intro (the `intro` greeting).
+   */
+  introEnd?: IntroEnd
   /** The leader the last question's line could name (see quipNames), to spot a lead change. */
   leader?: string
   /**
@@ -146,10 +179,15 @@ export class Room {
   private keyToId = new Map<string, string>()
   private hostId: string | null = null
   private phase: RoomView['phase'] = 'lobby'
-  private settings: RoomSettings = { rounds: 10, timerSec: 60, breakSec: DEFAULT_BREAK_SEC, pacing: 'timer' }
+  private settings: RoomSettings = { rounds: 10, timerSec: 60, breakSec: DEFAULT_BREAK_SEC, pacing: 'timer', intro: 'full' }
   /** Big screens (TVs) watching: they get snapshots but never play. */
   private screens = new Set<Conn>()
   private breakState: BreakState | null = null
+  private intro: IntroState | null = null
+  /** The last example question this room played, so the next game's intro gets another. */
+  private lastExample: string | undefined
+  /** This room has finished a game: her next hello is a welcome back (`hello_again`), not an introduction. */
+  private playedBefore = false
   private fermeanieScore = 0
   private game: GameState | null = null
   private round: RoundState | null = null
@@ -209,7 +247,17 @@ export class Room {
   private onConnect(playerId: string, conn: Conn, seenKey: string) {
     let p = this.players.get(playerId)
     if (!p) {
-      p = { id: playerId, seenKey, name: null, conns: new Set(), score: 0, dunces: 0, spectating: false, joinedAt: this.now() }
+      p = {
+        id: playerId,
+        seenKey,
+        name: null,
+        conns: new Set(),
+        score: 0,
+        dunces: 0,
+        spectating: false,
+        played: false,
+        joinedAt: this.now(),
+      }
       this.players.set(playerId, p)
     }
     clearTimeout(p.dropTimer)
@@ -259,6 +307,7 @@ export class Room {
     this.broadcast()
     if (this.phase === 'question') this.maybeEndEarly()
     if (this.phase === 'break') this.maybeEndBreak()
+    if (this.intro) this.maybeEndIntro()
   }
 
   /** The question being answered right now (its answer must not be looked up meanwhile). */
@@ -345,6 +394,7 @@ export class Room {
           timerSec: msg.timerSec,
           breakSec: msg.breakSec ?? this.settings.breakSec,
           pacing: msg.pacing ?? this.settings.pacing,
+          intro: msg.intro ?? this.settings.intro,
         }
         this.broadcast()
         return
@@ -387,6 +437,13 @@ export class Room {
         if (!this.maybeEndBreak()) this.broadcast()
         return
       }
+      case 'skip_intro': {
+        if (!this.intro || p.name === null) return
+        if (isHost) return this.finishIntro('skipped')
+        this.intro.votes.add(playerId)
+        if (!this.maybeEndIntro()) this.broadcast()
+        return
+      }
       case 'next':
         if (!isHost) return fail('Only the host can move on')
         if (this.phase === 'break' && this.hostPaced) this.endBreak()
@@ -394,6 +451,8 @@ export class Room {
       case 'play_again':
         if (!isHost) return fail('Only the host can start a new game')
         if (this.phase !== 'final') return
+        // the same group has just heard the rules: next time, only hello and the roll call
+        if (this.settings.intro === 'full') this.settings = { ...this.settings, intro: 'short' }
         this.toLobby()
         return
     }
@@ -422,6 +481,7 @@ export class Room {
       p.score = 0
       p.dunces = 0
       p.spectating = false
+      p.played = false
     }
     this.fermeanieScore = 0
     this.game = {
@@ -434,6 +494,106 @@ export class Room {
     }
     this.final = null
     db.prepare('INSERT INTO games (id, created_at, settings) VALUES (?, ?, ?)').run(id, nowIso(), JSON.stringify(this.settings))
+    if (this.settings.intro === 'off') this.startRound(0)
+    else this.startIntro(this.settings.intro)
+  }
+
+  // ---------- the intro ----------
+
+  /**
+   * Hello, then every player who is here, introduced in the order they joined, then (full intro) the rules. Each step
+   * lasts its minimum or until her line has been typed, said and read, whichever is longer.
+   */
+  private startIntro(mode: IntroView['mode']) {
+    const { lines } = this.game!
+    const k = this.deps.timeScale ?? 1
+    const players = this.connectedPlayers().sort((a, b) => a.joinedAt - b.joinedAt)
+    const startedAt = this.now()
+    const steps: IntroStep[] = []
+    let t = startedAt
+    /** A step starting at `t` (when the last one ends), and how long it lasts. */
+    const add = (step: IntroStep, minMs: number) => {
+      steps.push(step)
+      t += Math.max(minMs * k, lineDuration(plainText(step.line), this.paced))
+    }
+    const hello = lines.pick(this.playedBefore ? 'hello_again' : 'hello', {
+      count: players.length,
+      version: this.fermeanieView().version,
+    })
+    add({ kind: 'hello', at: t, line: hello }, INTRO_TIMING.hello)
+    for (const p of players) add({ kind: 'player', at: t, playerId: p.id, name: p.name!, line: this.rollCallLine(p) }, INTRO_TIMING.player)
+    if (mode === 'full')
+      for (const rule of RULES) add({ kind: 'rule', at: t, rule, line: lines.pick(`rules.${rule}`, {}) }, INTRO_TIMING.rule)
+    this.intro = { mode, startedAt, steps, endsAt: t, votes: new Set() }
+    this.phase = 'intro'
+    this.schedule(t - startedAt, () => (mode === 'full' ? this.startPractice() : this.finishIntro('intro')))
+    this.broadcast()
+  }
+
+  /**
+   * A backhanded compliment for one player. Newcomers get `roll_call.new`. Returning players draw from
+   * `roll_call.returning`, plus `roll_call.dunces` and `roll_call.losses` when they have caps or losses on record:
+   * those join the pool (weighted by how many lines each has), they're never forced.
+   */
+  private rollCallLine(p: Player): string {
+    const { lines } = this.game!
+    const name = p.name!
+    const h = this.deps.db
+      .prepare(
+        `SELECT COUNT(*) AS games, COALESCE(SUM(dunces), 0) AS dunces, COALESCE(SUM(fermeanie_won), 0) AS losses
+         FROM player_games WHERE player_id = ?`,
+      )
+      .get(p.seenKey) as { games: number; dunces: number; losses: number }
+    if (!h.games) return lines.pick('roll_call.new', { name }, p.seenKey)
+    const calls: LineCall[] = [
+      { key: 'roll_call.returning', vars: { name, games: h.games } },
+      ...(h.dunces ? [{ key: 'roll_call.dunces', vars: { name, dunces: h.dunces } } as const] : []),
+      ...(h.losses ? [{ key: 'roll_call.losses', vars: { name, losses: h.losses, games: h.games } } as const] : []),
+    ]
+    const sizes = calls.map((c) => this.deps.lines.categories[c.key].length)
+    let r = (this.deps.rand ?? Math.random)() * sizes.reduce((a, b) => a + b, 0)
+    const call = calls.find((_, i) => (r -= sizes[i]) < 0) ?? calls[0]
+    return lines.pick(call.key, call.vars as LineArgs<typeof call.key>, p.seenKey)
+  }
+
+  /** The example question: played like a round, but never scored, saved or marked as seen. */
+  private startPractice() {
+    const participants = this.connectedPlayers()
+    if (participants.length === 0) return this.finishIntro('intro')
+    const examples = loadExamples()
+    const fresh = examples.filter((e) => e.id !== this.lastExample)
+    const example = fresh[Math.floor((this.deps.rand ?? Math.random)() * fresh.length)] ?? examples[0]
+    this.lastExample = example.id
+    const startedAt = this.now()
+    const ms = INTRO_TIMING.practiceSec * 1000
+    this.round = {
+      index: 0,
+      question: exampleQuestion(example),
+      startedAt,
+      endsAt: startedAt + ms,
+      participants: new Set(participants.map((p) => p.id)),
+      sheets: new Map(),
+      line: this.game!.lines.pick('practice.question', {}),
+      practice: true,
+    }
+    this.reveal = null
+    this.phase = 'question'
+    this.schedule(ms + DEADLINE_GRACE_MS, () => this.endRound())
+    this.broadcast()
+  }
+
+  /** A majority of connected players voted to skip the intro (the host skips it at once). */
+  private maybeEndIntro(): boolean {
+    if (!this.intro || !this.tally(this.intro.votes, '').passed) return false
+    this.finishIntro('skipped')
+    return true
+  }
+
+  /** The intro is over (played, short or skipped, wherever it was): the first real question. */
+  private finishIntro(end: IntroEnd) {
+    if (!this.intro) return
+    this.intro = null
+    this.game!.introEnd = end
     this.startRound(0)
   }
 
@@ -446,6 +606,7 @@ export class Room {
       this.toLobby()
       return
     }
+    for (const p of participants) p.played = true
     const ids = participants.map((p) => p.id)
     const seenKeys = participants.map((p) => p.seenKey)
     const question = pickQuestion(db, seenKeys, game.usedQuestionIds, game.usedTemplateIds)
@@ -481,6 +642,8 @@ export class Room {
     if (this.phase !== 'question' || !r || p.name === null || p.spectating || r.participants.has(p.id)) return
     if (this.now() >= r.endsAt) return
     r.participants.add(p.id)
+    if (r.practice) return
+    p.played = true
     markSeen(this.deps.db, [p.seenKey], r.question.id)
   }
 
@@ -506,7 +669,10 @@ export class Room {
     call: LineCall
     leader?: string
   } {
-    if (index === 0) return { call: { key: 'intro', vars: { count } } }
+    if (index === 0) {
+      const end = this.game!.introEnd
+      return { call: end ? { key: `for_real.${end}`, vars: {} } : { key: 'intro', vars: { count } } }
+    }
     const names = this.standings(scores)
     const previous = this.game!.leader
     const call: LineCall =
@@ -610,20 +776,22 @@ export class Room {
       keyof typeof REVEAL_TIMING,
       number
     >
+    const policy = this.revealPolicy(r, t)
+    const { lines } = policy
     const start = this.now()
-    const truthAt = start + t.numberLine
+    // the example's guide is said before any answer shows: the number line waits until it's been read
+    const truthAt = start + Math.max(t.numberLine, policy.guide ? lineDuration(plainText(policy.guide), this.paced) : 0)
     const cardsStart = truthAt + t.truth
-    const per = cardsSorted.length ? Math.min(t.cardEach, t.cardsMaxTotal / cardsSorted.length) : 0
+    const per = cardsSorted.length ? Math.min(policy.cardEach, policy.cardsMaxTotal / cardsSorted.length) : 0
     const fermeanieAt = cardsStart + cardsSorted.length * per
 
     // lines
-    const lines = game.lines
     const dunceLines: Record<string, string> = {}
     const dunced: string[] = []
     for (const res of score.results) {
       if (!res.dunce) continue
       const p = this.players.get(res.playerId)
-      if (p) p.dunces++
+      if (p && policy.counts) p.dunces++
       dunced.push(res.playerId)
       const count = p?.dunces ?? 1
       const key = count >= 2 ? 'dunce.repeat_offender' : (`dunce.${res.dunce}` as const)
@@ -652,8 +820,7 @@ export class Room {
     }
     const bull = ranked.find((x) => x.bonusKind === 'bullseye')
     // everyone, not just the connected players maybeEndEarly waited for
-    const lockedEarly =
-      ids.length >= 2 && ids.every((id) => r.sheets.get(id)?.locked) && r.endsAt - start >= (this.settings.timerSec * 1000) / 2
+    const lockedEarly = ids.length >= 2 && ids.every((id) => r.sheets.get(id)?.locked) && r.endsAt - start >= (r.endsAt - r.startedAt) / 2
     const twins = sameAnswer(entries)
     const outlierIds = (score.crowd?.outliers ?? []).map((i) => entries[i].playerId)
 
@@ -669,15 +836,18 @@ export class Room {
         : {}),
       verdict,
       ...(bull ? { bullseye: lines.pick('human_bullseye', { name: name(bull.playerId) }) } : {}),
+      ...(policy.guide ? { guide: policy.guide } : {}),
+      // what the swarm is, only when there is one (with fewer than three answers she sits out)
+      ...(r.practice && score.fermeanie ? { lesson: lines.pick('practice.lesson', {}) } : {}),
     }
     // FerMEANie's stage lasts until the steal has landed and she has finished talking, so the next step can't cut her
     // off. Her chat isn't sped up by FERMI_TIME_SCALE: clients type at normal speed, test games included.
     const stolen = stolenCards(score.fermeanie, score.results)
     const chatAt = fermeanieAt + chatDelay(stolen)
     const scoreboardAt = fermeanieAt + fermeanieStageMs(revealLines, stolen, t.fermeanie, { paced: this.paced })
-    // With a break coming, the scoreboard step is short: the break shows the scores anyway.
-    const endsAt = scoreboardAt + (this.breakAfter(r.index) ? SCOREBOARD_BEFORE_BREAK_MS * k : t.scoreboard)
+    const endsAt = scoreboardAt + policy.scoreboardMs
 
+    // What the round leaves the scores at. Only a round that counts applies them, in finishReveal.
     const scoresAfter: Record<string, number> = {}
     for (const p of this.joinedPlayers()) scoresAfter[p.id] = p.score
     for (const res of score.results) scoresAfter[res.playerId] = (scoresAfter[res.playerId] ?? 0) + res.points
@@ -692,6 +862,7 @@ export class Room {
     this.reveal = {
       index: r.index,
       total: this.settings.rounds,
+      ...(r.practice ? { practice: true as const } : {}),
       question: toRevealed(q),
       timeline: {
         startedAt: start,
@@ -722,14 +893,47 @@ export class Room {
     if (this.deps.voice) {
       // What she says next, picked now so her voice can render it while this reveal plays.
       const upcoming: Scores = { players: scoresAfter, fermeanie: this.reveal.fermeanieScoreAfter }
-      if (r.index + 1 < this.settings.rounds)
+      if (r.practice) this.prepare(questionSlot(0), { key: 'for_real.played', vars: {} }, endsAt)
+      else if (r.index + 1 < this.settings.rounds)
         this.prepare(questionSlot(r.index + 1), this.questionLineCall(r.index + 1, { scores: upcoming }).call, endsAt)
       else this.prepareFinal(upcoming, endsAt)
     }
-    markPlayed(db, q.id)
-    this.saveRound()
+    if (policy.counts) {
+      markPlayed(db, q.id)
+      this.saveRound()
+    }
     this.schedule(endsAt - start, () => this.finishReveal())
     this.broadcast()
+  }
+
+  /**
+   * How a round's reveal is paced and what it leaves behind. A real round counts: its dunce caps, saved round and
+   * scores (applied in finishReveal), and its lines are the game's, so they aren't repeated. The intro's example counts
+   * for nothing: its lines come from a picker of its own (no repeats used up, no player's history touched), it flips
+   * its cards faster, says a guide to the number line first, and has no scoreboard, only a moment before the real game.
+   */
+  private revealPolicy(r: RoundState, t: Record<keyof typeof REVEAL_TIMING, number>) {
+    const k = this.deps.timeScale ?? 1
+    if (r.practice) {
+      const lines = new LinePicker(this.deps.lines, undefined, this.deps.rand)
+      return {
+        counts: false,
+        lines,
+        guide: lines.pick('practice.guide', {}),
+        cardEach: INTRO_TIMING.practiceCardEach * k,
+        cardsMaxTotal: INTRO_TIMING.practiceCardsMaxTotal * k,
+        scoreboardMs: INTRO_TIMING.practiceOutro * k,
+      }
+    }
+    return {
+      counts: true,
+      lines: this.game!.lines,
+      guide: undefined,
+      cardEach: t.cardEach,
+      cardsMaxTotal: t.cardsMaxTotal,
+      // with a break coming, the scoreboard step is short: the break shows the scores anyway
+      scoreboardMs: this.breakAfter(r.index) ? SCOREBOARD_BEFORE_BREAK_MS * k : t.scoreboard,
+    }
   }
 
   private saveRound() {
@@ -751,6 +955,7 @@ export class Room {
   private finishReveal() {
     const rv = this.reveal
     if (this.phase !== 'reveal' || !rv) return
+    if (rv.practice) return this.finishIntro('played')
     for (const [id, s] of Object.entries(rv.scoresAfter)) {
       const p = this.players.get(id)
       if (p) p.score = s
@@ -779,17 +984,20 @@ export class Room {
     this.broadcast()
   }
 
-  /** A majority of connected players; screens and disconnected players don't count. */
-  private votesNeeded() {
-    return Math.floor(this.connectedPlayers().length / 2) + 1
+  /**
+   * A skip vote (the break's or the intro's), as everyone sees it: the votes of connected players (screens and players
+   * who left don't count), the majority of them needed, and whether `forId` has voted.
+   */
+  private tally(votes: Set<string>, forId: string) {
+    const connected = this.connectedPlayers()
+    const count = connected.filter((p) => votes.has(p.id)).length
+    const needed = Math.floor(connected.length / 2) + 1
+    return { votes: count, needed, youVoted: votes.has(forId), passed: count >= needed }
   }
 
   private maybeEndBreak(): boolean {
     const timed = this.breakState?.timed
-    if (this.phase !== 'break' || !timed) return false
-    const connected = new Set(this.connectedPlayers().map((p) => p.id))
-    const votes = [...timed.votes].filter((id) => connected.has(id)).length
-    if (votes < this.votesNeeded()) return false
+    if (this.phase !== 'break' || !timed || !this.tally(timed.votes, '').passed) return false
     this.endBreak()
     return true
   }
@@ -816,6 +1024,12 @@ export class Room {
       )
       .get(outcome.fermeanieWon ? 1 : 0) as { wins: number; losses: number }
     const o = withRecord(outcome, record)
+    const played = db.prepare(
+      `INSERT OR IGNORE INTO player_games (player_id, game_id, finished_at, score, dunces, fermeanie_won) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    for (const p of this.joinedPlayers().filter((p) => p.played))
+      played.run(p.seenKey, game.id, nowIso(), p.score, p.dunces, o.fermeanieWon ? 1 : 0)
+    this.playedBefore = true
     this.final = {
       gameId: game.id,
       ranking,
@@ -858,6 +1072,7 @@ export class Room {
     this.final = null
     this.game = null
     this.breakState = null
+    this.intro = null
     for (const p of this.players.values()) {
       p.spectating = false
       if (p.name !== null && p.conns.size === 0) this.players.delete(p.id)
@@ -947,6 +1162,7 @@ export class Room {
       const said = texts.filter((t): t is string => !!t)
       messageStarts(said.map(plainText), { paced: this.paced }).forEach((t, i) => say(said[i], at + t))
     }
+    if (this.phase === 'intro' && this.intro) for (const step of this.intro.steps) say(step.line, step.at)
     const r = this.round
     if (this.phase === 'question' && r) {
       say(r.question.question, r.startedAt)
@@ -955,6 +1171,7 @@ export class Room {
     const rv = this.reveal
     if ((this.phase === 'reveal' || this.phase === 'break') && rv) {
       say(rv.lines.everyone, rv.timeline.startedAt)
+      say(rv.lines.guide, rv.timeline.startedAt)
       for (const card of rv.cards) say(rv.lines.dunce[card.playerId], card.at)
       chat(revealChat(rv.lines), rv.timeline.chatAt)
     }
@@ -1029,6 +1246,7 @@ export class Room {
               startedAt: r.startedAt,
               endsAt: r.endsAt,
               line: r.line,
+              ...(r.practice ? { practice: true as const } : {}),
             },
             ...(r.participants.has(forId) ? { yourSheet: { text: mine?.text ?? '', locked: !!mine?.locked } } : {}),
           }
@@ -1042,17 +1260,23 @@ export class Room {
               startedAt: this.breakState.startedAt,
               line: this.breakLine(this.breakState),
               ...(this.breakState.timed && {
-                timed: {
-                  endsAt: this.breakState.timed.endsAt,
-                  votes: this.breakState.timed.votes.size,
-                  needed: this.votesNeeded(),
-                  youVoted: this.breakState.timed.votes.has(forId),
-                },
+                timed: { endsAt: this.breakState.timed.endsAt, ...skipView(this.tally(this.breakState.timed.votes, forId)) },
               }),
             },
           }
         : {}),
       ...(this.phase === 'final' && this.final ? { final: this.final } : {}),
+      ...(this.intro
+        ? {
+            intro: {
+              mode: this.intro.mode,
+              startedAt: this.intro.startedAt,
+              steps: this.intro.steps,
+              endsAt: this.intro.endsAt,
+              skip: skipView(this.tally(this.intro.votes, forId)),
+            },
+          }
+        : {}),
     }
   }
 

@@ -9,8 +9,9 @@ on why they'd be fun or useful.
   fills a game.
 - **Reactions:** quick emoji taps on reveal cards, shown briefly on every screen. Cheap fun while the cards flip.
 - **Shareable recap image** at the end of a game (rendered client-side, no external services).
-- **Lifetime stats and badges:** most dunce caps, best bullseye, longest streak against the swarm. Players already
-  have stable ids, so this is mostly queries over `games`.
+- **Lifetime stats and badges:** most dunce caps, best bullseye, longest streak against the swarm. `player_games`
+  (one row per player per finished game: score, dunce caps, whether FerMEANie won) already feeds the intro's roll
+  call; per-round stats are mostly queries over `games`.
 - **Tie ordering.** The client orders tied players differently from the server's `byStanding` (score, then name).
   Make them match. Ties are also ignored in places: the final screen crowns `ranking[0]`, and positions are `i + 1`
   on the final screen, scoreboard, controller reveal and break screen, so equal scores get different places.
@@ -68,6 +69,10 @@ Not bugs: choices to make, with the trade-off.
   `aria-live` announces every caret move. Line values and number-line pins are only in `title` (no hover on a phone).
 - **The QR code is inverted** (light on transparent over dark), which some camera apps can't scan. It's the main
   way to join: dark modules on a white quiet zone.
+- **Player accounts** (`kazie#001`), so one player can play from several devices: today identity is a per-browser
+  key, so a new device or an in-app browser is a new person, with no history. Sketch and open decisions are in the
+  owner's local roadmap (PR 6): optional accounts, how a device links (PIN, or a link/QR from a signed-in device),
+  recovery, brute-force limits, and merging device history into the account.
 - **Rename** is in the protocol but no UI sends it, so a typo or an auto-suffixed "Sam 2" sticks.
 - **Getting back in:** Home doesn't remember the last room; a network error shows "Room X doesn't exist"; in-app
   browsers (WhatsApp, Instagram) have their own storage and create a second player. One tap on the header logo

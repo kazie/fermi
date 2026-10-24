@@ -11,6 +11,8 @@ import {
   scoreRound,
   stolenCards,
   type FinalView,
+  type IntroStep,
+  type IntroView,
   type PlayerView,
   type RevealedQuestion,
   type RevealView,
@@ -62,6 +64,23 @@ export const DERIVED: RevealedQuestion = {
   sources: QUESTION.sources,
 }
 
+/** An intro example question: no sources, the worked sheet is its formula. */
+export const PRACTICE: RevealedQuestion = {
+  id: 'practice-heartbeats',
+  question: 'A heart beats 70 times a minute. How many times does it beat in a day?',
+  unit: 'beats',
+  category: 'everyday-life',
+  difficulty: 1,
+  kind: 'derived',
+  answer: 100_800,
+  explanation: '70 beats a minute, 60 minutes an hour, 24 hours a day. Over a long life that adds up to about 3 billion beats.',
+  validAsOf: '2026',
+  timeSensitive: false,
+  formula: 'per_minute = 70\nper_hour = per_minute * 60\nper_hour * 24   # hours in a day',
+  inputs: [],
+  sources: [],
+}
+
 const NAMES = ['Ada', 'Bob', 'Cyd', 'Dee', 'Eve', 'Fia', 'Gus', 'Hal']
 
 export function players(n: number, opts: Partial<PlayerView> = {}): PlayerView[] {
@@ -79,7 +98,7 @@ export function players(n: number, opts: Partial<PlayerView> = {}): PlayerView[]
   }))
 }
 
-const SETTINGS: RoomView['settings'] = { rounds: 10, timerSec: 60, breakSec: 30, pacing: 'timer' }
+const SETTINGS: RoomView['settings'] = { rounds: 10, timerSec: 60, breakSec: 30, pacing: 'timer', intro: 'full' }
 
 function base(phase: RoomView['phase'], ps: PlayerView[], extra: Partial<RoomView> = {}): RoomView {
   return {
@@ -213,6 +232,17 @@ export const reveals = {
   sitsOut: () => revealFor(QUESTION, [SHEETS.good, null]),
   derived: () => revealFor(DERIVED, ['people = 8 billion\nh = 1.6\nmoon = 384_000_000\npeople h / moon', '100', '12', '1000']),
   crowd: () => revealFor(QUESTION, [SHEETS.good, SHEETS.double, SHEETS.low, SHEETS.close, '3M', '900k', '1.5M', '4M']),
+  /** The intro's example question: what it would have scored, nobody keeps it. */
+  practice: () => {
+    const r = revealFor(PRACTICE, ['per_minute = 70\nper_minute * 60 * 24', '50k', '1M', '120000'], {
+      lines: {
+        guide: 'This is the number line. Every step to the right is ten times bigger. Your answers are on it.',
+        lesson:
+          'That marker is me: the swarm, the average of all your answers. In a real round, if I beat every one of you, I keep the points.',
+      },
+    })
+    return { ...r, index: 0, practice: true as const }
+  },
   /** Everyone locked in early, and Bob and Cyd gave the same answer. */
   twins: () =>
     revealFor(QUESTION, [SHEETS.good, '3M', '3M', SHEETS.close], {
@@ -287,4 +317,84 @@ export function recapGame(): import('@/lib/recap').RecapGame {
     lines: r.lines,
   }))
   return { id: 'demo-game', createdAt: '2026-10-17T19:30:00Z', rounds, final: finalView(true) }
+}
+
+/** The intro of a game with these players (Ada hosts and is `you`), steps timed like the server's minimums. */
+export function introRoom(opts: { n?: number; mode?: IntroView['mode']; votes?: number; youVoted?: boolean } = {}): RoomView {
+  const ps = players(opts.n ?? 4)
+  const mode = opts.mode ?? 'full'
+  const steps: IntroStep[] = []
+  let t = T0
+  const add = (step: IntroStep, ms: number) => {
+    steps.push(step)
+    t += ms
+  }
+  add(
+    {
+      kind: 'hello',
+      at: t,
+      line: 'Hello. I am FerMEANie: the average of all of you. Yes, all of you. I am trying not to take it personally.',
+    },
+    7000,
+  )
+  const compliments = [
+    'Statistically, someone has to be above average. It could be you.',
+    'Back again, after 3 games. I admire persistence. It’s the next best thing to accuracy.',
+    'You look like someone who rounds generously. I respect that, scientifically.',
+    'I’ve opened a new spreadsheet in your name. It already looks worried.',
+    'No prior data. Which means, for now, you are flawless. Enjoy the next minute.',
+  ]
+  ps.forEach((p, i) =>
+    add({ kind: 'player', at: t, playerId: p.id, name: p.name, line: `${p.name}. ${compliments[i % compliments.length]}` }, 4500),
+  )
+  if (mode === 'full') {
+    add(
+      {
+        kind: 'rule',
+        at: t,
+        rule: 'sheet',
+        line: 'Everyone gets the same question. Nobody knows the answer. Work it out one step per line.',
+      },
+      7000,
+    )
+    add(
+      { kind: 'rule', at: t, rule: 'times_off', line: 'Twice too high is exactly as bad as twice too low. Symmetry. You’re welcome.' },
+      7000,
+    )
+    add({ kind: 'rule', at: t, rule: 'points', line: 'The closer you are, the more points you get. Get very far and there’s a hat.' }, 7000)
+    add(
+      {
+        kind: 'rule',
+        at: t,
+        rule: 'swarm',
+        line: 'And me? I play the average of all your answers. If I beat every one of you, I take the whole round.',
+      },
+      7000,
+    )
+  }
+  return base('intro', ps, {
+    intro: {
+      mode,
+      startedAt: T0,
+      steps,
+      endsAt: t,
+      skip: { votes: opts.votes ?? 0, needed: Math.floor(ps.length / 2) + 1, youVoted: !!opts.youVoted },
+    },
+  })
+}
+
+/** The intro's example question, being answered. */
+export function practiceRoom(): RoomView {
+  const room = questionRoom()
+  return {
+    ...room,
+    round: {
+      ...room.round!,
+      question: { id: PRACTICE.id, question: PRACTICE.question, unit: PRACTICE.unit, category: PRACTICE.category },
+      endsAt: T0 + 45_000,
+      line: 'A practice question. No points. Try the answer block. I promise not to remember. I will remember.',
+      practice: true,
+    },
+    intro: { ...introRoom().intro!, skip: { votes: 1, needed: 3, youVoted: false } },
+  }
 }

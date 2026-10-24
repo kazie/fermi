@@ -131,7 +131,8 @@ function lock() {
     <div class="layout">
       <div class="main">
         <section v-show="!compact" class="question card">
-          <span class="eyebrow"
+          <span v-if="round.practice" class="eyebrow practice">{{ S.practice }}</span>
+          <span v-else class="eyebrow"
             >Question {{ round.index + 1 }} of {{ round.total }} · {{ round.question.category.replace(/-/g, ' ') }}</span
           >
           <h1>{{ round.question.question }}</h1>

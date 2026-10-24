@@ -1,0 +1,50 @@
+[
+  {
+    "id": "practice-heartbeats",
+    "question": "A heart beats 70 times a minute. How many times does it beat in a day?",
+    "unit": "beats",
+    "answer": 100800,
+    "explanation": "70 beats a minute, 60 minutes an hour, 24 hours a day. Over a long life that adds up to about 3 billion beats.",
+    "sheet": "per_minute = 70\nper_hour = per_minute * 60\nper_hour * 24   # hours in a day"
+  },
+  {
+    "id": "practice-paper-tower",
+    "question": "How many sheets of paper, each 0.1 mm thick, would you stack to reach the top of the 330 m Eiffel Tower?",
+    "unit": "sheets",
+    "answer": 3300000,
+    "explanation": "330 metres is 330,000 millimetres, and each sheet adds a tenth of one. That's about 6,600 packs of printer paper.",
+    "sheet": "tower = 330 * 1000   # in mm\nsheet = 0.1          # mm\ntower / sheet"
+  },
+  {
+    "id": "practice-human-chain",
+    "question": "If 8 billion people held hands, 1.5 m apart, how many times would the chain wrap around the 40,000 km equator?",
+    "unit": "times",
+    "answer": 300,
+    "explanation": "8 billion × 1.5 m is 12 million km of people. Divided by 40,000 km, that's 300 laps of the planet.",
+    "sheet": "people = 8 billion\nchain = people * 1.5   # metres\nequator = 40_000 * 1000\nchain / equator"
+  },
+  {
+    "id": "practice-sleep",
+    "question": "Someone sleeps 8 hours a night for an 80-year life. How many years do they spend asleep?",
+    "unit": "years",
+    "answer": 26.666666666666668,
+    "explanation": "8 hours is a third of a day, so a third of 80 years: about 26.7 years. FerMEANie never sleeps. She waits.",
+    "sheet": "share = 8 / 24   # of every day\n80 * share"
+  },
+  {
+    "id": "practice-bathtub",
+    "question": "How many teaspoons of water (5 ml each) does it take to fill a 150-litre bathtub?",
+    "unit": "teaspoons",
+    "answer": 30000,
+    "explanation": "150 litres is 150,000 ml. At 5 ml a spoon, that's 30,000 teaspoons, or a very long evening.",
+    "sheet": "bath = 150 * 1000   # ml\nbath / 5"
+  },
+  {
+    "id": "practice-birthday",
+    "question": "How many days old is someone on their 30th birthday?",
+    "unit": "days",
+    "answer": 10957,
+    "explanation": "30 years of 365 days is 10,950, plus a leap day about every 4 years: 7 or 8 of them, depending on the years.",
+    "sheet": "years = 30\nleap_days = 7   # one every 4 years\nyears * 365 + leap_days"
+  }
+]
