@@ -1,7 +1,9 @@
 name: Dependabot auto-merge
 
 # Patch and minor updates merge by themselves once the required `ci-ok` check passes
-# (needs "Allow auto-merge" + branch protection on master; see README). Majors wait for a human.
+# (needs "Allow auto-merge" + branch protection on master; see README). Majors wait for a human, and so does
+# FerMEANie's voice-engine group whatever its version: it changes how she sounds, so someone listens first
+# (content/VOICE.md, Dependencies).
 
 on: pull_request_target
 
@@ -18,8 +20,11 @@ jobs:
         uses: dependabot/fetch-metadata@v3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Enable auto-merge for patch and minor updates
-        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+      - name: Enable auto-merge for patch and minor updates (not her voice engine)
+        if: >-
+          steps.meta.outputs.dependency-group != 'voice-engine' &&
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+           steps.meta.outputs.update-type == 'version-update:semver-minor')
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

@@ -25,7 +25,10 @@ describe('FermeanieSays and her voice', () => {
     const starts = messageStarts(msgs, { paced: true })
     await w.setProps({ now: starts[0] + 50 })
     await w.setProps({ now: starts[0] + 400 })
-    expect(said).toEqual([{ keys: ['k1', 'k2'], late: expect.closeTo(50, -1), aside: false }])
+    // late: 50 ms by the clock, plus up to SMOOTH_MAX_MS of real time the bubble smooths in between ticks
+    expect(said).toEqual([{ keys: ['k1', 'k2'], late: expect.any(Number), aside: false }])
+    expect(said[0].late).toBeGreaterThanOrEqual(50)
+    expect(said[0].late).toBeLessThan(50 + 250)
     await w.setProps({ now: starts[1] + 20 })
     expect(said.map((s) => s.keys)).toEqual([['k1', 'k2'], ['k3']])
   })
@@ -42,7 +45,9 @@ describe('FermeanieSays and her voice', () => {
     const { player, said } = fakeVoice()
     const w = at(player, 0, { messages: undefined, text: msgs[1], aside: true })
     await w.setProps({ now: leadDuration(msgs[1].length) + 10 })
-    expect(said).toEqual([{ keys: ['k3'], late: expect.closeTo(10, -1), aside: true }])
+    expect(said).toEqual([{ keys: ['k3'], late: expect.any(Number), aside: true }])
+    expect(said[0].late).toBeGreaterThanOrEqual(10)
+    expect(said[0].late).toBeLessThan(10 + 250)
   })
 
   it('never voices (or paces) a bubble on its own clock: the lobby, recaps', async () => {
