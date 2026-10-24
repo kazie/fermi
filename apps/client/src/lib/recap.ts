@@ -3,6 +3,8 @@ import type { FinalView, RevealCard, RevealedQuestion, RevealView } from '@fermi
 /** A finished game as /api/games/:id returns it. */
 export interface RecapRound {
   index: number
+  /** The final round: its points counted this many times. */
+  multiplier?: number
   question: RevealedQuestion
   cards: Omit<RevealCard, 'at'>[]
   crowd: RevealView['crowd']

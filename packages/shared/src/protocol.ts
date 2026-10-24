@@ -205,6 +205,8 @@ export interface QuestionView {
   line: string
   /** The intro's example question: no points, and the real game starts after its reveal. */
   practice?: true
+  /** The final question: every point counts this many times (left out on ordinary rounds). */
+  multiplier?: number
 }
 
 export interface RevealCard {
@@ -232,6 +234,8 @@ export interface RevealView {
   total: number
   /** The intro's example question: the points are what it would have scored, and nobody keeps them. */
   practice?: true
+  /** The final question: its points (and any steal) counted this many times (left out on ordinary rounds). */
+  multiplier?: number
   question: RevealedQuestion
   timeline: {
     startedAt: number
@@ -319,6 +323,8 @@ export interface BreakView {
    * of connected players). Missing with host pacing: the break lasts until the host taps Next.
    */
   timed?: { endsAt: number; votes: number; needed: number; youVoted: boolean }
+  /** The next question counts this many times (the final one): said in the break, to build the tension. */
+  nextMultiplier?: number
 }
 
 export interface RoomView {

@@ -18,6 +18,7 @@ const screens = [
   { title: 'Intro: roll call', story: 'introsequence', variant: 1 },
   { title: 'Intro: rule', story: 'introsequence', variant: 4 },
   { title: 'Intro: example question', story: 'questionscreen', variant: 7 },
+  { title: 'Final question (double points)', story: 'questionscreen', variant: 8 },
 ]
 const devices = [
   { label: 'Small phone', w: 360, h: 740, scale: 0.75 },

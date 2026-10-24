@@ -5,6 +5,7 @@ import { describeOff, flippedCount, revealStage, stealPlan } from '@/lib/reveal'
 import { S } from '@/lib/strings'
 import type { Release } from '@/lib/version'
 import AnswerCard from './AnswerCard.vue'
+import DoubleBadge from './DoubleBadge.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import LogNumberLine from './LogNumberLine.vue'
 import Scoreboard from './Scoreboard.vue'
@@ -106,8 +107,11 @@ watch([stage, flipped], async () => {
   <div ref="root" class="reveal" :class="{ stealing, narrow }">
     <StealFx v-if="plan && atLeast('fermeanie')" :root="root" :t="ferT" :starts="plan.starts" :points="stolenPoints" />
     <header class="q">
-      <span v-if="reveal.practice" class="eyebrow practice">{{ S.practice }} · reveal</span>
-      <span v-else class="eyebrow">Round {{ reveal.index + 1 }} of {{ reveal.total }} · reveal</span>
+      <div class="eyebrow-row">
+        <span v-if="reveal.practice" class="eyebrow practice">{{ S.practice }} · reveal</span>
+        <span v-else class="eyebrow">Round {{ reveal.index + 1 }} of {{ reveal.total }} · reveal</span>
+        <DoubleBadge v-if="reveal.multiplier" :multiplier="reveal.multiplier" />
+      </div>
       <h2>{{ reveal.question.question }}</h2>
       <span class="muted">in {{ reveal.question.unit }}</span>
     </header>
@@ -216,7 +220,7 @@ watch([stage, flipped], async () => {
           :fermeanie-before="fermeanieBefore"
           :fermeanie-after="reveal.fermeanieScoreAfter"
           :you="you"
-          :title="`Scores after round ${reveal.index + 1}`"
+          :title="S.scoresAfter(reveal.index, reveal.multiplier)"
         />
         <p v-if="!reveal.practice && atLeast('scoreboard')" class="muted center next">
           {{ isLast ? 'Final results' : 'Next question' }} in {{ nextIn }}s…

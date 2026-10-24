@@ -150,11 +150,11 @@ export const SHEETS = {
 export function revealFor(
   question: RevealedQuestion,
   sheets: (string | null)[],
-  opts: { lines?: Partial<RevealView['lines']>; scores?: number[] } = {},
+  opts: { lines?: Partial<RevealView['lines']>; scores?: number[]; multiplier?: number } = {},
 ): RevealView {
   const ps = players(sheets.length)
   const entries = sheets.map((s, i) => ({ playerId: ps[i].id, value: s === null || !s.trim() ? null : evaluateSheet(s).answer }))
-  const score = scoreRound(question.answer, entries)
+  const score = scoreRound(question.answer, entries, opts.multiplier)
   const crowd = crowdEstimate(entries.map((e) => e.value))
   const name = (id: string) => ps.find((p) => p.id === id)!.name
   const tier = (x: (typeof score.results)[number]) => (x.value === null ? 0 : x.err === null ? 1 : 2)
@@ -243,6 +243,15 @@ export const reveals = {
     })
     return { ...r, index: 0, practice: true as const }
   },
+  /** The final round: double points, and the swarm steals double too. */
+  final: () => ({
+    ...revealFor(QUESTION, [SHEETS.steal_hi, SHEETS.steal_lo, SHEETS.steal_mid, '600k'], {
+      multiplier: 2,
+      lines: { verdict: 'Double points, double steal. I’ll take all of it. For the archive.' },
+    }),
+    index: 9,
+    multiplier: 2,
+  }),
   /** Everyone locked in early, and Bob and Cyd gave the same answer. */
   twins: () =>
     revealFor(QUESTION, [SHEETS.good, '3M', '3M', SHEETS.close], {
@@ -275,7 +284,16 @@ export function finalView(fermeanieWon: boolean): FinalView {
 
 /** The discussion break after round 3: scores applied, the finished reveal still attached. */
 export function breakRoom(
-  opts: { votes?: number; youVoted?: boolean; left?: number; screens?: number; hostPaced?: boolean; host?: boolean } = {},
+  opts: {
+    votes?: number
+    youVoted?: boolean
+    left?: number
+    screens?: number
+    hostPaced?: boolean
+    host?: boolean
+    /** The break before the final question. */
+    beforeFinal?: boolean
+  } = {},
 ): RoomView {
   const reveal = reveals.normal()
   const ps = players(reveal.cards.length).map((p) => ({ ...p, score: reveal.scoresAfter[p.id] ?? 0 }))
@@ -287,9 +305,10 @@ export function breakRoom(
     screens: opts.screens ?? 0,
     fermeanie: { score: reveal.fermeanieScoreAfter, ...fermeanieRelease(7) },
     break: {
-      index: reveal.index,
+      index: opts.beforeFinal ? 8 : reveal.index,
       total: 10,
       startedAt: now,
+      ...(opts.beforeFinal ? { nextMultiplier: 2 } : {}),
       ...(opts.hostPaced
         ? { line: 'Still waiting for Ada. Take all the time you need. ~~Hurry.~~' }
         : {
@@ -381,6 +400,20 @@ export function introRoom(opts: { n?: number; mode?: IntroView['mode']; votes?: 
       skip: { votes: opts.votes ?? 0, needed: Math.floor(ps.length / 2) + 1, youVoted: !!opts.youVoted },
     },
   })
+}
+
+/** The final question: double points. */
+export function finalQuestionRoom(): RoomView {
+  const room = questionRoom()
+  return {
+    ...room,
+    round: {
+      ...room.round!,
+      index: 9,
+      multiplier: 2,
+      line: 'Final question, double points. Ada leads, Eve trails, and I am, as always, everyone’s average.',
+    },
+  }
 }
 
 /** The intro's example question, being answered. */

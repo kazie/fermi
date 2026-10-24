@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { formatCompact, type RoomView } from '@fermi/shared'
 import { S } from '@/lib/strings'
+import DoubleBadge from './DoubleBadge.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import RoundTimer from './RoundTimer.vue'
 import Scoreboard from './Scoreboard.vue'
@@ -40,7 +41,10 @@ const me = computed(() => props.room.players.find((p) => p.id === props.room.you
 <template>
   <div class="brk" :class="variant">
     <header class="head">
-      <span class="eyebrow">Round {{ br.index + 1 }} of {{ br.total }} done</span>
+      <div class="eyebrow-row">
+        <span class="eyebrow">Round {{ br.index + 1 }} of {{ br.total }} done{{ br.nextMultiplier ? ` · ${S.nextIsFinal}` : '' }}</span>
+        <DoubleBadge v-if="br.nextMultiplier" :multiplier="br.nextMultiplier" :big="variant === 'tv'" />
+      </div>
       <template v-if="timed">
         <h2>
           Discuss! Next question in <span class="mono secs">{{ secs }}s</span>

@@ -5,6 +5,7 @@ import { S } from '@/lib/strings'
 import { useMediaQuery } from '@/composables/useMediaQuery'
 import { useReadQuestion } from '@/composables/useVoice'
 import AnswerBlock from './AnswerBlock.vue'
+import DoubleBadge from './DoubleBadge.vue'
 import FermeanieSays from './FermeanieSays.vue'
 import PlayerStrip from './PlayerStrip.vue'
 import RoundTimer from './RoundTimer.vue'
@@ -134,10 +135,13 @@ function lock() {
     <div class="layout">
       <div class="main">
         <section v-show="!compact" class="question card">
-          <span v-if="round.practice" class="eyebrow practice">{{ S.practice }}</span>
-          <span v-else class="eyebrow"
-            >Question {{ round.index + 1 }} of {{ round.total }} · {{ round.question.category.replace(/-/g, ' ') }}</span
-          >
+          <div class="eyebrow-row">
+            <span v-if="round.practice" class="eyebrow practice">{{ S.practice }}</span>
+            <span v-else class="eyebrow"
+              >Question {{ round.index + 1 }} of {{ round.total }} · {{ round.question.category.replace(/-/g, ' ') }}</span
+            >
+            <DoubleBadge v-if="round.multiplier" :multiplier="round.multiplier" />
+          </div>
           <h1>{{ round.question.question }}</h1>
           <p class="unit">
             Answer in <strong>{{ round.question.unit }}</strong>

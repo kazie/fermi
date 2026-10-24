@@ -4,6 +4,7 @@ import type { RecapGame } from '@/lib/recap'
 import AnswerCard from './AnswerCard.vue'
 import DisputeForm from './DisputeForm.vue'
 import FermeanieAvatar from './FermeanieAvatar.vue'
+import DoubleBadge from './DoubleBadge.vue'
 import TruthPanel from './TruthPanel.vue'
 
 /** Every round of a finished game: the answer, its sources, everyone's working. Pure; the view fetches. */
@@ -31,8 +32,10 @@ const emit = defineEmits<{ dispute: [questionId: string, message: string] }>()
     </header>
     <section v-for="r in game.rounds" :key="r.index" class="round">
       <h2>
-        <span class="eyebrow">Round {{ r.index + 1 }}</span
-        ><br />
+        <span class="eyebrow-row"
+          ><span class="eyebrow">Round {{ r.index + 1 }}</span
+          ><DoubleBadge v-if="r.multiplier" :multiplier="r.multiplier"
+        /></span>
         {{ r.question.question }} <span class="muted unit">({{ r.question.unit }})</span>
       </h2>
       <div class="cols">

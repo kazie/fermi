@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BULLSEYE_BONUS, CLOSE_BONUS, RANK_POINTS, type Rule } from '@fermi/shared'
+import { BULLSEYE_BONUS, CLOSE_BONUS, FINAL_ROUND_MULTIPLIER, RANK_POINTS, type Rule } from '@fermi/shared'
 import { S } from '@/lib/strings'
 import FermeanieAvatar from './FermeanieAvatar.vue'
 import LogNumberLine from './LogNumberLine.vue'
@@ -30,6 +30,9 @@ const TIMES_OFF = [
         </li>
         <li>
           <span class="mono">+{{ BULLSEYE_BONUS }}</span> within 10%: a bullseye
+        </li>
+        <li>
+          <span class="mono">×{{ FINAL_ROUND_MULTIPLIER }}</span> on the final question, steal included
         </li>
       </ol>
       <div v-else class="swarm">

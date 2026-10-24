@@ -107,8 +107,8 @@ since the group has just heard the rules.
 
 **Scoring.** Error is measured in orders of magnitude (`|log10(guess / answer)|`), so 2× too high counts the same as
 2× too low. Points are `100 × (N − rank + 1)`, plus +100 for being within 10% or +50 for being within 2×. If
-FerMEANie's estimate beats every human (ties go to the humans), it takes all of that round's points. The best human
-wins the game; the tunable constants are in `packages/shared/src/scoring.ts` and `crowd.ts`.
+FerMEANie's estimate beats every human (ties go to the humans), it takes all of that round's points. The **final
+question counts double**: rank points and bonuses, and a steal too; FerMEANie announces it. The best human wins the game; the tunable constants are in `packages/shared/src/scoring.ts` and `crowd.ts`.
 
 ### The answer block
 

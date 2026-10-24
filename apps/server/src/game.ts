@@ -18,6 +18,7 @@ import {
   plainText,
   REVEAL_TIMING,
   revealChat,
+  roundMultiplier,
   RULES,
   SCOREBOARD_BEFORE_BREAK_MS,
   scoreRound,
@@ -108,6 +109,8 @@ interface RoundState {
   line: string
   /** The intro's example question: nothing is scored, saved or marked as seen. */
   practice?: true
+  /** How much its points count: 2 for the final question. */
+  multiplier: number
 }
 
 /**
@@ -575,6 +578,7 @@ export class Room {
       sheets: new Map(),
       line: this.game!.lines.pick('practice.question', {}),
       practice: true,
+      multiplier: 1,
     }
     this.reveal = null
     this.phase = 'question'
@@ -626,6 +630,7 @@ export class Room {
       participants: new Set(ids),
       sheets: new Map(),
       line: this.questionLine(index, participants.length),
+      multiplier: roundMultiplier(index, this.settings.rounds),
     }
     this.reveal = null
     this.phase = 'question'
@@ -676,8 +681,8 @@ export class Room {
     const names = this.standings(scores)
     const previous = this.game!.leader
     const call: LineCall =
-      index === this.settings.rounds - 1
-        ? { key: 'final_round', vars: names }
+      roundMultiplier(index, this.settings.rounds) > 1
+        ? { key: 'final_round_double', vars: names }
         : names.leader && previous && names.leader !== previous
           ? { key: 'lead_change', vars: { name: names.leader, previous } }
           : { key: 'quip', vars: names }
@@ -762,7 +767,7 @@ export class Room {
       const text = texts.get(id)!
       return { playerId: id, value: text.trim() ? evaluateSheet(text).answer : null }
     })
-    const score = scoreRound(q.answer, entries)
+    const score = scoreRound(q.answer, entries, r.multiplier)
     const name = (id: string) => this.players.get(id)?.name ?? '???'
 
     // Furthest first: no answer, then infinitely wrong (≤ 0), then by error descending.
@@ -863,6 +868,7 @@ export class Room {
       index: r.index,
       total: this.settings.rounds,
       ...(r.practice ? { practice: true as const } : {}),
+      ...(r.multiplier > 1 ? { multiplier: r.multiplier } : {}),
       question: toRevealed(q),
       timeline: {
         startedAt: start,
@@ -943,6 +949,7 @@ export class Room {
     const rounds = row ? JSON.parse(row.rounds) : []
     rounds.push({
       index: rv.index,
+      ...(rv.multiplier ? { multiplier: rv.multiplier } : {}),
       question: rv.question,
       cards: rv.cards.map(({ at: _at, ...c }) => c),
       crowd: rv.crowd,
@@ -1247,6 +1254,7 @@ export class Room {
               endsAt: r.endsAt,
               line: r.line,
               ...(r.practice ? { practice: true as const } : {}),
+              ...(r.multiplier > 1 ? { multiplier: r.multiplier } : {}),
             },
             ...(r.participants.has(forId) ? { yourSheet: { text: mine?.text ?? '', locked: !!mine?.locked } } : {}),
           }
@@ -1259,6 +1267,9 @@ export class Room {
               total: this.settings.rounds,
               startedAt: this.breakState.startedAt,
               line: this.breakLine(this.breakState),
+              ...(roundMultiplier(this.breakState.index + 1, this.settings.rounds) > 1
+                ? { nextMultiplier: roundMultiplier(this.breakState.index + 1, this.settings.rounds) }
+                : {}),
               ...(this.breakState.timed && {
                 timed: { endsAt: this.breakState.timed.endsAt, ...skipView(this.tally(this.breakState.timed.votes, forId)) },
               }),
