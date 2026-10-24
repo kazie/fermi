@@ -2,6 +2,8 @@
 // so a story's numbers are what the server would send.
 
 import {
+  AWARD_TIMING,
+  awardDuration,
   chatDelay,
   crowdEstimate,
   evaluateSheet,
@@ -11,6 +13,7 @@ import {
   scoreRound,
   stolenCards,
   type CallView,
+  type FinalAward,
   type FinalView,
   type IntroStep,
   type IntroView,
@@ -265,15 +268,14 @@ export const reveals = {
     }),
 }
 
-/** Three awards, read out 6 s apart after a 1.5 s beat, then the crown. */
-export const AWARDS_DEMO: FinalView['awards'] = [
+/** Three awards, read out after a beat, each for as long as the server would hold it, then the crown. */
+const AWARD_LINES: Omit<FinalAward, 'at'>[] = [
   {
     kind: 'swarm_slayer',
     playerId: 'p1',
     name: 'Bob',
     value: 4,
     line: 'The Swarm Slayer award goes to Bob, who beat me 4 times. I’ve reviewed the footage. I still don’t accept it.',
-    at: T0 + 1500,
   },
   {
     kind: 'abacus',
@@ -281,7 +283,6 @@ export const AWARDS_DEMO: FinalView['awards'] = [
     name: 'Ada',
     value: 6,
     line: 'The Abacus award goes to Ada: 6 lines of working per answer. Some people estimate. You file paperwork.',
-    at: T0 + 7500,
   },
   {
     kind: 'bold_estimator',
@@ -289,9 +290,14 @@ export const AWARDS_DEMO: FinalView['awards'] = [
     name: 'Cyd',
     value: 32_000,
     line: 'Bold Estimator: Cyd. Others guessed. You made a statement.',
-    at: T0 + 13_500,
   },
 ]
+export const AWARDS_DEMO: FinalAward[] = []
+let awardsEnd = T0 + AWARD_TIMING.lead
+for (const a of AWARD_LINES) {
+  AWARDS_DEMO.push({ ...a, at: awardsEnd })
+  awardsEnd += awardDuration(a.line)
+}
 
 export function finalView(fermeanieWon: boolean): FinalView {
   return {
@@ -306,7 +312,7 @@ export function finalView(fermeanieWon: boolean): FinalView {
     fermeanieWon,
     startedAt: T0,
     awards: AWARDS_DEMO,
-    crownAt: T0 + 1500 + 3 * 6000,
+    crownAt: awardsEnd,
     ...fermeanieRelease(fermeanieWon ? 10 : 9),
     line: fermeanieWon
       ? 'Congratulations, Ada. You are the best of the humans. That is like being the tallest blade of grass. FerMEANie v3.14159 thanks you for your data.'

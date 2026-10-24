@@ -1,5 +1,5 @@
-import { onUnmounted, ref, shallowRef } from 'vue'
-import type { ClientMessage, Reaction, RoomView, ServerMessage } from '@fermi/shared'
+import { computed, onUnmounted, ref, shallowRef, type Ref } from 'vue'
+import { reactionRest, reactionSent, type ClientMessage, type Reaction, type RoomView, type ServerMessage } from '@fermi/shared'
 import { playerKey } from '@/lib/storage'
 
 export type SocketStatus = 'connecting' | 'open' | 'reconnecting' | 'closed'
@@ -12,12 +12,40 @@ export const PROBE_MS = 3000
 /** How long a reaction floats on screen (ms). */
 export const REACTION_SHOW_MS = 3000
 
+/** How much later than the server's limit a phone sends its next reaction (ms), for clock error. */
+const REACT_SLACK_MS = 150
+
 /** A reaction as the floating layer shows it: who, which emoji, and when it arrived (server ms). */
 export interface FloatingReaction {
   id: number
   playerId: string
   emoji: Reaction
   t: number
+}
+
+/** `list` with a reaction that just arrived, dropping those done floating. */
+export const addReaction = (list: FloatingReaction[], r: FloatingReaction) => [...list.filter((x) => r.t - x.t < REACTION_SHOW_MS), r]
+
+/** A rest the reaction bar shows (server ms), and when it first showed (`seen`), so its refill can start part-way. */
+export interface ReactRest {
+  from: number
+  until: number
+  burst: boolean
+  seen: number
+}
+
+/**
+ * The rest showing at `now`, or null. It stays the same object while it lasts, so the bar redraws only when a rest
+ * starts and ends, and the clock isn't even read until there's been a reaction.
+ */
+export function restShowing(rest: () => { from?: number; until: number; burst: boolean }, now: Ref<number>) {
+  let shown: ReactRest | null = null
+  return computed(() => {
+    const { from, until, burst } = rest()
+    if (from === undefined || now.value >= until) return (shown = null)
+    if (shown?.from !== from || shown.until !== until) shown = { from, until, burst, seen: now.value }
+    return shown
+  })
 }
 
 /** One websocket per room page. Reconnects with backoff; the server resends a full snapshot each time. */
@@ -29,6 +57,15 @@ export function useSocket(code: string, opts: { screen?: boolean } = {}) {
   /** Recent emoji reactions (newest last), for the floating layer. */
   const reactions = shallowRef<FloatingReaction[]>([])
   let reactionId = 0
+  /** Called with each reaction as it arrives (sounds, without diffing the list). */
+  const reactionListeners: ((r: FloatingReaction) => void)[] = []
+  /**
+   * When this player last reacted, on the server's clock: from each snapshot (`yourReactions`), then from our own
+   * reactions coming back. So the bar rests as long as the server would drop another. A tap waits for its echo (since
+   * when: `reactPending`); one the server drops brings the list back instead.
+   */
+  const reacted = shallowRef<number[]>([])
+  const reactPending = ref<number | null>(null)
   const status = ref<SocketStatus>('connecting')
   const fatal = ref<string | null>(null)
   const lastError = ref<string | null>(null)
@@ -86,10 +123,20 @@ export function useSocket(code: string, opts: { screen?: boolean } = {}) {
         if (bestRtt === Infinity) offset.value = msg.serverNow - Date.now()
         room.value = msg.room
         voiceReady.value = [] // the snapshot lists every ready clip itself
+        reacted.value = msg.room.yourReactions ?? []
+        reactPending.value = null
       } else if (msg.type === 'reaction') {
         // a short-lived list: each reaction floats up for a few seconds, then it's dropped
-        const t = Date.now() + offset.value
-        reactions.value = [...reactions.value.filter((r) => t - r.t < REACTION_SHOW_MS), { ...msg, id: ++reactionId, t }]
+        const r = { id: ++reactionId, playerId: msg.playerId, emoji: msg.emoji, t: Date.now() + offset.value }
+        reactions.value = addReaction(reactions.value, r)
+        if (msg.playerId === room.value?.you) {
+          reacted.value = reactionSent(reacted.value, msg.at)
+          reactPending.value = null
+        }
+        for (const f of reactionListeners) f(r)
+      } else if (msg.type === 'reactions') {
+        reacted.value = msg.yourReactions
+        reactPending.value = null
       } else if (msg.type === 'voice') {
         voiceReady.value = [...voiceReady.value, ...msg.ready]
       } else if (msg.type === 'pong') {
@@ -203,5 +250,20 @@ export function useSocket(code: string, opts: { screen?: boolean } = {}) {
     ws?.close()
   })
 
-  return { room, voiceReady, status, fatal, lastError, offset, send, reactions }
+  /** The reaction bar's rest (server ms): from the last reaction until the next is allowed; indefinite while one is on its way. */
+  const reactRest = computed(() => {
+    if (reactPending.value !== null) return { from: reactPending.value, until: Infinity, burst: false }
+    return { from: reacted.value.at(-1), ...reactionRest(reacted.value) }
+  })
+  /** Sends a reaction, unless the bar is resting. */
+  function react(emoji: Reaction) {
+    const now = Date.now() + offset.value
+    // a little slack: our estimate of the server's clock can be off by part of a round trip
+    if (now < reactRest.value.until + REACT_SLACK_MS) return
+    reactPending.value = now
+    send({ type: 'react', emoji })
+  }
+  const onReaction = (f: (r: FloatingReaction) => void) => reactionListeners.push(f)
+
+  return { room, voiceReady, status, fatal, lastError, offset, send, reactions, onReaction, reactRest, react }
 }

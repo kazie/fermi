@@ -36,9 +36,10 @@ docker run -d -p 3000:3000 -v fermi-data:/data -e FERMI_ADMIN_TOKEN=… fermi
 One container serves the client, the websocket and the API; the SQLite database lives in `/data`. See
 [Self-hosting](#self-hosting) for the settings.
 
-**Sound.** The speaker in the header turns sound on for that device. Sound effects are synthesised in the browser
-(no audio files): a lab-style chime for each question, a ticking last five seconds and a time's-up alarm, the truth
-landing, cards flipping, the steal, the winner. Where sound plays depends on the mode:
+**Sound.** Sound is on by default, from the first tap (browsers won't play anything before one); the big screen asks
+for a click until it gets one. The speaker in the header turns it off for that device. Sound effects are synthesised
+in the browser (no audio files): a lab-style chime for each question, a ticking last five seconds and a time's-up
+alarm, the truth landing, cards flipping, the steal, the winner, and each emoji reaction its own little noise. Where sound plays depends on the mode:
 
 - **Online** (no big screen): every device plays everything.
 - **Party** (a big screen is connected): the big screen plays FerMEANie's voice and the shared sounds, and phones play
@@ -340,6 +341,8 @@ pnpm check          # what CI checks: format, lint, types, unit tests
 pnpm test:e2e       # Playwright: three browsers (one emulating a phone) play a whole game
 pnpm test:e2e:video # the same with FerMEANie's voice, recording each browser to test-results/<test>/videos/ (no sound)
                     # PW_VIDEO=1 / FERMI_VOICE=1 do either alone; the voice needs uv and ffmpeg
+# to watch (and hear) a game: FERMI_TIME_SCALE=1 FERMI_VOICE=1 pnpm exec playwright test --headed -g "big screen"
+# (PW_SLOWMO=500 adds a pause before every click and keystroke)
 pnpm format         # Prettier (pnpm format:check to only check)
 pnpm lint           # ESLint for TS + Vue (pnpm lint:fix to autofix)
 pnpm story:dev      # Histoire stories for every component; "Screens / Devices" shows each screen at 360, 390 and 1280 px

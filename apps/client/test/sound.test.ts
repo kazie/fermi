@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RoomView } from '@fermi/shared'
-import { audible, cuesBetween, soundRoute } from '../src/lib/sound'
+import { audible, cuesBetween, reactionCues, soundRoute } from '../src/lib/sound'
 import { asScreen, introRoom, questionRoom, reveals, revealRoom, T0 } from '../src/fixtures/rooms'
 
 const cues = (prev: RoomView | null, room: RoomView, from: number, now: number) => cuesBetween(prev, room, from, now).map((e) => e.cue)
@@ -60,5 +60,37 @@ describe('cues', () => {
     expect(cues(room, room, T0 - 1, T0)).toEqual(['intro'])
     expect(cuesBetween(room, room, steps[1].at - 1, steps[1].at)).toEqual([{ cue: 'rollCall' }, { cue: 'yourTurn', personal: true }])
     expect(cues(room, room, steps[2].at - 1, steps[2].at)).toEqual(['rollCall'])
+  })
+})
+
+describe('reaction sounds', () => {
+  const hear = (route: 'all' | 'personal', events: [string, number][]) => {
+    const heard = { last: -Infinity }
+    return events.map(([playerId, t]) => audible(reactionCues({ playerId, emoji: '👏' }, 'me', t, heard), route).map((e) => e.cue))
+  }
+
+  it("plays each emoji's own sound where everything plays, plus a click for your own; a phone at a party only the click", () => {
+    expect(
+      hear('all', [
+        ['ann', 0],
+        ['me', 500],
+      ]),
+    ).toEqual([['reaction'], ['reaction', 'youReacted']])
+    expect(
+      hear('personal', [
+        ['ann', 0],
+        ['me', 500],
+      ]),
+    ).toEqual([[], ['youReacted']])
+  })
+
+  it("doesn't stack a burst, but your own tap is always heard", () => {
+    const heard = hear('all', [
+      ['ann', 0],
+      ['bob', 30],
+      ['me', 40],
+      ['bob', 200],
+    ])
+    expect(heard.map((cues) => cues.length > 0)).toEqual([true, false, true, true])
   })
 })

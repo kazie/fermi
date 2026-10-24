@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { chatDuration, plainText } from '@fermi/shared'
 import { finalView, T0 } from '@/fixtures/rooms'
 import FinalScreen from './FinalScreen.vue'
 
 const ceremony = finalView(false)
-const t = ref(ceremony.awards[1].at - T0 + 3000)
+// opens on the second award, its line fully typed out
+const second = ceremony.awards[1]
+const t = ref(second.at - T0 + chatDuration([plainText(second.line)]) + 300)
 </script>
 
 <template>

@@ -112,6 +112,8 @@ export const S = {
     tally: (right: number, made: number) => `${right} of ${made} called it`,
   },
   react: 'React',
+  /** After a burst of reactions, the bar rests for a while. */
+  reactRest: 'Let the lab air out… 🧪',
   lookUp: 'Look at the big screen',
   controllerView: 'Controller',
   fullView: 'Full view',
@@ -135,6 +137,10 @@ export const S = {
   reconnecting: 'Reconnecting…',
   soundOn: 'Sound is on. Tap to mute FerMEANie and the sound effects.',
   soundOff: 'Turn sound on: FerMEANie and sound effects on this device',
+  /** Sound is on but the browser waits for a tap (a TV nobody has touched yet). */
+  soundLocked: (tv: boolean) => `🔊 ${tv ? 'Click' : 'Tap'} anywhere for sound: FerMEANie talks!`,
+  /** Sound was turned off on this device. */
+  soundMuted: '🔈 Sound is off, and FerMEANie has a lot to say. Turn it on',
   spectating: 'You joined mid-round. You’re in from the next question!',
   noAnswer: 'No answer',
   yourAnswer: 'Your answer',

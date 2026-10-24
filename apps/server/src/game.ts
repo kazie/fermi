@@ -29,9 +29,12 @@ import {
   awardLineCall,
   type Call,
   type CallView,
-  REACTION_GAP_MS,
+  reactionRest,
+  REACTION_WINDOW_MS,
+  reactionSent,
   type AwardKind,
   AWARD_TIMING,
+  awardDuration,
   MAX_AWARDS,
   type FinalAward,
   type FinalView,
@@ -100,8 +103,8 @@ interface Player {
   played: boolean
   joinedAt: number
   dropTimer?: ReturnType<typeof setTimeout>
-  /** When they last reacted (server ms): reactions are rate-limited. */
-  lastReactAt?: number
+  /** When they last reacted (server ms, oldest first): reactions are rate-limited. */
+  reactedAt: number[]
 }
 
 interface Sheet {
@@ -280,6 +283,7 @@ export class Room {
         spectating: false,
         played: false,
         joinedAt: this.now(),
+        reactedAt: [],
       }
       this.players.set(playerId, p)
     }
@@ -467,9 +471,13 @@ export class Room {
       case 'react': {
         if ((this.phase !== 'reveal' && this.phase !== 'break') || p.name === null) return
         const now = this.now()
-        if (p.lastReactAt !== undefined && now - p.lastReactAt < REACTION_GAP_MS) return
-        p.lastReactAt = now
-        this.sendAll({ type: 'reaction', playerId, emoji: msg.emoji })
+        // too soon: their phone guessed wrong, so it gets the truth back
+        if (now < reactionRest(p.reactedAt).until) {
+          for (const c of p.conns) c.send({ type: 'reactions', yourReactions: p.reactedAt })
+          return
+        }
+        p.reactedAt = reactionSent(p.reactedAt, now)
+        this.sendAll({ type: 'reaction', playerId, emoji: msg.emoji, at: now })
         return
       }
       case 'skip_break': {
@@ -769,6 +777,13 @@ export class Room {
   /** With a voice, her chat waits for her to finish each message (on every device, so all stay in step). */
   private get paced() {
     return !!this.deps.voice
+  }
+
+  /** When this player last reacted, if it still limits them (a reloaded phone shows the cooldown). */
+  private recentReactions(id: string): { yourReactions?: number[] } {
+    const now = this.now()
+    const sent = this.players.get(id)?.reactedAt.filter((t) => t > now - REACTION_WINDOW_MS)
+    return sent?.length ? { yourReactions: sent } : {}
   }
 
   /** The players, best first; with `scores`, as a reveal is about to leave them. */
@@ -1125,7 +1140,7 @@ export class Room {
       const name = this.playerName(a.playerId)
       const line = this.take(awardSlot(i), awardLineCall(a, name, formatFactor) as LineCall)
       const award = { ...a, name, line, at: Math.round(t) }
-      t += Math.max(AWARD_TIMING.each * k, lineDuration(plainText(line), this.paced))
+      t += awardDuration(line, { paced: this.paced, k })
       return award
     })
     return { awards, crownAt: Math.round(t) }
@@ -1380,6 +1395,7 @@ export class Room {
           ? { reveal: this.reveal }
           : {}),
       ...(this.phase === 'reveal' && this.calls.has(forId) ? { yourCall: this.calls.get(forId) } : {}),
+      ...((this.phase === 'reveal' || this.phase === 'break') && this.recentReactions(forId)),
       ...(this.phase === 'break' && this.breakState
         ? {
             break: {
