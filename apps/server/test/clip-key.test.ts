@@ -31,8 +31,10 @@ describe('voiceFingerprint', () => {
     expect(voiceFingerprint(config.replace('"speed":1', '"speed":1.1'), lock(base))).not.toBe(f)
     expect(voiceFingerprint(config, lock({ ...base, numpy: '2.5.0' }))).toBe(f)
   })
-  it("refuses an engine package the lock doesn't have", () => {
-    expect(() => voiceFingerprint(config, lock({ numpy: '2.4.6' }))).toThrow(/kokoro-onnx/)
+  it('counts an engine package a newer engine dropped as gone (new keys), without breaking', () => {
+    const dropped = voiceFingerprint(config, lock({ 'kokoro-onnx': '0.4.9', numpy: '2.4.6' }))
+    expect(dropped).not.toBe(voiceFingerprint(config, lock(base)))
+    expect(JSON.parse(dropped).engine).toEqual({ 'kokoro-onnx': '0.4.9', onnxruntime: null })
   })
   it('matches the real voice.json and uv.lock', () => {
     expect(JSON.parse(voiceFingerprint()).engine).toHaveProperty('kokoro-onnx')

@@ -55,7 +55,11 @@ class Kokoro:
     """Kokoro-82M through kokoro-onnx. Another engine would be another class like this one (see ENGINES)."""
 
     def __init__(self, config: dict, models: Path):
+        import onnxruntime
         from kokoro_onnx import Kokoro as Model
+
+        # errors only: the fp16 model makes onnxruntime warn, harmlessly, about every node it can't pre-compute on a CPU
+        onnxruntime.set_default_logger_severity(3)
 
         onnx = fetch(config["model"]["onnx"], models)
         voices = fetch(config["model"]["voices"], models)
@@ -83,6 +87,17 @@ class Kokoro:
 
 
 ENGINES = {"kokoro": Kokoro}
+
+
+def installed(names: list[str]) -> dict[str, str | None]:
+    """The installed version of each package (None if it isn't: a newer engine may have dropped one)."""
+    versions: dict[str, str | None] = {}
+    for name in names:
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = None
+    return versions
 
 
 def ffmpeg(args: list[str], audio: np.ndarray | None = None) -> bytes:
@@ -131,8 +146,7 @@ def main() -> None:
         print("warm", flush=True)
         return
 
-    versions = {name: importlib.metadata.version(name) for name in config.get("engineDeps", [])}
-    print(json.dumps({"ready": True, "versions": versions}), flush=True)
+    print(json.dumps({"ready": True, "versions": installed(config.get("engineDeps", []))}), flush=True)
     for line in sys.stdin:
         if not line.strip():
             continue

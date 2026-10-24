@@ -9,18 +9,18 @@ play time. This file records what was chosen and why, how it works, and how to c
 The settings live in [`voice/voice.json`](voice/voice.json); every field is described below. They were picked by ear in
 three audition rounds (October 2026), comparing engines, voices, blends, effects and pronunciations.
 
-| Setting      | Value                                        | Why                                                                        |
-| ------------ | -------------------------------------------- | -------------------------------------------------------------------------- |
-| `engine`     | `kokoro`: Kokoro-82M (Apache-2.0)            | Best free quality that runs on a CPU; through `kokoro-onnx` in Python      |
-| `model`      | `kokoro-v1.0.int8.onnx`, `voices-v1.0.bin`   | Their download URLs and sha256: the exact files, checked on every start    |
-| `engineDeps` | kokoro-onnx, onnxruntime, espeak, phonemizer | The packages whose versions shape the sound (part of every clip's key)     |
-| `blend`      | 0.4 × `af_nicole` + 0.6 × `bf_emma`          | A mix of two voice styles (style vectors added with these weights)         |
-| `lang`       | `en-gb`                                      | British pronunciation rules (espeak), preferred over American              |
-| `speed`      | 1.0                                          |                                                                            |
-| `pronounce`  | FerMEANie → `fɚmˈiːni` (fer-MEAN-ie)         | Kokoro says "fer-mee-NIGH" on its own; see below                           |
-| `effects`    | "robot smooth": an ffmpeg filter chain       | She is a bot, so robotic is charming, and it hides the joins between clips |
-| `loudnessDb` | -19                                          | Every clip at the same loudness (RMS), with peaks kept below clipping      |
-| `opusKbps`   | 32                                           | Opus is plenty for speech at this rate; MP3 is the fallback                |
+| Setting      | Value                                                    | Why                                                                        |
+| ------------ | -------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `engine`     | `kokoro`: Kokoro-82M (Apache-2.0)                        | Best free quality that runs on a CPU; through `kokoro-onnx` in Python      |
+| `model`      | `kokoro-v1.0.fp16.onnx` (v1.1 export), `voices-v1.0.bin` | Near-lossless (fp16); URLs and sha256 checked on every start               |
+| `engineDeps` | kokoro-onnx, onnxruntime, espeakng-loader                | The packages whose versions shape the sound (part of every clip's key)     |
+| `blend`      | 0.4 × `af_nicole` + 0.6 × `bf_emma`                      | A mix of two voice styles (style vectors added with these weights)         |
+| `lang`       | `en-gb`                                                  | British pronunciation rules (espeak), preferred over American              |
+| `speed`      | 1.0                                                      |                                                                            |
+| `pronounce`  | FerMEANie → `fɚmˈiːni` (fer-MEAN-ie)                     | Kokoro says "fer-mee-NIGH" on its own; see below                           |
+| `effects`    | "robot smooth": an ffmpeg filter chain                   | She is a bot, so robotic is charming, and it hides the joins between clips |
+| `loudnessDb` | -19                                                      | Every clip at the same loudness (RMS), with peaks kept below clipping      |
+| `opusKbps`   | 32                                                       | Opus is plenty for speech at this rate; MP3 is the fallback                |
 
 **The effect chain**, in order: FFT robotisation (`afftfilt` keeps each frequency bin's magnitude and zeroes its
 phase, window 1024 for a smooth buzz rather than a harsh one), a 6% higher pitch at the same speed (`asetrate` +
@@ -32,6 +32,7 @@ phase, window 1024 for a smooth buzz rather than a harsh one), a 6% higher pitch
 **Turned down in the auditions:**
 
 - Paid services (ElevenLabs, OpenAI, Cartesia, Hume…): good voices, but the decision was to stay free and local.
+- int8 model files: rougher than fp16 (the v1.1 int8 export also rendered slowest); see Model precision below.
 - Piper: fast, but it didn't sound good.
 - Male voices: FerMEANie is female, like GLaDOS.
 - Other blends (nicole/emma 80/20, 60/40, 50/50; three-voice mixes with heart or sky), American rules, speeds 0.9
@@ -147,7 +148,7 @@ To update by hand: `uv lock --upgrade-package <name> --project apps/server/voice
 match the lock.
 
 **Dependabot** opens a monthly PR for the Python packages (label `voice`). The packages that shape her sound (the
-`voice-engine` group: kokoro-onnx, onnxruntime, espeakng-loader, phonemizer-fork) come in a PR of their own. Before
+`voice-engine` group: kokoro-onnx, onnxruntime, espeakng-loader) come in a PR of their own. Before
 merging one:
 
 1. Listen. Play a game with sound on, or render the audition script: `pnpm test:e2e:video` doesn't help, because its
@@ -155,8 +156,11 @@ merging one:
 2. Merging changes the fingerprint, so every clip gets a new key. The server's sweep renders everything again (about
    20 minutes on a fast machine, about 40 on a small server). Or render ahead with `pnpm voice:render` on another machine (so the server stays free) and rsync the folder.
 
-kokoro-onnx was locked at 0.4.9, the version the voice was auditioned with; newer versions exist, so the first
-`voice-engine` PR is worth a listen.
+**Model precision** (October 2026, kokoro-onnx 0.6.1, `model-files-v1.1`): the same lines were rendered with the
+int8, fp16 and full (fp32) exports of the same model, and with the earlier int8 file. fp16 sounded best; the v1.1
+int8 sounded rough and was the slowest (about 2.3× fp16's render time on the small server). fp16 renders as fast as
+the earlier int8 did, on a workstation and on a small server, and is half the size of fp32 with near-identical
+output (the release measures 0.999 spectral correlation against fp32, 0.916 for int8).
 
 ## Changing to another model
 
