@@ -54,8 +54,25 @@ export const ROOM_CODE_RE = /^[A-Z]{4}$/
 /** A player's private key (never shown to other players): 32 random bytes, base64url. */
 export const KEY_RE = /^[A-Za-z0-9_-]{32,128}$/
 
+/** The emoji reactions players can send during the reveal and the break. */
+export const REACTIONS = ['🧪', '🔥', '😬', '👏', '💀', '🎯'] as const
+export type Reaction = (typeof REACTIONS)[number]
+/** The least time between two reactions from one player (ms). */
+export const REACTION_GAP_MS = 700
+
+/** The call at the start of a reveal: is the truth higher or lower than your answer? */
+export const CALLS = ['higher', 'lower'] as const
+export type Call = (typeof CALLS)[number]
+/** Whether a call was right, from your card's direction (your answer was too high: the truth is lower); null if spot on. */
+export function callRight(call: Call | undefined, direction: 'high' | 'low' | 'exact' | null): boolean | null {
+  if (!call || !direction || direction === 'exact') return null
+  return call === (direction === 'high' ? 'lower' : 'higher')
+}
+
 /** Reveal pacing (ms). Shared so the lobby can estimate the game length. */
 export const REVEAL_TIMING = {
+  /** The call: everyone's answers as anonymous dots, before the truth lands. */
+  call: 5000,
   numberLine: 2500,
   truth: 4500,
   cardEach: 3500,
@@ -112,7 +129,7 @@ export const TYPICAL_FERMEANIE_MS = fermeanieStageMs({ dunce: {}, twins: 'x'.rep
 
 export function revealDuration(players: number): number {
   const t = REVEAL_TIMING
-  return t.numberLine + t.truth + Math.min(t.cardsMaxTotal, players * t.cardEach) + TYPICAL_FERMEANIE_MS + t.scoreboard
+  return t.call + t.numberLine + t.truth + Math.min(t.cardsMaxTotal, players * t.cardEach) + TYPICAL_FERMEANIE_MS + t.scoreboard
 }
 
 export interface RoomSettings {
@@ -168,6 +185,10 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('lock'), text: sheet }),
   z.object({ type: z.literal('unlock') }),
   z.object({ type: z.literal('skip_break') }),
+  /** An emoji reaction during the reveal or the break. */
+  z.object({ type: z.literal('react'), emoji: z.enum(REACTIONS) }),
+  /** The call at the start of a reveal. */
+  z.object({ type: z.literal('call'), call: z.enum(CALLS) }),
   /** The host skips the intro at once; anyone else votes, and a majority skips it. */
   z.object({ type: z.literal('skip_intro') }),
   z.object({ type: z.literal('play_again') }),
@@ -242,6 +263,8 @@ export interface RevealView {
   question: RevealedQuestion
   timeline: {
     startedAt: number
+    /** The call closes (the server takes no more): the number line beat, then the truth. */
+    callEndsAt: number
     truthAt: number
     fermeanieAt: number
     /** When her chat starts: after the steal, if there is one. */
@@ -279,6 +302,8 @@ export interface RevealView {
   }
   scoresAfter: Record<string, number>
   fermeanieScoreAfter: number
+  /** Once the call has closed: everyone's call, by player id. */
+  calls?: Record<string, Call>
 }
 
 /** The end of a game. Its release is FerMEANie's after this game. */
@@ -307,6 +332,24 @@ export interface FinalAward extends Award {
 
 /** The awards ceremony (ms): a beat before the first, and the shortest each award stays up. */
 export const AWARD_TIMING = { lead: 1500, each: 5000 } as const
+
+/** What everyone may know during the call: the answers, anonymous and sorted, and nothing about the truth. */
+export interface CallView {
+  index: number
+  total: number
+  question: PublicQuestion
+  /** The reveal started (server ms) and the call closes: then the full reveal arrives. */
+  startedAt: number
+  endsAt: number
+  /** Every positive answer in this round, sorted, with no names. */
+  values: number[]
+  /** Your answer, if you can call (a positive answer in this round). */
+  yours?: number
+  /** How many have called. */
+  made: number
+  practice?: true
+  multiplier?: number
+}
 
 /** One beat of the intro. `at`: when it starts (server ms); it lasts until the next one, or the intro's end. */
 export type IntroStep =
@@ -358,6 +401,13 @@ export interface RoomView {
   /** Number of playable questions in the pool. */
   poolSize: number
   round?: QuestionView
+  /**
+   * The call, at the start of a reveal. While it's open the reveal itself isn't sent: it holds the true answer and
+   * which side of it each answer landed, which would make the call trivial for anyone reading the websocket.
+   */
+  call?: CallView
+  /** Your call in this reveal, if you made one. */
+  yourCall?: Call
   /** Your own sheet for this round (restored on reconnect). */
   yourSheet?: { text: string; locked: boolean }
   reveal?: RevealView
@@ -385,4 +435,6 @@ export type ServerMessage =
   /** Clips in this room's view that have just been rendered (between snapshots). */
   | { type: 'voice'; ready: string[] }
   | { type: 'pong'; t: number; serverNow: number }
+  /** Someone reacted (sent on its own: a reaction doesn't need a whole snapshot). */
+  | { type: 'reaction'; playerId: string; emoji: Reaction }
   | { type: 'error'; message: string; fatal?: boolean }

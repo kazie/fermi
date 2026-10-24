@@ -7,7 +7,6 @@ on why they'd be fun or useful.
 
 - **Category picker / question packs** in the lobby. Only worth it once the pool is big enough that a pack still
   fills a game.
-- **Reactions:** quick emoji taps on reveal cards, shown briefly on every screen. Cheap fun while the cards flip.
 - **Shareable recap image** at the end of a game (rendered client-side, no external services).
 - **Lifetime stats and badges:** most dunce caps, best bullseye, longest streak against the swarm. `player_games`
   (one row per player per finished game: score, dunce caps, whether FerMEANie won) already feeds the intro's roll
@@ -78,8 +77,6 @@ Not bugs: choices to make, with the trade-off.
   leaves the game with no confirmation.
 - **Players who left** stay in the strip and in "Locked in X / Y", while the server already ends the round without
   them, so "3 / 4" turns into the reveal unexpectedly. Hosts can't kick anyone or hand over hosting.
-- **Controller reveal spoils your rank:** "Your card is coming up after N more", while the full reveal hides names
-  on card backs for exactly that reason.
 - **"Next question in Ns"** is shown even when a break follows, or the host paces the game.
 - **Small screens and focus:** number-line labels are sized in percent from name length and overlap at 360 px; focus
   falls back to `<body>` and nothing is announced on phase changes; `document.title` never changes, so a background

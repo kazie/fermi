@@ -54,7 +54,7 @@ describe("FerMEANie's reveal stage", () => {
   it('estimates a round with a typical chat, longer than the minimum stage', () => {
     expect(TYPICAL_FERMEANIE_MS).toBeGreaterThan(REVEAL_TIMING.fermeanie)
     const t = REVEAL_TIMING
-    expect(revealDuration(4)).toBe(t.numberLine + t.truth + 4 * t.cardEach + TYPICAL_FERMEANIE_MS + t.scoreboard)
+    expect(revealDuration(4)).toBe(t.call + t.numberLine + t.truth + 4 * t.cardEach + TYPICAL_FERMEANIE_MS + t.scoreboard)
   })
   it('counts visible characters, not markup', () => {
     expect(plainText('*bold* move')).toBe('bold move')

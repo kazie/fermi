@@ -20,6 +20,7 @@ const values: Record<(typeof AWARDS)[number], number> = {
   round_numbers: 5,
   near_miss: 3,
   swarm_donor: 1800,
+  hindsight: 4,
 }
 const award = (kind: (typeof AWARDS)[number]) => ({ kind, playerId: 'p2', name: 'Cyd', value: values[kind] })
 </script>

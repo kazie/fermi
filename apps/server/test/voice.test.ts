@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { sentences, speechText, type RoomView, type ServerMessage } from '@fermi/shared'
+import { sentences, speechText, type RevealView, type RoomView, type ServerMessage } from '@fermi/shared'
 import { DEADLINE_GRACE_MS, Room, VOICE_READY_BATCH_MS } from '../src/game.ts'
 import { startServer } from '../src/index.ts'
 import { Voice, type Tier } from '../src/voice/index.ts'
@@ -231,6 +231,12 @@ class FakeConn {
   get last(): RoomView {
     return (this.messages.filter((m) => m.type === 'snapshot').at(-1) as Extract<ServerMessage, { type: 'snapshot' }>).room
   }
+  /** The reveal, once the call at its start has closed (the fake clock is moved past it first). */
+  get reveal(): RevealView {
+    const call = this.last.call
+    if (call) vi.advanceTimersByTime(call.endsAt - Date.now())
+    return this.last.reveal!
+  }
 }
 
 describe('Room with a voice', () => {
@@ -288,7 +294,7 @@ describe('Room with a voice', () => {
     expect(asked.slice(-2).map((x) => x.text)).toEqual([round.question.question, round.line]) // the question is read first
 
     for (const p of [a, b, c]) room.handle(p.id, { type: 'lock', text: '1' }, p.conn)
-    const rv = a.conn.last.reveal!
+    const rv = a.conn.reveal
     expect(a.conn.last.voice!.lines[rv.lines.verdict]).toEqual(voice.keys(rv.lines.verdict))
     // the next question's line was picked during the reveal, so her voice could render it ahead
     const ahead = asked.filter((x) => x.tier === 'ahead').map((x) => x.text)
@@ -311,7 +317,7 @@ describe('Room with a voice', () => {
     room.handle(a.id, { type: 'lock', text: `${truth}` }, a.conn)
     room.handle(b.id, { type: 'lock', text: `${truth} * 3` }, b.conn)
     room.handle(c.id, { type: 'lock', text: `${truth} * 1000` }, c.conn)
-    const rv = a.conn.last.reveal!
+    const rv = a.conn.reveal
     room.disconnect(c.id, c.conn) // Cyd was last, but isn't here to be mocked any more
     vi.advanceTimersByTime(rv.timeline.endsAt - Date.now() + DEADLINE_GRACE_MS)
     expect(a.conn.last.phase).toBe('question')
@@ -362,7 +368,7 @@ describe('Room with a voice', () => {
     room.handle(a.id, { type: 'start' }, a.conn)
     for (let i = 0; i < 5; i++) {
       for (const p of [a, b, c]) room.handle(p.id, { type: 'lock', text: '1' }, p.conn)
-      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now() + DEADLINE_GRACE_MS)
+      vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now() + DEADLINE_GRACE_MS)
     }
     const final = a.conn.last.final!
     expect(a.conn.last.phase).toBe('final')
@@ -376,7 +382,7 @@ describe('Room with a voice', () => {
     const sheets = ['x = 10\ny = 20\nz = x * y\nz * 5', '1000', '9e9']
     for (let i = 0; i < 5; i++) {
       ;[a, b, c].forEach((p, n) => room.handle(p.id, { type: 'lock', text: sheets[n] }, p.conn))
-      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now() + DEADLINE_GRACE_MS)
+      vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now() + DEADLINE_GRACE_MS)
     }
     const { awards } = a.conn.last.final!
     expect(awards.length).toBeGreaterThan(0)

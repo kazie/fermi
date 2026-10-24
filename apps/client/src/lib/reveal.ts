@@ -1,6 +1,6 @@
 import { STEAL, stealTiming, type RevealView } from '@fermi/shared'
 
-export type RevealStage = 'numberLine' | 'truth' | 'cards' | 'fermeanie' | 'scoreboard'
+export type RevealStage = 'call' | 'numberLine' | 'truth' | 'cards' | 'fermeanie' | 'scoreboard'
 
 export function revealStage(r: RevealView, now: number): RevealStage {
   const t = r.timeline
@@ -8,6 +8,8 @@ export function revealStage(r: RevealView, now: number): RevealStage {
   if (now >= t.fermeanieAt) return 'fermeanie'
   if (r.cards.length && now >= r.cards[0].at) return 'cards'
   if (now >= t.truthAt) return 'truth'
+  // the call: everyone's answers as anonymous dots, before the truth lands
+  if (now < t.callEndsAt) return 'call'
   return 'numberLine'
 }
 

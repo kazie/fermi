@@ -7,6 +7,7 @@ import {
   holdDuration,
   MIN_PLAYERS,
   stolenCards,
+  type RevealView,
   type RoomView,
   type ServerMessage,
 } from '@fermi/shared'
@@ -24,6 +25,12 @@ class FakeConn {
   get last(): RoomView {
     const snaps = this.messages.filter((m) => m.type === 'snapshot')
     return (snaps[snaps.length - 1] as Extract<ServerMessage, { type: 'snapshot' }>).room
+  }
+  /** The reveal, once the call at its start has closed (the fake clock is moved past it first). */
+  get reveal(): RevealView {
+    const call = this.last.call
+    if (call) vi.advanceTimersByTime(call.endsAt - Date.now())
+    return this.last.reveal!
   }
   get errors() {
     return this.messages.filter((m) => m.type === 'error')
@@ -120,7 +127,7 @@ describe('Room', () => {
     expect(bView.phase).toBe('question') // d hasn't locked
 
     vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS)
-    const rv = a.conn.last.reveal!
+    const rv = a.conn.reveal
     expect(a.conn.last.phase).toBe('reveal')
     expect(rv.question.answer).toBe(truth)
     expect(rv.cards.map((x) => x.name)).toEqual(['Dee', 'Cyd', 'Bob', 'Ada']) // furthest → closest
@@ -148,7 +155,7 @@ describe('Room', () => {
     room.handle(b.id, { type: 'lock', text: `${t2} / 10` }, b.conn)
     room.handle(c.id, { type: 'lock', text: `${t2} * 3` }, c.conn)
     room.handle(d.id, { type: 'lock', text: `${t2} * 3.5` }, d.conn) // all locked → ends early
-    const rv2 = a.conn.last.reveal!
+    const rv2 = a.conn.reveal
     expect(rv2.fermeanie!.beatsAll).toBe(true)
     expect(rv2.cards.every((x) => x.points === 0 && x.stolen > 0)).toBe(true)
     // furthest → closest, so the suspense builds towards the best answer
@@ -161,8 +168,8 @@ describe('Room', () => {
     for (let i = 0; i < 3; i++) {
       expect(a.conn.last.phase).toBe('question')
       vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS)
-      expect(a.conn.last.reveal!.lines.verdict).toBe('Only 0 answers. I abstain.')
-      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+      expect(a.conn.reveal.lines.verdict).toBe('Only 0 answers. I abstain.')
+      vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
     }
     const final = a.conn.last.final!
     expect(a.conn.last.phase).toBe('final')
@@ -193,7 +200,7 @@ describe('Room', () => {
       room.handle(a.id, { type: 'lock', text: `${t} * 10` }, a.conn)
       room.handle(b.id, { type: 'lock', text: `${t} / 10` }, b.conn)
       room.handle(c.id, { type: 'lock', text: `${t} * 4` }, c.conn)
-      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+      vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
     }
     return { ...ctx, final: a.conn.last.final!, view: a.conn.last }
   }
@@ -226,7 +233,7 @@ describe('Room', () => {
     for (let i = 0; i < 5; i++) {
       if (!silent) room.handle(a.id, { type: 'lock', text: String(answerOf()) }, a.conn)
       vi.advanceTimersByTime(30_000 + DEADLINE_GRACE_MS)
-      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+      vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
     }
     return a.conn.last.final!
   }
@@ -264,7 +271,7 @@ describe('Room', () => {
     for (let i = 0; i < 5; i++) {
       asked.push(c.last.round!.question.id)
       for (const p of players) room.handle(p.id, { type: 'lock', text: '1' }, p.conn)
-      vi.advanceTimersByTime(c.last.reveal!.timeline.endsAt - Date.now())
+      vi.advanceTimersByTime(c.reveal.timeline.endsAt - Date.now())
     }
     expect(asked.filter((id) => id.startsWith('tmpl-')).length).toBeLessThanOrEqual(1)
   })
@@ -280,8 +287,8 @@ describe('Room', () => {
     expect(late.last.yourSheet).toBeUndefined()
     room.handle('late-player-123', { type: 'lock', text: '5' }, late) // ignored
     for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
-    expect(late.last.reveal!.cards.map((c) => c.name)).not.toContain('Late')
-    vi.advanceTimersByTime(late.last.reveal!.timeline.endsAt - Date.now())
+    expect(late.reveal.cards.map((c) => c.name)).not.toContain('Late')
+    vi.advanceTimersByTime(late.reveal.timeline.endsAt - Date.now())
     expect(late.last.players.find((p) => p.name === 'Late')!.spectating).toBe(false)
     expect(late.last.yourSheet).toEqual({ text: '', locked: false })
   })
@@ -327,7 +334,7 @@ describe('Room', () => {
     room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 30 }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
-    const rv = a.conn.last.reveal!
+    const rv = a.conn.reveal
     vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
     const v = a.conn.last
     expect(v.phase).toBe('break')
@@ -352,7 +359,7 @@ describe('Room', () => {
     room.handle(a.id, { type: 'start' }, a.conn)
     for (let i = 0; i < 5; i++) {
       for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
-      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+      vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
       if (i < 4) {
         expect(a.conn.last.phase).toBe('break')
         vi.advanceTimersByTime(15_000)
@@ -368,7 +375,7 @@ describe('Room', () => {
     room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 60 }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
-    vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+    vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
     room.handle(a.id, { type: 'skip_break' }, a.conn)
     expect(a.conn.last.phase).toBe('break')
     room.disconnect(c.id, c.conn) // now 2 connected: 1 of 2 is not yet a majority…
@@ -384,7 +391,7 @@ describe('Room', () => {
     room.handle(a.id, { type: 'start' }, a.conn)
     for (let i = 0; i < 5; i++) {
       for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
-      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+      vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
       if (i === 4) break
       expect(a.conn.last.break!.line).toMatch(/Ada/) // a new line each break, naming the host
       expect(a.conn.last.break!.timed).toBeUndefined()
@@ -406,7 +413,7 @@ describe('Room', () => {
     room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, pacing: 'host' }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
-    vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+    vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
     room.disconnect(a.id, a.conn)
     vi.advanceTimersByTime(HOST_HANDOVER_MS)
     expect(b.conn.last.break!.line).toBe('Waiting for Bob.')
@@ -449,7 +456,7 @@ describe('Room', () => {
     room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, pacing: 'host' }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
-    vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+    vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
     for (const p of [b, c, a]) room.disconnect(p.id, p.conn)
     vi.advanceTimersByTime(HOST_HANDOVER_MS) // nobody to hand over to
     room.connect(c.id, c.conn)
@@ -471,7 +478,7 @@ describe('Room', () => {
     room.handle(a.id, { type: 'lock', text: String(t) }, a.conn)
     room.handle(b.id, { type: 'lock', text: `${t} * 1000` }, b.conn)
     room.handle(c.id, { type: 'lock', text: `${t} * 1000` }, c.conn)
-    let rv = a.conn.last.reveal!
+    let rv = a.conn.reveal
     expect(rv.lines.everyone).toBe('Everyone locked in early.')
     expect(rv.lines.twins).toBe('Bob and Cyd said the same.')
     vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
@@ -483,7 +490,7 @@ describe('Room', () => {
     room.handle(b.id, { type: 'draft', text: String(t) }, b.conn)
     room.handle(c.id, { type: 'draft', text: `${t} * 1.5` }, c.conn)
     vi.advanceTimersByTime(30_000 + DEADLINE_GRACE_MS)
-    rv = a.conn.last.reveal!
+    rv = a.conn.reveal
     expect(rv.lines.everyone).toBeUndefined()
     expect(rv.lines.twins).toBeUndefined()
     vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
@@ -491,7 +498,7 @@ describe('Room', () => {
 
     for (let i = 2; i < 4; i++) {
       vi.advanceTimersByTime(30_000 + DEADLINE_GRACE_MS)
-      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+      vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
     }
     expect(a.conn.last.round!.line).toMatch(/^Last one, double points\. Bob leads, \w+ trails\.$/)
   })
@@ -504,7 +511,7 @@ describe('Room', () => {
     room.handle(a.id, { type: 'lock', text: '5' }, a.conn)
     room.handle(b.id, { type: 'lock', text: '7' }, b.conn)
     expect(a.conn.last.phase).toBe('reveal') // the connected players were done
-    expect(a.conn.last.reveal!.lines.everyone).toBeUndefined()
+    expect(a.conn.reveal.lines.everyone).toBeUndefined()
   })
 
   it('a big screen watches but never plays or sees any sheet', () => {
@@ -538,7 +545,7 @@ describe('the final round', () => {
       const round = a.conn.last.round!
       expect(round.multiplier).toBe(i === 4 ? 2 : undefined)
       players.forEach((p, n) => room.handle(p.id, { type: 'lock', text: texts[n] }, p.conn))
-      const rv = a.conn.last.reveal!
+      const rv = a.conn.reveal
       expect(rv.multiplier).toBe(i === 4 ? 2 : undefined)
       // every card's points are its rank points and bonus, doubled in the last round
       for (const c of rv.cards) expect(c.basePoints % (i === 4 ? 200 : 100)).toBe(0)
@@ -556,10 +563,54 @@ describe('the final round', () => {
     room.handle(a.id, { type: 'start' }, a.conn)
     for (let i = 0; i < 4; i++) {
       for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
-      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+      vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
       expect(a.conn.last.break!.nextMultiplier).toBe(i === 3 ? 2 : undefined)
       for (const p of players) room.handle(p.id, { type: 'skip_break' }, p.conn)
     }
+  })
+})
+
+describe('the call and reactions', () => {
+  it('takes calls until the truth is near, sends nothing about the truth meanwhile, and keeps calls hidden until then', () => {
+    const { room, players } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'start' }, a.conn)
+    room.handle(a.id, { type: 'lock', text: '5' }, a.conn)
+    room.handle(b.id, { type: 'lock', text: '50' }, b.conn)
+    room.handle(c.id, { type: 'lock', text: '0' }, c.conn) // not positive: can't call
+    const call = a.conn.last.call!
+    expect(a.conn.last.phase).toBe('reveal')
+    expect(a.conn.last.reveal).toBeUndefined() // the truth stays on the server
+    expect(JSON.stringify(a.conn.last)).not.toContain('"answer"')
+    expect(call).toMatchObject({ values: [5, 50], yours: 5, made: 0 })
+    expect(c.conn.last.call!.yours).toBeUndefined()
+    room.handle(a.id, { type: 'call', call: 'higher' }, a.conn)
+    room.handle(b.id, { type: 'call', call: 'lower' }, b.conn)
+    room.handle(c.id, { type: 'call', call: 'lower' }, c.conn) // ignored
+    expect(c.conn.last.call!.made).toBe(2)
+    expect(a.conn.last.yourCall).toBe('higher')
+    expect(c.conn.last.yourCall).toBeUndefined()
+    vi.advanceTimersByTime(call.endsAt - Date.now())
+    room.handle(c.id, { type: 'call', call: 'lower' }, c.conn) // too late anyway
+    expect(c.conn.last.call).toBeUndefined()
+    expect(c.conn.last.reveal!.calls).toEqual({ [a.id]: 'higher', [b.id]: 'lower' })
+  })
+
+  it('passes reactions on to everyone, at most one per player every moment, and only in the reveal or break', () => {
+    const { room, players } = setup(3)
+    const [a, b] = players
+    room.handle(a.id, { type: 'react', emoji: '🔥' }, a.conn) // the lobby: no
+    room.handle(a.id, { type: 'start' }, a.conn)
+    for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
+    room.handle(a.id, { type: 'react', emoji: '🔥' }, a.conn)
+    room.handle(a.id, { type: 'react', emoji: '💀' }, a.conn) // too soon after the first
+    vi.advanceTimersByTime(800)
+    room.handle(a.id, { type: 'react', emoji: '👏' }, a.conn)
+    const seen = b.conn.messages.filter((m) => m.type === 'reaction')
+    expect(seen).toEqual([
+      { type: 'reaction', playerId: a.id, emoji: '🔥' },
+      { type: 'reaction', playerId: a.id, emoji: '👏' },
+    ])
   })
 })
 
@@ -575,7 +626,7 @@ describe('awards', () => {
       vi.advanceTimersByTime(10_000)
       room.handle(b.id, { type: 'lock', text: '3000' }, b.conn)
       room.handle(c.id, { type: 'lock', text: '9e9' }, c.conn)
-      const rv = a.conn.last.reveal!
+      const rv = a.conn.reveal
       expect(rv.cards.find((card) => card.playerId === a.id)!.lockMs).toBe(0)
       expect(rv.cards.find((card) => card.playerId === b.id)!.lockMs).toBe(10_000)
       vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
@@ -635,7 +686,7 @@ describe('the intro', () => {
 
     room.handle(a.id, { type: 'lock', text: '1' }, a.conn) // wildly off: a dunce cap, but only as a demonstration
     for (const p of [b, c]) room.handle(p.id, { type: 'lock', text: '100000' }, p.conn)
-    const rv = a.conn.last.reveal!
+    const rv = a.conn.reveal
     expect(rv.practice).toBe(true)
     expect(rv.lines).toMatchObject({ guide: 'PRACTICE GUIDE.', lesson: 'PRACTICE LESSON.' })
     expect(rv.cards.some((card) => card.points > 0)).toBe(true) // what it would have scored
@@ -706,7 +757,7 @@ describe('the intro', () => {
     for (let i = 0; i < 5; i++) {
       for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
       if (i === 4) joinPlayers(room, 4).slice(3) // Dee joins during the last reveal and never plays
-      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+      vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
     }
     expect(a.conn.last.phase).toBe('final')
     expect(a.conn.last.players).toHaveLength(4)
@@ -769,7 +820,7 @@ describe('the intro, in detail', () => {
     room.handle(a.id, { type: 'lock', text: '100000' }, a.conn)
     room.handle(b.id, { type: 'lock', text: '50000' }, b.conn)
     vi.advanceTimersByTime(46_000) // the third never answers: two answers, no swarm
-    const rv = a.conn.last.reveal!
+    const rv = a.conn.reveal
     expect(rv.practice).toBe(true)
     expect(rv.fermeanie).toBeNull()
     expect(rv.lines.guide).toBe('PRACTICE GUIDE.')
@@ -866,7 +917,7 @@ describe('Room robustness', () => {
     const [a] = players
     room.handle(a.id, { type: 'start' }, a.conn)
     vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS)
-    const rv = a.conn.last.reveal!
+    const rv = a.conn.reveal
     const stolen = stolenCards(rv.fermeanie, rv.cards)
     expect(rv.timeline.chatAt - rv.timeline.fermeanieAt).toBe(chatDelay(stolen))
     expect(rv.timeline.scoreboardAt - rv.timeline.fermeanieAt).toBe(fermeanieStageMs(rv.lines, stolen))
@@ -880,7 +931,7 @@ describe('Room robustness', () => {
     room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 60, breakSec: 0, intro: 'off' }, a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS) // the question timer itself is never sped up
-    const rv = a.conn.last.reveal!
+    const rv = a.conn.reveal
     // only the minimum shrinks; the steal and her chat take their real time
     const real = fermeanieStageMs(rv.lines, stolenCards(rv.fermeanie, rv.cards), 0)
     expect(rv.timeline.scoreboardAt - rv.timeline.fermeanieAt).toBeGreaterThanOrEqual(real)

@@ -16,8 +16,11 @@ import SkipIntro from '@/components/SkipIntro.vue'
 import QuestionScreen from '@/components/QuestionScreen.vue'
 import RevealSequence from '@/components/RevealSequence.vue'
 import BreakScreen from '@/components/BreakScreen.vue'
+import CallStage from '@/components/CallStage.vue'
 import ControllerReveal from '@/components/ControllerReveal.vue'
 import ViewToggle from '@/components/ViewToggle.vue'
+import ReactionBar from '@/components/ReactionBar.vue'
+import ReactionLayer from '@/components/ReactionLayer.vue'
 
 const props = defineProps<{ code: string }>()
 const code = props.code.toUpperCase()
@@ -41,6 +44,8 @@ const hasScreen = computed(() => (room.value?.screens ?? 0) > 0)
 const controller = computed(() => hasScreen.value && phoneView.value === 'controller')
 const showToggle = computed(() => hasScreen.value && !!me.value && ['intro', 'reveal', 'break'].includes(room.value?.phase ?? ''))
 const isHost = computed(() => !!room.value && room.value.hostId === room.value.you)
+/** Reactions: during the reveal and the break, from players in the game. */
+const canReact = computed(() => !!me.value && (room.value?.phase === 'reveal' || room.value?.phase === 'break'))
 /** During the intro's example question, the vote to skip the intro is still on. */
 const practiceSkip = computed(() => (room.value?.phase !== 'intro' && !!me.value ? room.value?.intro?.skip : undefined))
 
@@ -110,6 +115,15 @@ watch(
         @lock="(text) => send({ type: 'lock', text })"
         @unlock="send({ type: 'unlock' })"
       />
+      <CallStage
+        v-else-if="room.phase === 'reveal' && room.call"
+        :call="room.call"
+        :you="room.you"
+        :your-call="room.yourCall"
+        :now="now"
+        :variant="controller ? 'compact' : 'phone'"
+        @call="(call) => send({ type: 'call', call })"
+      />
       <ControllerReveal
         v-else-if="controller && room.phase === 'reveal' && room.reveal"
         :key="`c${room.reveal.practice ? 'p' : room.reveal.index}`"
@@ -118,6 +132,8 @@ watch(
         :you="room.you"
         :now="now"
         :release="room.fermeanie"
+        :your-call="room.yourCall"
+        @call="(call) => send({ type: 'call', call })"
       />
       <RevealSequence
         v-else-if="room.phase === 'reveal' && room.reveal"
@@ -128,6 +144,8 @@ watch(
         :now="now"
         :fermeanie-before="room.fermeanie.score"
         :release="room.fermeanie"
+        :your-call="room.yourCall"
+        @call="(call) => send({ type: 'call', call })"
       />
       <BreakScreen
         v-else-if="room.phase === 'break' && room.break"
@@ -145,8 +163,10 @@ watch(
         :is-host="room.hostId === room.you"
         @play-again="send({ type: 'play_again' })"
       />
+      <ReactionBar v-if="canReact" class="reactions" @react="(emoji) => send({ type: 'react', emoji })" />
       <SkipIntro v-if="practiceSkip" class="practice-skip" :skip="practiceSkip" :is-host="isHost" @skip="send({ type: 'skip_intro' })" />
     </template>
+    <ReactionLayer v-if="room" :reactions="socket.reactions.value" :players="room.players" :now="now" />
     <div v-if="lastError" class="toast" role="status">{{ lastError }}</div>
   </main>
 </template>
@@ -172,6 +192,12 @@ watch(
   border-radius: var(--radius);
   z-index: 100;
   max-width: calc(100vw - 2 * var(--gutter));
+}
+.reactions {
+  position: sticky;
+  bottom: calc(var(--space-2) + var(--kb-inset, 0px));
+  margin-top: var(--space-4);
+  z-index: 20;
 }
 .practice-skip {
   margin-top: var(--space-4);

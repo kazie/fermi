@@ -99,11 +99,17 @@ since the group has just heard the rules.
 1. **Question.** Players see who has locked in, never what they answered. The round ends early once every connected
    player has locked in.
 2. **Reveal.**
-   1. All answers drop onto a log-scale number line, then the true answer lands with its explanation and sources.
-   2. Cards flip from furthest to closest, showing each player's full working.
-   3. FerMEANie's swarm estimate lands, and it has something to say about it.
-   4. The scoreboard shows.
+   1. **The call.** Everyone's answers appear as anonymous dots on a log-scale number line, and each phone asks: is
+      the truth higher or lower than your answer? One tap, no points; it closes before the truth lands, and the right
+      calls are counted (and feed the Hindsight award).
+   2. The true answer lands with its explanation and sources.
+   3. Cards flip from furthest to closest, showing each player's full working.
+   4. FerMEANie's swarm estimate lands, and it has something to say about it.
+   5. The scoreboard shows.
 3. **Break** (see Pacing). There is no break after the last round.
+
+During the reveal and the break, players can send **reactions** (🧪 🔥 😬 👏 💀 🎯) from their phones; they float up on
+every screen, with the sender's avatar.
 
 **Scoring.** Error is measured in orders of magnitude (`|log10(guess / answer)|`), so 2× too high counts the same as
 2× too low. Points are `100 × (N − rank + 1)`, plus +100 for being within 10% or +50 for being within 2×. If
@@ -114,7 +120,8 @@ question counts double**: rank points and bonuses, and a steal too; FerMEANie an
 with a clear winner: Swarm Slayer (beat the swarm most often), Bullseye (most answers within 10%), Steady Hand (lowest
 average error), The Abacus (longest working), Gut Feeling (fastest to lock in), Contrarian (most often on the other
 side of the truth from everyone else), Bold Estimator (the furthest single miss), Last Minute, Swarm Twin, Comeback,
-Optimist, Pessimist, Late Bloomer, One-Liner, Round Numbers, Near Miss and Swarm Donor. Awards given in a room's
+Optimist, Pessimist, Late Bloomer, One-Liner, Round Numbers, Near Miss, Swarm Donor and Hindsight (the most right
+calls). Awards given in a room's
 previous game go to the back of the queue, so a group playing again hears different ones. The rules are in
 `packages/shared/src/awards.ts`; the recap lists a game's awards.
 

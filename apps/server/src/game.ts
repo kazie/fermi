@@ -27,6 +27,9 @@ import {
   type ClientMessage,
   type FermeanieRelease,
   awardLineCall,
+  type Call,
+  type CallView,
+  REACTION_GAP_MS,
   type AwardKind,
   AWARD_TIMING,
   MAX_AWARDS,
@@ -97,6 +100,8 @@ interface Player {
   played: boolean
   joinedAt: number
   dropTimer?: ReturnType<typeof setTimeout>
+  /** When they last reacted (server ms): reactions are rate-limited. */
+  lastReactAt?: number
 }
 
 interface Sheet {
@@ -217,6 +222,9 @@ export class Room {
   /** Names her voice has rendered ahead for (capped, so renaming in a loop can't keep the renderer busy). */
   private voicedNames = new Set<string>()
   private hostTimer: ReturnType<typeof setTimeout> | undefined
+  /** The calls in this reveal, by player id, and the timer that closes the call. */
+  private calls = new Map<string, Call>()
+  private callTimer: ReturnType<typeof setTimeout> | undefined
   lastActivity: number
 
   constructor(code: string, deps: RoomDeps) {
@@ -445,6 +453,23 @@ export class Room {
         sheet.locked = false
         sheet.lockedAt = undefined
         this.broadcast()
+        return
+      }
+      case 'call': {
+        const rv = this.reveal
+        // only before the call closes, and only from someone with an answer in this reveal
+        if (this.phase !== 'reveal' || !rv || this.now() >= rv.timeline.callEndsAt) return
+        if (!rv.cards.some((c) => c.playerId === playerId && c.value !== null && c.value > 0)) return
+        this.calls.set(playerId, msg.call)
+        this.broadcast()
+        return
+      }
+      case 'react': {
+        if ((this.phase !== 'reveal' && this.phase !== 'break') || p.name === null) return
+        const now = this.now()
+        if (p.lastReactAt !== undefined && now - p.lastReactAt < REACTION_GAP_MS) return
+        p.lastReactAt = now
+        this.sendAll({ type: 'reaction', playerId, emoji: msg.emoji })
         return
       }
       case 'skip_break': {
@@ -800,7 +825,10 @@ export class Room {
     const { lines } = policy
     const start = this.now()
     // the example's guide is said before any answer shows: the number line waits until it's been read
-    const truthAt = start + Math.max(t.numberLine, policy.guide ? lineDuration(plainText(policy.guide), this.paced) : 0)
+    // the call first (everyone's answers as anonymous dots), then the number line beat (with the example's guide);
+    // the call is a moment for people to tap, so test games don't speed it up
+    const callEndsAt = start + REVEAL_TIMING.call
+    const truthAt = callEndsAt + Math.max(t.numberLine, policy.guide ? lineDuration(plainText(policy.guide), this.paced) : 0)
     const cardsStart = truthAt + t.truth
     const per = cardsSorted.length ? Math.min(policy.cardEach, policy.cardsMaxTotal / cardsSorted.length) : 0
     const fermeanieAt = cardsStart + cardsSorted.length * per
@@ -891,6 +919,7 @@ export class Room {
       question: toRevealed(q),
       timeline: {
         startedAt: start,
+        callEndsAt,
         truthAt,
         fermeanieAt: Math.round(fermeanieAt),
         chatAt: Math.round(chatAt),
@@ -915,6 +944,7 @@ export class Room {
       fermeanieScoreAfter: this.fermeanieScore + (score.fermeanie?.points ?? 0),
     }
     this.phase = 'reveal'
+    this.openCall(callEndsAt - start)
     if (policy.counts) game.counted.push(this.reveal)
     if (this.deps.voice) {
       // What she says next, picked now so her voice can render it while this reveal plays.
@@ -1134,8 +1164,25 @@ export class Room {
     return this.deps.db.prepare('SELECT wins, loss_streak AS losses FROM fermeanie WHERE id = 1').get() as { wins: number; losses: number }
   }
 
+  /** The call opens with the reveal; when it closes, everyone's call is shown (and kept for the awards). */
+  private openCall(ms: number) {
+    this.calls = new Map()
+    clearTimeout(this.callTimer)
+    const rv = this.reveal!
+    this.callTimer = setTimeout(
+      () =>
+        this.guard('call', () => {
+          if (this.reveal !== rv) return
+          rv.calls = Object.fromEntries(this.calls)
+          this.broadcast()
+        }),
+      Math.max(0, ms),
+    )
+  }
+
   private toLobby() {
     clearTimeout(this.timer)
+    clearTimeout(this.callTimer)
     this.phase = 'lobby'
     this.round = null
     this.reveal = null
@@ -1178,6 +1225,7 @@ export class Room {
 
   dispose() {
     clearTimeout(this.timer)
+    clearTimeout(this.callTimer)
     clearTimeout(this.voiceTimer)
     this.stopListening?.()
     this.stopHostTimer()
@@ -1240,8 +1288,9 @@ export class Room {
     }
     const rv = this.reveal
     if ((this.phase === 'reveal' || this.phase === 'break') && rv) {
-      say(rv.lines.everyone, rv.timeline.startedAt)
-      say(rv.lines.guide, rv.timeline.startedAt)
+      // after the call, as the number line beat starts
+      say(rv.lines.everyone, rv.timeline.callEndsAt)
+      say(rv.lines.guide, rv.timeline.callEndsAt)
       for (const card of rv.cards) say(rv.lines.dunce[card.playerId], card.at)
       chat(revealChat(rv.lines), rv.timeline.chatAt)
     }
@@ -1325,7 +1374,12 @@ export class Room {
             ...(r.participants.has(forId) ? { yourSheet: { text: mine?.text ?? '', locked: !!mine?.locked } } : {}),
           }
         : {}),
-      ...((this.phase === 'reveal' || this.phase === 'break') && this.reveal ? { reveal: this.reveal } : {}),
+      ...(this.phase === 'reveal' && this.reveal && this.now() < this.reveal.timeline.callEndsAt
+        ? { call: this.callView(this.reveal, forId) }
+        : (this.phase === 'reveal' || this.phase === 'break') && this.reveal
+          ? { reveal: this.reveal }
+          : {}),
+      ...(this.phase === 'reveal' && this.calls.has(forId) ? { yourCall: this.calls.get(forId) } : {}),
       ...(this.phase === 'break' && this.breakState
         ? {
             break: {
@@ -1354,6 +1408,27 @@ export class Room {
             },
           }
         : {}),
+    }
+  }
+
+  /** The call as `forId` sees it: everyone's answers without names, theirs, and no hint of the truth. */
+  private callView(rv: RevealView, forId: string): CallView {
+    const positive = (v: number | null): v is number => v !== null && v > 0
+    const yours = rv.cards.find((c) => c.playerId === forId)?.value ?? null
+    return {
+      index: rv.index,
+      total: rv.total,
+      question: { id: rv.question.id, question: rv.question.question, unit: rv.question.unit, category: rv.question.category },
+      startedAt: rv.timeline.startedAt,
+      endsAt: rv.timeline.callEndsAt,
+      values: rv.cards
+        .map((c) => c.value)
+        .filter(positive)
+        .sort((a, b) => a - b),
+      ...(positive(yours) ? { yours } : {}),
+      made: this.calls.size,
+      ...(rv.practice ? { practice: true as const } : {}),
+      ...(rv.multiplier ? { multiplier: rv.multiplier } : {}),
     }
   }
 

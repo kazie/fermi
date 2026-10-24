@@ -1,23 +1,24 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatFactor, revealChat, type PlayerView, type RevealView } from '@fermi/shared'
+import { formatFactor, revealChat, type Call, type PlayerView, type RevealView } from '@fermi/shared'
 import { describeOff, flippedCount, revealStage } from '@/lib/reveal'
 import type { Release } from '@/lib/version'
 import { S } from '@/lib/strings'
 import AnswerCard from './AnswerCard.vue'
+import CallPanel from './CallPanel.vue'
 import FermeanieSays from './FermeanieSays.vue'
 
 /** The reveal on a phone while a big screen shows the full show: just your own part of it. */
-const props = defineProps<{ reveal: RevealView; players: PlayerView[]; you: string; now: number; release?: Release }>()
+const props = defineProps<{ reveal: RevealView; players: PlayerView[]; you: string; now: number; release?: Release; yourCall?: Call }>()
+const emit = defineEmits<{ call: [Call] }>()
 
 const stage = computed(() => revealStage(props.reveal, props.now))
-const order = ['numberLine', 'truth', 'cards', 'fermeanie', 'scoreboard'] as const
+const order = ['call', 'numberLine', 'truth', 'cards', 'fermeanie', 'scoreboard'] as const
 const atLeast = (s: (typeof order)[number]) => order.indexOf(stage.value) >= order.indexOf(s)
 const mineIdx = computed(() => props.reveal.cards.findIndex((c) => c.playerId === props.you))
 const mine = computed(() => props.reveal.cards[mineIdx.value])
 const flipped = computed(() => flippedCount(props.reveal, props.now))
 const myFlipped = computed(() => mineIdx.value >= 0 && flipped.value > mineIdx.value)
-const before = computed(() => Math.max(0, mineIdx.value - flipped.value))
 const fer = computed(() => props.reveal.fermeanie)
 const scoreAfter = computed(() => props.reveal.scoresAfter[props.you] ?? 0)
 const rank = computed(() => {
@@ -34,6 +35,7 @@ const nextIn = computed(() => Math.max(0, Math.ceil((props.reveal.timeline.endsA
   <div class="ctl">
     <p class="look">📺 {{ S.lookUp }}</p>
 
+    <CallPanel v-if="!atLeast('cards')" :reveal="reveal" :you="you" :your-call="yourCall" :now="now" @call="(c) => emit('call', c)" />
     <p v-if="!atLeast('cards')" class="muted center">The truth is landing…</p>
     <template v-else-if="mine">
       <AnswerCard
@@ -46,9 +48,8 @@ const nextIn = computed(() => Math.max(0, Math.ceil((props.reveal.timeline.endsA
         :now="now"
         :unit="reveal.question.unit"
       />
-      <p v-else class="wait card center">
-        Your card is coming up<span v-if="before > 0"> after {{ before }} more</span>…
-      </p>
+      <!-- not how many cards are left: they flip from furthest to closest, so that would give your rank away -->
+      <p v-else class="wait card center">Your card is coming up…</p>
       <p v-if="myFlipped" class="you-were center">
         You were <strong>{{ describeOff(mine.factor, mine.direction, formatFactor) }}</strong>
       </p>

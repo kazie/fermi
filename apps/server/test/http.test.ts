@@ -276,7 +276,8 @@ describe('websocket game', () => {
     const q = (await waitFor((m) => m.type === 'snapshot' && m.room.phase === 'question')) as Extract<ServerMessage, { type: 'snapshot' }>
     bench.leave()
     ws.send(JSON.stringify({ type: 'lock', text: '2.5M' }))
-    const rv = (await waitFor((m) => m.type === 'snapshot' && m.room.phase === 'reveal')) as Extract<ServerMessage, { type: 'snapshot' }>
+    // the reveal arrives once the call at its start has closed (5 s, at real speed)
+    const rv = (await waitFor((m) => m.type === 'snapshot' && !!m.room.reveal)) as Extract<ServerMessage, { type: 'snapshot' }>
     expect(rv.room.reveal!.cards.find((c) => c.name === 'Solo')!.bonusKind).toBe('bullseye')
     expect(rv.room.reveal!.lines.verdict).toMatch(/abstain/)
 
@@ -296,7 +297,7 @@ describe('websocket game', () => {
     ).toBe(201)
     const disputes = (await (await fetch(`http://${base}/api/admin/disputes`, { headers: auth })).json()) as any
     expect(disputes.disputes.map((d: { questionId: string }) => d.questionId)).toContain(id)
-  })
+  }, 15_000)
 
   it('a big screen connects without a key and only watches', async () => {
     const { code } = (await (await post('/api/rooms', { screen: true }, {})).json()) as any
