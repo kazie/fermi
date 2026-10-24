@@ -44,6 +44,13 @@ export const S = {
   thatsYou: 'That’s you!',
   meetPlayers: 'Meet the test subjects',
   practice: 'Practice question · no points',
+  doublePoints: (m: number) => (m === 2 ? 'Double points' : `${m}× points`),
+  /** Titles over a round's scores; a final round that counted double says so. */
+  scoresAfter: (index: number, multiplier?: number) =>
+    `Scores after round ${index + 1}${multiplier && multiplier > 1 ? ` (${multiplier}× points)` : ''}`,
+  afterRound: (index: number, multiplier?: number) =>
+    `After round ${index + 1}${multiplier && multiplier > 1 ? ` · ${multiplier}× points` : ''}`,
+  nextIsFinal: 'Next: the final question',
   firstRealIn: (s: number) => `First real question in ${s}s…`,
   /** The intro's rule slides: a title and the short version of what she says. */
   rules: {
@@ -57,7 +64,7 @@ export const S = {
     },
     points: {
       title: 'Points',
-      text: 'The closest answer scores the most. Within 2× earns a bonus, within 10% a bigger one.',
+      text: 'The closest answer scores the most. Within 2× earns a bonus, within 10% a bigger one. The final question counts double.',
     },
     swarm: {
       title: 'The swarm',

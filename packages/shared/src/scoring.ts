@@ -6,6 +6,12 @@ export const BULLSEYE_RATIO = 1.1
 export const BULLSEYE_BONUS = 100
 export const CLOSE_RATIO = 2
 export const CLOSE_BONUS = 50
+/** The final question of a game is worth this many times the points, for everyone, FerMEANie's steal included. */
+export const FINAL_ROUND_MULTIPLIER = 2
+
+/** How much a round's points count: the last round of the game counts double. */
+export const roundMultiplier = (index: number, rounds: number) => (index === rounds - 1 ? FINAL_ROUND_MULTIPLIER : 1)
+
 /** A dunce cap needs the answer to be at least this many orders of magnitude off the truth. */
 export const DUNCE_MIN_ORDERS = 3
 
@@ -69,7 +75,8 @@ function direction(value: number, answer: number, err: number): 'high' | 'low' |
   return value > answer ? 'high' : 'low'
 }
 
-export function scoreRound(answer: number, entries: Entry[]): RoundScore {
+/** Scores a round. `multiplier` scales rank points and bonuses (the final round counts double); a steal takes them all. */
+export function scoreRound(answer: number, entries: Entry[], multiplier = 1): RoundScore {
   const answered = entries.filter((e) => e.value !== null)
   const n = answered.length
   const errs = new Map<string, number>()
@@ -99,9 +106,9 @@ export function scoreRound(answer: number, entries: Entry[]): RoundScore {
     let better = 0
     for (const other of errs.values()) if (other < err - EPS) better++
     const rank = better + 1
-    const basePoints = RANK_POINTS * (n - rank + 1)
+    const basePoints = RANK_POINTS * (n - rank + 1) * multiplier
     const bonusKind = err <= Math.log10(BULLSEYE_RATIO) + EPS ? 'bullseye' : err <= Math.log10(CLOSE_RATIO) + EPS ? 'close' : null
-    const bonus = bonusKind === 'bullseye' ? BULLSEYE_BONUS : bonusKind === 'close' ? CLOSE_BONUS : 0
+    const bonus = (bonusKind === 'bullseye' ? BULLSEYE_BONUS : bonusKind === 'close' ? CLOSE_BONUS : 0) * multiplier
     let dunce: DunceKind | null = null
     if (!(e.value > 0)) dunce = 'nonpositive'
     else if (outlierIds.has(e.playerId) && err >= DUNCE_MIN_ORDERS) dunce = dunceSeverity(err)

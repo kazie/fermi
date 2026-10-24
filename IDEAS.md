@@ -46,7 +46,8 @@ Not bugs: choices to make, with the trade-off.
 - **Steal size grows with the group.** A steal takes the sum of everyone's round points, about 100·N(N+1)/2, while
   the best human can earn about 100·N per round. With 8 players one steal is about 3,600 against a 900 ceiling, so
   two steals decide a game, and FerMEANie is much harder in big groups than in small ones. Options: steal only the
-  round winner's points, or cap at a multiple of the best round score.
+  round winner's points, or cap at a multiple of the best round score. The final question counts double, steal
+  included, so a last-round steal is twice as big again.
 - **0 or a negative answer beats a blank.** A non-positive answer still gets a rank and at least 100 points, and
   adds to `n`, which gives everyone else +100. A blank gets 0. Give it 0 and leave it out of `n`?
 - **Points ignore how far off you were.** Points follow rank only; magnitude only matters through the close and

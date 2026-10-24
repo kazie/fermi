@@ -29,7 +29,7 @@ export const LINE_VARIABLES = {
   'for_real.skipped': [],
   intro: ['count'],
   quip: ['leader?', 'last?'],
-  final_round: ['leader?', 'last?'],
+  final_round_double: ['leader?', 'last?'],
   lead_change: ['name', 'previous'],
   sits_out: ['count'],
   rule_change: ['name', 'count'],

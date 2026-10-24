@@ -223,6 +223,13 @@ select {
   color: var(--muted);
   font-weight: 600;
 }
+/* an eyebrow with a badge beside it (double points), wrapping on a narrow phone */
+.eyebrow-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
 /* the intro's example question: no points */
 .eyebrow.practice {
   color: var(--accent);

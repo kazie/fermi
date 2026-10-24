@@ -493,7 +493,7 @@ describe('Room', () => {
       vi.advanceTimersByTime(30_000 + DEADLINE_GRACE_MS)
       vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
     }
-    expect(a.conn.last.round!.line).toMatch(/^Last one\. Bob leads, \w+ trails\.$/)
+    expect(a.conn.last.round!.line).toMatch(/^Last one, double points\. Bob leads, \w+ trails\.$/)
   })
 
   it('does not say everyone locked in when a disconnected player never answered', () => {
@@ -524,6 +524,42 @@ describe('Room', () => {
     expect(tv.last.round!.question).toBeDefined()
     room.disconnectScreen(tv)
     expect(a.conn.last.screens).toBe(0)
+  })
+})
+
+describe('the final round', () => {
+  it('counts double, and says so; earlier rounds count once', () => {
+    const { db, room, players } = setup(3)
+    const [a] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 0, intro: 'off' }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    const texts = ['1000', '5000', '20000']
+    for (let i = 0; i < 5; i++) {
+      const round = a.conn.last.round!
+      expect(round.multiplier).toBe(i === 4 ? 2 : undefined)
+      players.forEach((p, n) => room.handle(p.id, { type: 'lock', text: texts[n] }, p.conn))
+      const rv = a.conn.last.reveal!
+      expect(rv.multiplier).toBe(i === 4 ? 2 : undefined)
+      // every card's points are its rank points and bonus, doubled in the last round
+      for (const c of rv.cards) expect(c.basePoints % (i === 4 ? 200 : 100)).toBe(0)
+      vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
+    }
+    expect(a.conn.last.phase).toBe('final')
+    const { rounds } = db.prepare('SELECT rounds FROM games').get() as { rounds: string }
+    expect(JSON.parse(rounds).map((r: { multiplier?: number }) => r.multiplier)).toEqual([undefined, undefined, undefined, undefined, 2])
+  })
+
+  it('the break before the final question says it counts double', () => {
+    const { room, players } = setup(3)
+    const [a] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30, breakSec: 30, intro: 'off' }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    for (let i = 0; i < 4; i++) {
+      for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
+      vi.advanceTimersByTime(a.conn.last.reveal!.timeline.endsAt - Date.now())
+      expect(a.conn.last.break!.nextMultiplier).toBe(i === 3 ? 2 : undefined)
+      for (const p of players) room.handle(p.id, { type: 'skip_break' }, p.conn)
+    }
   })
 })
 

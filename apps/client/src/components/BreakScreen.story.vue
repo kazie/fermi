@@ -11,6 +11,8 @@ const tv = asScreen(breakRoom({ votes: 2 }))
 const hostPaced = breakRoom({ hostPaced: true })
 const waiting = breakRoom({ hostPaced: true, host: false })
 const tvHostPaced = asScreen(breakRoom({ hostPaced: true }))
+const beforeFinal = breakRoom({ beforeFinal: true })
+const tvBeforeFinal = asScreen(breakRoom({ beforeFinal: true }))
 </script>
 
 <template>
@@ -38,6 +40,12 @@ const tvHostPaced = asScreen(breakRoom({ hostPaced: true }))
     ></Variant>
     <Variant title="Host pacing, big screen"
       ><div class="page"><BreakScreen :room="tvHostPaced" :now="now" variant="tv" /></div
+    ></Variant>
+    <Variant title="Before the final question (double points)"
+      ><div class="page"><BreakScreen :room="beforeFinal" :now="now" @skip="logEvent('skip', {})" /></div
+    ></Variant>
+    <Variant title="Before the final question, big screen"
+      ><div class="page"><BreakScreen :room="tvBeforeFinal" :now="now" variant="tv" /></div
     ></Variant>
   </Story>
 </template>

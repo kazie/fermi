@@ -17,7 +17,7 @@ content/fermeanie/
 ├── intro.ftl                # key: intro
 ├── welcome.ftl              # key: welcome (bundled for client name screen)
 ├── quip.ftl                 # key: quip
-├── final_round.ftl          # key: final_round
+├── final_round_double.ftl   # key: final_round_double
 ├── lead_change.ftl          # key: lead_change
 ├── everyone_locked.ftl      # key: everyone_locked
 ├── twins.ftl                # key: twins
@@ -162,7 +162,7 @@ Use placeholders exactly as written. A line may use any of its situation's place
 | `intro`                 | Game start without an intro, as the first question appears                          | `{ $count }` players                                        |                                                                                                   |
 | `welcome`               | Name screen, under “Welcome to my little game, …” (picked in the client)            | none                                                        |                                                                                                   |
 | `quip`                  | A new question appears (second round on): stir up competition, Portal 2 co-op style | none                                                        | `{ $leader }` (ahead of everyone, FerMEANie too), `{ $last }` (behind everyone; never a newcomer) |
-| `final_round`           | The last question appears, instead of a quip                                        | none                                                        | `{ $leader }`, `{ $last }` (as for `quip`)                                                        |
+| `final_round_double`    | The last question appears, worth double points (every line says so)                 | none                                                        | `{ $leader }`, `{ $last }` (as for `quip`)                                                        |
 | `lead_change`           | A new question appears and someone new leads, instead of a quip                     | `{ $name }` new leader, `{ $previous }` old leader          |                                                                                                   |
 | `everyone_locked`       | Reveal starts: everyone locked in with at least half the time left                  | none                                                        |                                                                                                   |
 | `twins`                 | Reveal: two or more players gave exactly the same answer                            | `{ $names }`                                                |                                                                                                   |

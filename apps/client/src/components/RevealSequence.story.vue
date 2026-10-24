@@ -14,6 +14,7 @@ const variants = [
   { title: 'Big swarm (8)', reveal: reveals.crowd() },
   { title: 'Early lock-ins and twins', reveal: reveals.twins() },
   { title: 'Intro example question', reveal: reveals.practice() },
+  { title: 'Final round (double points)', reveal: reveals.final() },
 ]
 type Reveal = (typeof variants)[number]['reveal']
 const duration = (r: Reveal) => r.timeline.endsAt - T0

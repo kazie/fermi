@@ -7,6 +7,7 @@ import {
   logError,
   PIE_RELEASES,
   scoreRound,
+  roundMultiplier,
   ClientMessageSchema,
   estimateGameMinutes,
   introDuration,
@@ -97,6 +98,18 @@ describe('scoreRound', () => {
     expect(r.fermeanie!.points).toBe(total)
     expect(total).toBeGreaterThan(0)
     expect(r.results.every((x) => x.points === 0)).toBe(true)
+  })
+  it('the final round counts double: rank points, bonuses and the steal', () => {
+    expect([0, 3, 4].map((i) => roundMultiplier(i, 5))).toEqual([1, 1, 2])
+    const once = scoreRound(100, entries(105, 300, 20))
+    const twice = scoreRound(100, entries(105, 300, 20), 2)
+    expect(twice.results.map((x) => [x.basePoints, x.bonus, x.points])).toEqual(
+      once.results.map((x) => [x.basePoints * 2, x.bonus * 2, x.points * 2]),
+    )
+    const steal = scoreRound(900, entries(10, 1000 * 3, 100_000 / 3), 2)
+    expect(steal.fermeanie!.beatsAll).toBe(true)
+    expect(steal.fermeanie!.points).toBeGreaterThan(0)
+    expect(steal.fermeanie!.points).toBe(2 * scoreRound(900, entries(10, 1000 * 3, 100_000 / 3)).fermeanie!.points)
   })
   it('ties go to the humans', () => {
     const r = scoreRound(100, entries(100, 100, 100))
