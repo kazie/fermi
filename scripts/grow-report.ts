@@ -13,10 +13,16 @@ export function limitReset(msg: string, now: Date): number | null {
   if (!m) return null
   let h = Number(m[1]) % 12
   if (m[3]?.toLowerCase() === 'pm' || (!m[3] && Number(m[1]) >= 12)) h += 12
+  // Step forward a minute at a time rather than setHours(): when clocks go back, a time like 2:10 comes twice, and
+  // setHours() gives the first even after it has passed.
+  const min = Number(m[2] ?? 0)
   const t = new Date(now)
-  t.setHours(h, Number(m[2] ?? 0), 0, 0)
-  if (t.getTime() <= now.getTime()) t.setDate(t.getDate() + 1)
-  return t.getTime() + 2 * 60 * 1000
+  t.setSeconds(0, 0)
+  for (let i = 0; i < 26 * 60; i++) {
+    t.setTime(t.getTime() + 60 * 1000)
+    if (t.getHours() === h && t.getMinutes() === min) return t.getTime() + 2 * 60 * 1000
+  }
+  return null
 }
 
 /**
