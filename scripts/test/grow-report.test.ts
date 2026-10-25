@@ -10,10 +10,10 @@ describe('usage limits', () => {
   it('waits until the next reset time, plus 2 minutes', () => {
     const at = (h: number, m: number) => new Date(2026, 9, 20, h, m)
     expect(limitReset('resets 4:20am', at(1, 35))).toBe(at(4, 22).getTime())
-    expect(limitReset('resets 4:20am', at(23, 0))).toBe(new Date(2026, 9, 21, 4, 22).getTime())
-    expect(limitReset('resets at 3pm', at(10, 0))).toBe(at(15, 2).getTime())
+    expect(limitReset('resets 4:20am', at(23, 30))).toBe(new Date(2026, 9, 21, 4, 22).getTime())
+    expect(limitReset('resets at 3pm', at(11, 0))).toBe(at(15, 2).getTime())
     expect(limitReset('resets 12am', at(22, 0))).toBe(new Date(2026, 9, 21, 0, 2).getTime())
-    expect(limitReset('resets 16:30', at(10, 0))).toBe(at(16, 32).getTime())
+    expect(limitReset('resets 16:30', at(13, 0))).toBe(at(16, 32).getTime())
   })
   it('takes the second of a time that comes twice when clocks go back', () => {
     const tz = process.env.TZ
@@ -25,6 +25,22 @@ describe('usage limits', () => {
     } finally {
       process.env.TZ = tz
     }
+  })
+  it('reads the time in the zone the message names', () => {
+    const tz = process.env.TZ
+    process.env.TZ = 'UTC'
+    try {
+      const now = new Date('2026-10-20T00:00:00Z')
+      expect(limitReset('resets 4:20am (Europe/Stockholm)', now)).toBe(Date.parse('2026-10-20T02:22:00Z'))
+      expect(limitReset('resets 4:20am (Mars/Olympus)', now)).toBe(Date.parse('2026-10-20T04:22:00Z'))
+    } finally {
+      process.env.TZ = tz
+    }
+  })
+  it('wakes after the 5-hour window when the time is further off than that', () => {
+    const at = (h: number, m: number) => new Date(2026, 9, 20, h, m)
+    expect(limitReset('resets 4:20am', at(4, 25))).toBe(at(9, 27).getTime())
+    expect(limitReset('resets 16:30', at(10, 0))).toBe(at(15, 2).getTime())
   })
   it('reads the older epoch format', () => {
     expect(limitMessage('{"result":"Claude AI usage limit reached|1792461600"}')).toBe('Claude AI usage limit reached|1792461600')

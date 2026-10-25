@@ -1,9 +1,13 @@
 // Usage limits in headless session output, for `pnpm grow`. The limit message is the only session text ever printed,
 // since anything else could hold question texts.
 
+const SESSION_WINDOW_MS = 5 * 60 * 60 * 1000
+
 /**
- * When a usage limit lifts, from a message like `… session limit · resets 4:20am (Europe/Stockholm)`: the next such
- * wall-clock time in the machine's timezone, plus 2 minutes. Null if there's no time in it (e.g. a date for a weekly limit).
+ * When a usage limit lifts, from a message like `… session limit · resets 4:20am (Europe/Stockholm)`: the next moment
+ * the clock in that zone (the machine's if none is named) shows that time, plus 2 minutes. A session limit lifts within
+ * its 5-hour window, so a time further off than that is a misreading: wake after the window instead and look again.
+ * Null if there's no time in it (e.g. a date for a weekly limit).
  */
 export function limitReset(msg: string, now: Date): number | null {
   // older CLIs: `Claude AI usage limit reached|<unix seconds>`
@@ -13,16 +17,25 @@ export function limitReset(msg: string, now: Date): number | null {
   if (!m) return null
   let h = Number(m[1]) % 12
   if (m[3]?.toLowerCase() === 'pm' || (!m[3] && Number(m[1]) >= 12)) h += 12
-  // Step forward a minute at a time rather than setHours(): when clocks go back, a time like 2:10 comes twice, and
-  // setHours() gives the first even after it has passed.
-  const min = Number(m[2] ?? 0)
-  const t = new Date(now)
-  t.setSeconds(0, 0)
-  for (let i = 0; i < 26 * 60; i++) {
-    t.setTime(t.getTime() + 60 * 1000)
-    if (t.getHours() === h && t.getMinutes() === min) return t.getTime() + 2 * 60 * 1000
+  const want = `${String(h).padStart(2, '0')}:${m[2] ?? '00'}`
+  const clock = zoneClock(/\(([\w+-]+(?:\/[\w+-]+)*)\)/.exec(msg)?.[1])
+  // Step forward a minute at a time: when clocks go back, a time like 2:10 comes twice, and the next one is wanted.
+  let t = Math.floor(now.getTime() / 60_000) * 60_000
+  const latest = now.getTime() + SESSION_WINDOW_MS
+  while ((t += 60_000) <= latest) {
+    if (clock.format(t) === want) return t + 2 * 60 * 1000
   }
-  return null
+  return latest + 2 * 60 * 1000
+}
+
+/** An `hh:mm` clock for an IANA zone, or for the machine's zone if it's missing or unknown. */
+function zoneClock(timeZone: string | undefined) {
+  const opts = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } as const
+  try {
+    return new Intl.DateTimeFormat('en-GB', { ...opts, timeZone })
+  } catch {
+    return new Intl.DateTimeFormat('en-GB', opts)
+  }
 }
 
 /**
