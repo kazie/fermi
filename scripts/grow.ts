@@ -124,7 +124,8 @@ async function worker(w: number) {
         // A usage limit isn't a failure: put the topic back and sleep until it lifts.
         if (!auto) queue.unshift(topic)
         inUse.delete(topic)
-        log(w, `usage limit; sleeping until ${new Date(limitUntil).toTimeString().slice(0, 5)}`)
+        const mins = Math.round((limitUntil - Date.now()) / 60_000)
+        log(w, `usage limit; sleeping until ${new Date(limitUntil).toTimeString().slice(0, 5)} (${Math.floor(mins / 60)}h ${mins % 60}m)`)
         await sleep(limitUntil - Date.now())
         continue
       }
