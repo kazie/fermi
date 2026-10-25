@@ -207,7 +207,8 @@ pnpm grow                          # 3 workers × 4 runs, each taking the emptie
 pnpm grow --workers 2 history art  # work through these topics, 2 at a time
 ```
 
-At a usage limit, a worker sleeps until the reset time the limit message names, then carries on. Any other failed run is
+At a usage limit, a worker sleeps until the reset time the limit message names, then carries on. A limit that lifts more
+than 6 hours away (a weekly one, which names a date) stops the worker instead, so you can switch accounts and restart. Any other failed run is
 retried after 20 minutes, and a worker gives up after 9 failures in a row. Only report and limit lines are printed.
 Runs bill the Claude account whose config dir is in `FERMI_CLAUDE_CONFIG_DIR` (in `.env`, e.g. `~/.claude-personal`);
 `pnpm grow` won't start without it, so it can never fall back to whichever account the shell defaults to.

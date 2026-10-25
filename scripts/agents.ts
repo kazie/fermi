@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { askModel, ROOT, runClaude, runCli } from './claude.ts'
-import { limitReset, parseAgentOutput } from './grow-report.ts'
+import { parseAgentOutput } from './grow-report.ts'
 import {
   formatReport,
   runPipeline,
@@ -23,8 +23,8 @@ export interface RunOutcome {
   /** How many questions it added, or null if it failed or hit a usage limit. */
   added: number | null
   report: string
-  /** When a usage limit that stopped the run lifts. */
-  limitUntil?: number | null
+  /** The usage-limit message that stopped the run, if one did. */
+  limit?: string
   /** API-equivalent cost of the run. */
   spent: number
 }
@@ -114,7 +114,7 @@ export function pipelineAgents(configDir: string) {
       })
       if (r.limit) {
         const report = `${formatReport(r)} · stopped: ${r.limit}`
-        return { added: null, report, limitUntil: limitReset(r.limit, new Date()), spent: runCost(r) }
+        return { added: null, report, limit: r.limit, spent: runCost(r) }
       }
       return { added: r.added, report: formatReport(r), spent: runCost(r) }
     } catch (e) {

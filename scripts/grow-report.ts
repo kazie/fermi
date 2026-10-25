@@ -39,6 +39,21 @@ function zoneClock(timeZone: string | undefined) {
 }
 
 /**
+ * The longest a worker sleeps through a usage limit. limitReset() never reads a time as more than the session window
+ * away, so only a limit with a date (a weekly one) or a far-off epoch goes past it, and that stops the worker instead.
+ */
+export const MAX_LIMIT_WAIT_MS = 6 * 60 * 60 * 1000
+
+/**
+ * When to carry on after a usage limit, or null if it isn't worth waiting for: its reset can't be read (a weekly
+ * limit names a date) or is more than MAX_LIMIT_WAIT_MS away.
+ */
+export function limitWait(msg: string, now: Date): number | null {
+  const until = limitReset(msg, now)
+  return until !== null && until - now.getTime() <= MAX_LIMIT_WAIT_MS ? until : null
+}
+
+/**
  * A usage-limit message anywhere in the output: `You've hit your session limit · resets 4:20am (Europe/Stockholm)`, or
  * the older `Claude AI usage limit reached|<unix seconds>`.
  */

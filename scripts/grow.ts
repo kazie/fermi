@@ -3,8 +3,9 @@
 // ideas, Haiku drafts, a script checks, Sonnet verifies), each on its own topic, so they don't draft the same
 // questions. Given topics are worked through as a queue; without topics, every run takes the category with the fewest
 // questions that no other worker is on, skipping categories that have recently run dry (.fermi-work/topic-yield.json).
-// A run that fails (the usage limit, say) is retried after a pause. Prints only each run's report line, never question
-// texts.
+// At a usage limit a worker sleeps until it lifts, unless that's more than 6 hours away (a weekly limit): then it stops,
+// so the account can be switched. Any other failed run is retried after a pause. Prints only each run's report line,
+// never question texts.
 // Runs bill the Claude account in FERMI_CLAUDE_CONFIG_DIR (from .env), never whatever the shell defaults to.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -15,7 +16,7 @@ import { parseArgs } from 'node:util'
 import { CATEGORIES } from '../packages/shared/src/question.ts'
 import { pipelineAgents } from './agents.ts'
 import { claudeConfigDir, ROOT, runCli } from './claude.ts'
-import { resting } from './grow-report.ts'
+import { limitWait, resting } from './grow-report.ts'
 
 const configDir = claudeConfigDir()
 const agents = pipelineAgents(configDir)
@@ -118,12 +119,17 @@ async function worker(w: number) {
     if (!topic) return
     try {
       log(w, `${topic}: running`)
-      const { added, report, limitUntil } = await run(topic)
+      const { added, report, limit } = await run(topic)
       log(w, `${topic}: ${report}`)
-      if (limitUntil) {
-        // A usage limit isn't a failure: put the topic back and sleep until it lifts.
+      if (limit) {
+        // A usage limit isn't a failure: put the topic back and sleep until it lifts, or stop if that's too far off.
         if (!auto) queue.unshift(topic)
         inUse.delete(topic)
+        const limitUntil = limitWait(limit, new Date())
+        if (!limitUntil) {
+          log(w, "usage limit won't lift within 6 h; stopping (switch FERMI_CLAUDE_CONFIG_DIR in .env and restart)")
+          return
+        }
         const mins = Math.round((limitUntil - Date.now()) / 60_000)
         log(w, `usage limit; sleeping until ${new Date(limitUntil).toTimeString().slice(0, 5)} (${Math.floor(mins / 60)}h ${mins % 60}m)`)
         await sleep(limitUntil - Date.now())

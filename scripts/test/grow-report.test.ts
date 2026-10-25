@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { limitMessage, limitReset } from '../grow-report.ts'
+import { limitMessage, limitReset, limitWait } from '../grow-report.ts'
 
 describe('usage limits', () => {
   const out = `{"type":"result","is_error":true,"result":"You've hit your session limit · resets 4:20am (Europe/Stockholm)"}`
@@ -48,5 +48,13 @@ describe('usage limits', () => {
   })
   it('gives no time for a limit that names a date', () => {
     expect(limitReset('weekly limit · resets Oct 23, 4pm', new Date())).toBeNull()
+  })
+  it('waits out a session limit, but not one that lifts more than 6 hours away', () => {
+    const at = (h: number, m: number) => new Date(2026, 9, 20, h, m)
+    expect(limitWait('session limit · resets 4:20am', at(1, 35))).toBe(at(4, 22).getTime())
+    // a time that has just passed is a misreading: look again after the window rather than stop
+    expect(limitWait('session limit · resets 4:20am', at(4, 25))).toBe(at(9, 27).getTime())
+    expect(limitWait("You've hit your weekly limit · resets Oct 30, 4pm (Europe/Stockholm)", at(11, 45))).toBeNull()
+    expect(limitWait('Claude AI usage limit reached|1792461600', new Date(1792461600 * 1000 - 3 * 86_400_000))).toBeNull()
   })
 })
