@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { PlayerView } from '@fermi/shared'
+import { byStanding, type PlayerView } from '@fermi/shared'
 import { tween, useProgress } from '@/composables/useProgress'
 import DunceCap from './DunceCap.vue'
 import FermeanieAvatar from './FermeanieAvatar.vue'
 import PlayerAvatar from './PlayerAvatar.vue'
+import { S } from '@/lib/strings'
 
 const props = defineProps<{
   players: PlayerView[]
@@ -28,6 +29,7 @@ const rows = computed(() => {
     bot: false,
     you: pl.id === props.you,
     dunces: pl.dunces,
+    gone: pl.gone,
   }))
   const bot = {
     id: 'fermeanie',
@@ -37,11 +39,13 @@ const rows = computed(() => {
     bot: true,
     you: false,
     dunces: 0,
+    gone: false,
   }
-  const done = p.value >= 1
+  // ranked by the scores shown: the old ones, then the new ones once counted up
+  const score = p.value >= 1 ? 'after' : 'before'
   return [...humans, bot]
-    .map((r) => ({ ...r, delta: r.after - r.before, shown: tween(r.before, r.after, p.value) }))
-    .sort((a, b) => (done ? b.after - a.after : b.before - a.before) || Number(a.bot) - Number(b.bot))
+    .map((r) => ({ ...r, delta: r.after - r.before, shown: tween(r.before, r.after, p.value), score: r[score] }))
+    .sort(byStanding)
 })
 </script>
 
@@ -49,8 +53,8 @@ const rows = computed(() => {
   <section class="sb card">
     <h3 class="eyebrow">{{ title ?? 'Scores' }}</h3>
     <TransitionGroup tag="ol" name="sb" class="list">
-      <li v-for="(r, i) in rows" :key="r.id" class="row" :class="{ bot: r.bot, you: r.you }" :style="{ '--i': i }">
-        <span class="pos mono">{{ i + 1 }}</span>
+      <li v-for="(r, i) in rows" :key="r.id" class="row" :class="{ bot: r.bot, you: r.you, gone: r.gone }" :style="{ '--i': i }">
+        <span class="pos mono">{{ r.gone ? '–' : i + 1 }}</span>
         <FermeanieAvatar v-if="r.bot" :size="22" />
         <PlayerAvatar v-else :seed="r.id" :size="22" />
         <span class="name">
@@ -59,6 +63,7 @@ const rows = computed(() => {
             ><DunceCap v-for="n in Math.min(r.dunces, 3)" :key="n" still
           /></span>
         </span>
+        <span v-if="r.gone" class="tag" :title="S.leftHint">{{ S.left }}</span>
         <span v-if="r.delta" class="delta mono">+{{ r.delta }}</span>
         <span class="score mono">{{ r.shown }}</span>
       </li>
@@ -67,6 +72,9 @@ const rows = computed(() => {
 </template>
 
 <style scoped>
+.row.gone {
+  opacity: 0.55;
+}
 .list {
   list-style: none;
   margin: var(--space-2) 0 0;

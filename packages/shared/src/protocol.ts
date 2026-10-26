@@ -176,9 +176,12 @@ export function estimateGameMinutes({ rounds, timerSec, breakSec, pacing, intro 
   return Math.max(1, Math.round(game / 60000))
 }
 
+/** A player's name as the game keeps it: runs of whitespace as one space, none at the ends. */
+export const cleanName = (s: string) => s.replace(/\s+/g, ' ').trim()
+
 const name = z
   .string()
-  .transform((s) => s.replace(/\s+/g, ' ').trim())
+  .transform(cleanName)
   .pipe(z.string().min(1, 'Pick a name').max(NAME_MAX, `Max ${NAME_MAX} characters`))
 
 const sheet = z.string().max(LIMITS.maxChars)
@@ -186,6 +189,8 @@ const sheet = z.string().max(LIMITS.maxChars)
 export const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('join'), name }),
   z.object({ type: z.literal('rename'), name }),
+  /** The host sends a player back to the name screen (in the lobby only; they may join again). */
+  z.object({ type: z.literal('kick'), playerId: z.string().max(64) }),
   z.object({
     type: z.literal('settings'),
     rounds: z.union(ROUND_OPTIONS.map((n) => z.literal(n)) as [z.ZodLiteral<5>, z.ZodLiteral<10>, z.ZodLiteral<15>]),
@@ -229,6 +234,11 @@ export interface PlayerView {
   /** Joined mid-round: plays from the next question. */
   spectating: boolean
   dunces: number
+  /**
+   * Offline for a whole question: left the game, as far as it can tell. Can't win, isn't named in her lines, and
+   * ranks below everyone still playing (see byStanding). Back in (score kept) on reconnecting.
+   */
+  gone: boolean
 }
 
 export interface FermeanieView extends FermeanieRelease {
@@ -327,7 +337,9 @@ export interface RevealView {
 /** The end of a game. Its release is FerMEANie's after this game. */
 export interface FinalView extends FermeanieRelease {
   gameId: string
-  ranking: { playerId: string; name: string; score: number }[]
+  /** Best first (byStanding): players who left (`gone`) after everyone who stayed, whatever their score. */
+  ranking: { playerId: string; name: string; score: number; gone?: true }[]
+  /** The best player who stayed; null when nobody did (she wins by default). */
   winnerId: string | null
   fermeanieScore: number
   fermeanieWon: boolean
@@ -340,6 +352,25 @@ export interface FinalView extends FermeanieRelease {
   awards: FinalAward[]
   /** When the winner is crowned and her final lines start (server ms): after the awards. */
   crownAt: number
+}
+
+/** The winner's row in a final: the best player who stayed (never one who left), if any. */
+export const finalWinner = (final: FinalView) => final.ranking.find((r) => r.playerId === final.winnerId)
+
+/**
+ * The order of any standings: players still in the game before those who left (`gone`), then the higher score, then
+ * a human before FerMEANie (`bot`) on a tie, then by name.
+ */
+export function byStanding(
+  a: { score: number; name?: string | null; gone?: boolean; bot?: boolean },
+  b: { score: number; name?: string | null; gone?: boolean; bot?: boolean },
+) {
+  return (
+    Number(!!a.gone) - Number(!!b.gone) ||
+    b.score - a.score ||
+    Number(!!a.bot) - Number(!!b.bot) ||
+    (a.name ?? '').localeCompare(b.name ?? '')
+  )
 }
 
 export interface FinalAward extends Award {
@@ -448,6 +479,15 @@ export interface RoomView {
   break?: BreakView
   /** With FerMEANie's voice on (the server's FERMI_VOICE): the clips for what she says in this view. */
   voice?: VoiceView
+  /** On the name screen (you haven't joined): her greeting, and the quote under the name field. */
+  welcome?: { greeting: string; quote: string }
+  /**
+   * In the lobby: what FerMEANie last said (as the room opened, someone joined, or a game ended), when (server ms), and
+   * until when it holds the stage: no new line of hers, and no game start, before `until`.
+   */
+  lobbyLine?: { text: string; at: number; until: number }
+  /** In the lobby: the host has started the game, which begins as she finishes her line. */
+  starting?: true
 }
 
 /**

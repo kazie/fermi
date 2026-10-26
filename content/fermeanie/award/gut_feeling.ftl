@@ -23,3 +23,12 @@ award-gut-feeling-7 =
 award-gut-feeling-8 = Gut Feeling: { $name }. Fast. Decisive. Occasionally right. A dangerous combination.
 award-gut-feeling-9 = { $name } answers the way other people sneeze. Quickly, and without much planning.
 award-gut-feeling-10 = The Gut Feeling goes to { $name }, who treats the timer as a suggestion to finish early.
+award-gut-feeling-11 = { $name } locked in before I had finished reading the question aloud. Rude, but efficient.
+award-gut-feeling-12 =
+    Gut Feeling: { $name }, about { $seconds ->
+        [one] one second
+       *[other] { $seconds } seconds
+    } per answer. Your gut works faster than most brains. Not better. Faster.
+award-gut-feeling-13 = The Gut Feeling goes to { $name }. The calculator was available. You chose vibes.
+award-gut-feeling-14 = { $name }, the first to commit, every round. I admire the speed. I audit the results.
+award-gut-feeling-15 = Gut Feeling: { $name }. Think fast, they say. You skipped straight to the fast.

@@ -35,13 +35,16 @@ const voice = useVoice(socket)
  */
 const nudge = computed(() => (room.value?.phase === 'lobby' && voice.speaks.value ? voice.silence.value : null))
 const now = useServerNow(offset)
+/** The clock as a function, for views where only a small part needs it (the lobby's line). */
+const clock = () => now.value
 // keep the phone awake through a game, so it doesn't lock (and drop off) mid-question
 useWakeLock(() => ['intro', 'question', 'reveal', 'break'].includes(room.value?.phase ?? ''))
 
 const me = computed(() => room.value?.players.find((p) => p.id === room.value?.you))
 providePlayerOrder(computed(() => room.value?.players.map((p) => p.id) ?? []))
 const joinUrl = `${location.origin}/r/${code}`
-const initialName = savedName()
+/** The name to offer on the name screen: the last one used, so a rename survives being kicked back to it. */
+const initialName = ref(savedName())
 
 // With a big screen in the room, phones can be a compact controller (look up at the TV) or show everything.
 const phoneView = ref<PhoneView>(savedPhoneView())
@@ -57,10 +60,13 @@ const reactRest = restShowing(() => socket.reactRest.value, now)
 /** During the intro's example question, the vote to skip the intro is still on. */
 const practiceSkip = computed(() => (room.value?.phase !== 'intro' && !!me.value ? room.value?.intro?.skip : undefined))
 
-function join(name: string) {
+function sendName(type: 'join' | 'rename', name: string) {
   saveName(name)
-  send({ type: 'join', name })
+  initialName.value = name
+  send({ type, name })
 }
+const join = (name: string) => sendName('join', name)
+const rename = (name: string) => sendName('rename', name)
 
 // Sound effects and vibration: everything online; at a party (a big screen in the room), only this player's own moments.
 useGameSfx(room, now, voice, socket.onReaction)
@@ -86,11 +92,21 @@ watch(
     <template v-else>
       <SoundNudge v-if="nudge" :state="nudge" @on="voice.enable()" />
       <ViewToggle v-if="showToggle" v-model="phoneView" class="toggle" />
-      <NameForm v-if="!me" :code="code" :mid-game="room.phase !== 'lobby'" :initial-name="initialName" @join="join" />
+      <NameForm
+        v-if="!me"
+        :code="code"
+        :mid-game="room.phase !== 'lobby'"
+        :initial-name="initialName"
+        :welcome="room.welcome"
+        @join="join"
+      />
       <Lobby
         v-else-if="room.phase === 'lobby'"
         :room="room"
         :join-url="joinUrl"
+        :clock="clock"
+        @rename="rename"
+        @kick="(playerId) => send({ type: 'kick', playerId })"
         @settings="
           (s) =>
             send({

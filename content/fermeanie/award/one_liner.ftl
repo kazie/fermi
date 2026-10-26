@@ -15,3 +15,12 @@ award-one-liner-7 = One-Liner: { $name }. Others built towers of reasoning. You 
 award-one-liner-8 = { $name } refuses to show their working. I respect the privacy. I suspect the method.
 award-one-liner-9 = The One-Liner goes to { $name }. Why use many lines when one wrong line will do?
 award-one-liner-10 = { $name }: one line per answer. I’ve read all your working. It took no time at all.
+award-one-liner-11 =
+    { $name } gave { $count ->
+        [one] one answer
+       *[other] { $count } answers
+    } as a single number. The working was left as an exercise for me.
+award-one-liner-12 = One-Liner: { $name }. Every answer a haiku. Shorter, actually.
+award-one-liner-13 = The One-Liner goes to { $name }. The answer block has room for plenty of lines. You found that intimidating.
+award-one-liner-14 = { $name }, one line, every time. A minimalist. Or someone who doesn’t like scrolling either.
+award-one-liner-15 = One-Liner: { $name }. No variables, no steps, no regrets. Some regrets, statistically.

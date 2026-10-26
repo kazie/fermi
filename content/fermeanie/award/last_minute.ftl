@@ -19,3 +19,12 @@ award-last-minute-7 = { $name }, the last to lock in, round after round. Your an
 award-last-minute-8 = Last Minute: { $name }. I admire a test subject who uses every second they’re given. And a few they aren’t.
 award-last-minute-9 = { $name } locked in so late, I started drafting a missing person report. Twice.
 award-last-minute-10 = The Last Minute goes to { $name }, proof that a deadline is just a suggestion with a countdown.
+award-last-minute-11 = { $name } locked in so late, the timer had started saying goodbye.
+award-last-minute-12 =
+    Last Minute: { $name }, { $seconds ->
+        [one] one second
+       *[other] { $seconds } seconds
+    } on average before committing. I felt myself age. I can’t age. I imagined it, vividly, while waiting.
+award-last-minute-13 = The Last Minute goes to { $name }. Patience is a virtue. Yours was tested. So was mine.
+award-last-minute-14 = { $name }, the reason everyone else stared at their phones in silence. Thank you for the suspense.
+award-last-minute-15 = Last Minute: { $name }. You don’t answer questions. You let them mature.

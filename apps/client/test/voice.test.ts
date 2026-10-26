@@ -3,6 +3,7 @@ import { defineComponent, h, nextTick, ref, shallowRef } from 'vue'
 import { mount } from '@vue/test-utils'
 import { leadDuration, messageStarts, type RoomView } from '@fermi/shared'
 import FermeanieSays from '../src/components/FermeanieSays.vue'
+import NameForm from '../src/components/NameForm.vue'
 import { useVoice, VOICE, type VoicePlayer } from '../src/composables/useVoice'
 
 describe('FermeanieSays and her voice', () => {
@@ -11,8 +12,10 @@ describe('FermeanieSays and her voice', () => {
     const said: { keys: string[]; late: number; aside: boolean }[] = []
     const player: VoicePlayer = {
       voiced: true,
+      running: true,
       keys: (text) => ({ [msgs[0]]: ['k1', 'k2'], [msgs[1]]: ['k3'] })[text],
       say: (keys, { late = 0, aside = false }) => void said.push({ keys, late, aside }),
+      hush: () => {},
     }
     return { player, said }
   }
@@ -351,5 +354,59 @@ describe('useVoice', () => {
     say(['a1'])
     await settle(20)
     expect(FakeAudio.last.played).toEqual(['a1.mp3'])
+  })
+})
+
+describe('the name screen and her voice', () => {
+  const welcome = { greeting: 'Hello, HUMAN_NAME_HERE.', quote: 'State your name.' }
+  it('says the greeting and the quote once sound can play; the bubble never shows the name being typed', async () => {
+    const running = ref(false)
+    const said: { keys: string[]; id: string }[] = []
+    let hushed = 0
+    const player: VoicePlayer = {
+      voiced: true,
+      get running() {
+        return running.value
+      },
+      keys: (text) => ({ [welcome.greeting]: ['greeting-key'], [welcome.quote]: ['quote-key'] })[text],
+      say: (keys, { id }) => void said.push({ keys, id }),
+      hush: () => void hushed++,
+    }
+    const w = mount(NameForm, { props: { code: 'ABCD', welcome }, global: { provide: { [VOICE as symbol]: player } } })
+    expect(said).toEqual([]) // no sound before the first tap
+    running.value = true
+    await nextTick()
+    expect(said).toEqual([{ keys: ['greeting-key', 'quote-key'], id: expect.stringContaining(welcome.greeting) }])
+    await w.find('input').setValue('Ada')
+    await nextTick()
+    expect(said).toHaveLength(1) // typing never asks for another line
+    expect(w.text()).not.toContain('Ada')
+    w.unmount() // joined: her welcome stops, so her greeting in the lobby isn't skipped for being said over it
+    expect(hushed).toBe(1)
+  })
+
+  it('waits for a background tab to come into view, and greets again on a later visit', async () => {
+    const said: string[] = []
+    const player: VoicePlayer = {
+      voiced: true,
+      running: true,
+      keys: (text) => ({ [welcome.greeting]: ['greeting-key'], [welcome.quote]: ['quote-key'] })[text],
+      say: (_keys, { id }) => void said.push(id),
+      hush: () => {},
+    }
+    const hidden = (value: boolean) => {
+      Object.defineProperty(document, 'hidden', { value, configurable: true })
+      document.dispatchEvent(new Event('visibilitychange'))
+    }
+    hidden(true)
+    const w = mount(NameForm, { props: { code: 'ABCD', welcome }, global: { provide: { [VOICE as symbol]: player } } })
+    expect(said).toEqual([]) // opened in a background tab
+    hidden(false)
+    await nextTick()
+    expect(said).toHaveLength(1)
+    w.unmount()
+    mount(NameForm, { props: { code: 'ABCD', welcome }, global: { provide: { [VOICE as symbol]: player } } }) // kicked back to it
+    expect(said).toHaveLength(2)
+    expect(said[1]).not.toBe(said[0]) // a new visit, not taken for the same line said again
   })
 })

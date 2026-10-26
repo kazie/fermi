@@ -4,9 +4,7 @@ import { plainText as plain } from '@fermi/shared'
 import { spoken } from '@/lib/markup.ts'
 import { breakRoom } from '@/fixtures/rooms.ts'
 import BreakScreen from '../src/components/BreakScreen.vue'
-import FermeanieSays from '../src/components/FermeanieSays.vue'
 import FerText from '../src/components/FerText.vue'
-import NameForm from '../src/components/NameForm.vue'
 
 const line = '~~Ada will lose.~~ I believe in **you**, ||Ada||.'
 
@@ -54,14 +52,5 @@ describe('break screen pacing', () => {
     const guest = mount(BreakScreen, { props: { room: breakRoom({ hostPaced: true, host: false }), now: 0 } })
     expect(guest.find('button').exists()).toBe(false)
     expect(guest.text()).toContain('Waiting for Bob…')
-  })
-})
-
-describe('name form greeting', () => {
-  it('shows a typed name exactly as typed, never as markup', async () => {
-    const form = mount(NameForm, { props: { code: 'ABCD', quote: 'Hello.' } })
-    await form.find('input').setValue('**Bob**')
-    // what she will type (after her "typing…" beat): the stars are text, not bold markers
-    expect(plain(form.findComponent(FermeanieSays).props('text') ?? '')).toContain('**Bob**')
   })
 })

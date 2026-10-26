@@ -96,6 +96,13 @@ function openSocket(code: string, key: string) {
 }
 type Snap = Extract<ServerMessage, { type: 'snapshot' }>
 
+/** Waits until she has finished her lobby line: the game can't start over her (her lines take a few seconds). */
+async function letHerFinish(messages: ServerMessage[]) {
+  const snap = messages.findLast((m) => m.type === 'snapshot') as Snap
+  const line = snap.room.lobbyLine
+  if (line) await new Promise((r) => setTimeout(r, line.until - snap.serverNow + 50))
+}
+
 /** Two more players, so a game can start (it needs MIN_PLAYERS). Call `leave` once it has: they never answer. */
 async function benchPlayers(code: string) {
   const bench = ['x', 'y'].map((k) => openSocket(code, k.repeat(43)))
@@ -157,6 +164,7 @@ describe('identity and abuse protection', () => {
     await p.waitFor((m) => m.type === 'snapshot' && m.room.players.length === 1)
     const bench = await benchPlayers(code)
     p.send({ type: 'settings', rounds: 10, timerSec: 60, intro: 'off' })
+    await letHerFinish(p.messages)
     p.send({ type: 'start' })
     const snap = (await p.waitFor((m) => m.type === 'snapshot' && m.room.phase === 'question')) as Snap
     bench.leave()
@@ -272,6 +280,7 @@ describe('websocket game', () => {
     await waitFor((m) => m.type === 'snapshot' && m.room.players.length === 1)
     const bench = await benchPlayers(code)
     ws.send(JSON.stringify({ type: 'settings', rounds: 10, timerSec: 60, intro: 'off' }))
+    await letHerFinish(messages)
     ws.send(JSON.stringify({ type: 'start' }))
     const q = (await waitFor((m) => m.type === 'snapshot' && m.room.phase === 'question')) as Extract<ServerMessage, { type: 'snapshot' }>
     bench.leave()

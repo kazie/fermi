@@ -7,13 +7,15 @@
 
 import { computed, inject, onUnmounted, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
 import type { RoomView } from '@fermi/shared'
-import { SPEECH_GAP_MS } from '@fermi/shared'
+import { SPEECH_GAP_MS, VOICE_MAX_LATE_MS } from '@fermi/shared'
 import { savedSound, saveSound } from '@/lib/storage'
 import { soundRoute } from '@/lib/sound'
 
 export interface VoicePlayer {
   /** The server has a voice: her lines (in bubbles on the server clock) are paced to it, sound on or off. */
   readonly voiced: boolean
+  /** Sound is on and the browser lets it play (it has had a tap): a line asked for now can be heard. Reactive. */
+  readonly running: boolean
   /** A line's clips, if the server has a voice. */
   keys(text: string): string[] | undefined
   /**
@@ -23,14 +25,14 @@ export interface VoicePlayer {
    * clip may take to arrive (a question on screen can be read out a little late; her chat can't).
    */
   say(keys: string[], opts: { id: string; late?: number; aside?: boolean; patience?: number }): void
+  /** Stops what she's saying, and drops what's queued: the screen that said it has gone (the name screen, on joining). */
+  hush(): void
 }
 
 export const VOICE: InjectionKey<VoicePlayer> = Symbol('voice')
 /** The voice in this page (Room or Screen set it up); null in stories, tests and other pages, which stay silent. */
 export const useVoicePlayer = () => inject(VOICE, null)
 
-/** How late a line may start. */
-const MAX_LATE_MS = 1500
 /** How long the first clip of a line may take to arrive once it's her turn; later sentences get a little less. */
 const FIRST_CLIP_WAIT_MS = 1500
 const NEXT_CLIP_WAIT_MS = 1000
@@ -249,15 +251,20 @@ export function useVoice(socket: { room: Ref<RoomView | null>; voiceReady: Ref<s
     get voiced() {
       return voiceView() !== undefined
     },
+    get running() {
+      return on.value
+    },
     keys: (text) => voiceView()?.lines[text],
     say(keys, { id, late = 0, aside = false, patience = FIRST_CLIP_WAIT_MS }) {
-      if (!wanted.value || !running.value || !speaks.value || document.hidden || !keys.length || late > MAX_LATE_MS || said.has(id)) return
+      if (!wanted.value || !running.value || !speaks.value || document.hidden || !keys.length || late > VOICE_MAX_LATE_MS || said.has(id))
+        return
       if (aside && (playing || queue.length)) return
       said.add(id)
       if (said.size > 500) said.delete(said.values().next().value!)
       queue.push({ keys, queuedAt: performance.now() - late, patience, epoch })
       void pump()
     },
+    hush: stop,
   }
 
   function stop() {

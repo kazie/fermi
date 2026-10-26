@@ -73,7 +73,7 @@ const t = computed(() =>
     : frame.value - ownStart.value,
 )
 // With a voice on the server, bubbles on the server clock (her lines in a game) stay up until she has said them, on
-// every device, sound on or off, as the server paces the game. Other bubbles (the lobby, recaps) are never voiced.
+// every device, sound on or off, as the server paces the game. Other bubbles (recaps, stories) are never voiced.
 const voice = useVoicePlayer()
 const voiced = computed(() => props.now !== undefined && !!voice?.voiced)
 const chatOpts = computed(() => ({ lead: props.now !== undefined || lead.value, paced: voiced.value }))

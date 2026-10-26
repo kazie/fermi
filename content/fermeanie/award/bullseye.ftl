@@ -27,3 +27,16 @@ award-bullseye-8 =
     } for { $name }. I’ve run the numbers. The numbers are annoyed.
 award-bullseye-9 = Bullseye: { $name }. Remarkable. I’ll be checking whether you had a phone in your other hand.
 award-bullseye-10 = { $name }, closest to the truth more often than anyone. I hope you’re proud. I’m not. But I hope you are.
+award-bullseye-11 = Bullseye: { $name }. You hit the truth so often, it has filed a complaint.
+award-bullseye-12 =
+    { $name }, { $count ->
+        [one] one answer
+       *[other] { $count } answers
+    } within ten percent. I’ve updated my threat assessment.
+award-bullseye-13 = The Bullseye goes to { $name }. Please empty your pockets. Slowly. Show me there are no encyclopaedias.
+award-bullseye-14 = { $name }, sharpest estimator in the room. I find it unsettling when humans are right. It doesn’t suit you.
+award-bullseye-15 =
+    { $count ->
+        [one] One direct hit
+       *[other] { $count } direct hits
+    } from { $name }. The target has asked to be moved.

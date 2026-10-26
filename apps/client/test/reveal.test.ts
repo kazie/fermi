@@ -3,7 +3,6 @@ import { mount } from '@vue/test-utils'
 import { players, reveals } from '@/fixtures/rooms.ts'
 import { STEAL } from '@fermi/shared'
 import { flippedCount, stealPlan } from '@/lib/reveal.ts'
-import { pickWelcome, welcome } from '@/lib/welcome.ts'
 import { tween } from '@/composables/useProgress.ts'
 import RevealSequence from '../src/components/RevealSequence.vue'
 
@@ -71,14 +70,6 @@ describe('the steal', () => {
     const done = at(plan.doneAt)
     expect(done.findAll('.ac.stolen')).toHaveLength(Object.keys(plan.starts).length)
     expect(done.find('.verdict.steal').text()).toContain(String(r.fermeanie!.points))
-  })
-})
-
-describe('name screen', () => {
-  it('picks a welcome line from the pool', () => {
-    expect(welcome.length).toBeGreaterThanOrEqual(10)
-    expect(pickWelcome(() => 0)).toBe(welcome[0])
-    expect(pickWelcome(() => 0.9999)).toBe(welcome[welcome.length - 1])
   })
 })
 

@@ -114,9 +114,11 @@ function unique(scores: Map<string, number>, best: 'max' | 'min'): { playerId: s
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
-/** Each award's winner in these rounds, if it has a clear one. */
-export function awardWinners(rounds: AwardRound[]): Award[] {
-  const ids = [...new Set(rounds.flatMap((r) => r.cards.map((c) => c.playerId)))]
+/** Each award's winner in these rounds, if it has a clear one among the players who didn't leave (`gone`). */
+export function awardWinners(rounds: AwardRound[], gone: ReadonlySet<string> = new Set()): Award[] {
+  // the gone are left out before each winner is picked: the best of those who stayed wins, and a gone player can't
+  // tie with them and leave the award to nobody
+  const ids = [...new Set(rounds.flatMap((r) => r.cards.map((c) => c.playerId)))].filter((id) => !gone.has(id))
   const per = <T>(fn: (id: string) => T) => new Map(ids.map((id) => [id, fn(id)]))
   const cardsOf = (id: string) => rounds.flatMap((r) => r.cards.filter((c) => c.playerId === id))
   /** Enough rounds answered for an average to mean something: at least two, and half the game. */
@@ -329,8 +331,15 @@ function shuffled<T>(xs: T[], seed: string): T[] {
  * Awards in `recent` (given in the room's previous game) only come up when nothing else qualifies, so a group playing
  * again hears different ones.
  */
-export function pickAwards(rounds: AwardRound[], seed: string, max = MAX_AWARDS, recent: AwardKind[] = []): Award[] {
-  const order = shuffled(awardWinners(rounds), seed)
+export function pickAwards(
+  rounds: AwardRound[],
+  seed: string,
+  max = MAX_AWARDS,
+  recent: AwardKind[] = [],
+  /** Players who can't get an award (they left the game). */
+  gone: ReadonlySet<string> = new Set(),
+): Award[] {
+  const order = shuffled(awardWinners(rounds, gone), seed)
   const fresh = [...order.filter((a) => !recent.includes(a.kind)), ...order.filter((a) => recent.includes(a.kind))]
   const picked: Award[] = []
   for (const a of fresh) {

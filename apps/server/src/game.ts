@@ -16,6 +16,7 @@ import {
   messageStarts,
   MIN_PLAYERS,
   plainText,
+  VOICE_MAX_LATE_MS,
   REVEAL_TIMING,
   revealChat,
   roundMultiplier,
@@ -39,6 +40,8 @@ import {
   type FinalAward,
   type FinalView,
   pickAwards,
+  byStanding,
+  type Award,
   type IntroStep,
   type IntroView,
   type PlayerView,
@@ -54,14 +57,14 @@ import type { LineArgs, LineCategory } from '@fermi/shared/lines'
 import { exampleQuestion, loadExamples } from './intro.ts'
 import { LinePicker, type ChosenLine, type LinePool } from './lines.ts'
 import { countActive, markPlayed, markSeen, pickQuestion } from './questions/repo.ts'
-import type { Voice } from './voice/index.ts'
+import type { Tier, Voice } from './voice/index.ts'
 import { nameSentences } from './voice/sweep.ts'
 
 export const MAX_PLAYERS = 30
-
-/** Highest score first; ties by name. */
-const byStanding = (a: { score: number; name: string | null }, b: { score: number; name: string | null }) =>
-  b.score - a.score || (a.name ?? '').localeCompare(b.name ?? '')
+/** A group greeting names this many joiners at most; more are only counted. */
+const MAX_NAMED_JOINERS = 4
+/** A breath between her lobby lines: the host can start the game in it, even while people keep joining. */
+export const LOBBY_LINE_GAP_MS = 1500
 
 /**
  * Who a quip may single out. The leader: ahead of every other player and of FerMEANie. The last:
@@ -101,10 +104,14 @@ interface Player {
   spectating: boolean
   /** Took part in a real round of this game (not just the intro's example): only they get the game in their history. */
   played: boolean
+  /** Offline for a whole question: left, as far as the game can tell (see PlayerView.gone). Cleared on reconnecting, until the last question has closed. */
+  gone: boolean
   joinedAt: number
   dropTimer?: ReturnType<typeof setTimeout>
   /** When they last reacted (server ms, oldest first): reactions are rate-limited. */
   reactedAt: number[]
+  /** On the name screen: her greeting and the quote under it, picked once per visit (see welcomeFor). */
+  welcome?: { greeting: string; quote: string }
 }
 
 interface Sheet {
@@ -160,6 +167,8 @@ type LineCall = { [K in LineCategory]: { key: K; vars: LineArgs<K> } }[LineCateg
 
 interface GameState {
   id: string
+  /** The last question has closed: who has left is settled for the final (its ranking and awards agree). */
+  goneSettled?: boolean
   usedQuestionIds: string[]
   /** Never two questions from the same template in one game. */
   usedTemplateIds: string[]
@@ -179,6 +188,8 @@ interface GameState {
   prepared: Map<string, { key: LineCategory; chosen: ChosenLine<LineCategory> }>
   /** The rounds that counted, for the awards at the end. */
   counted: RevealView[]
+  /** The awards, once picked (see pickedAwards). */
+  awards?: Award[]
 }
 
 export interface RoomDeps {
@@ -225,6 +236,18 @@ export class Room {
   /** Names her voice has rendered ahead for (capped, so renaming in a loop can't keep the renderer busy). */
   private voicedNames = new Set<string>()
   private hostTimer: ReturnType<typeof setTimeout> | undefined
+  /** What she said last in the lobby, and her own picker for it, so the lobby doesn't repeat itself. */
+  private lobbyLine: RoomView['lobbyLine']
+  /** Whom her lobby line names (a join line, or a group's), and the line as picked again with new names: renames follow. */
+  private greeted: { ids: string[]; names: string[]; say: (names: string[]) => string } | undefined
+  /** Her lobby line isn't voiced: a rename's edit (said already), or a name past the room's cap on rendering names. */
+  private lobbyQuiet = false
+  /** What happened in the lobby while she was talking (who joined, whether anyone left), said once she's done. */
+  private lobbyPending: { joins: Set<string>; left: boolean } = { joins: new Set(), left: false }
+  private lobbyTimer: ReturnType<typeof setTimeout> | undefined
+  /** The host started the game while she was talking: it starts as she finishes. */
+  private startTimer: ReturnType<typeof setTimeout> | undefined
+  private lobbyLines: LinePicker
   /** The calls in this reveal, by player id, and the timer that closes the call. */
   private calls = new Map<string, Call>()
   private callTimer: ReturnType<typeof setTimeout> | undefined
@@ -235,6 +258,8 @@ export class Room {
     this.deps = deps
     this.lastActivity = this.now()
     this.stopListening = deps.voice?.onRendered((key) => this.voiceRendered(key))
+    this.lobbyLines = new LinePicker(deps.lines, deps.db, deps.rand)
+    this.sayInLobby(this.lobbyLines.pick('lobby.empty', {}))
   }
 
   private now() {
@@ -282,6 +307,7 @@ export class Room {
         dunces: 0,
         spectating: false,
         played: false,
+        gone: false,
         joinedAt: this.now(),
         reactedAt: [],
       }
@@ -289,6 +315,8 @@ export class Room {
     }
     clearTimeout(p.dropTimer)
     p.conns.add(conn)
+    if (!this.game?.goneSettled) p.gone = false
+    if (p.name === null) this.welcomeFor(p)
     this.lastActivity = this.now()
     this.joinRound(p)
     if (this.hostId === playerId) this.stopHostTimer()
@@ -324,6 +352,7 @@ export class Room {
           this.guard('lobby drop', () => {
             if (p.conns.size === 0 && this.phase === 'lobby') {
               this.players.delete(p.id)
+              this.lobbyLeft()
               this.ensureHost()
               this.broadcast()
             }
@@ -402,14 +431,45 @@ export class Room {
         return
       case 'join':
       case 'rename': {
-        if (p.name === null) {
+        const joining = p.name === null
+        if (joining) {
           if (this.joinedPlayers().length >= MAX_PLAYERS) return fail(`This room is full (${MAX_PLAYERS} players)`)
           p.joinedAt = this.now()
           p.spectating = this.phase === 'question' || this.phase === 'reveal'
         }
         p.name = this.uniqueName(msg.name, p.id)
-        this.voiceName(p.name)
+        p.welcome = undefined
+        const voiced = this.voiceName(p.name)
+        if (this.phase === 'lobby' && joining) {
+          this.lobbyPending.joins.add(p.id)
+          this.lobbyNext()
+        } else if (this.phase === 'lobby' && this.lobbyLine && this.greeted?.ids.includes(p.id)) {
+          // a rename: her greeting follows the new name. Said with it while devices may still start the line (a typo
+          // fixed at once); later it was said already, so the edit is quiet (renaming in a loop mustn't make her say,
+          // or render, anything more)
+          const g = this.greeted
+          g.names[g.ids.indexOf(p.id)] = p.name
+          const text = g.say(g.names)
+          const { at } = this.lobbyLine
+          this.lobbyLine = this.lobbyLineAt(text, at) // a longer or shorter name: she's done sooner or later
+          this.lobbyQuiet = this.lobbyQuiet || !voiced || this.now() - at > VOICE_MAX_LATE_MS
+          this.lobbyNext() // what she has to say next waits for the new end
+        }
         this.ensureHost()
+        this.broadcast()
+        return
+      }
+      case 'kick': {
+        if (!isHost) return fail('Only the host can remove players')
+        const target = this.players.get(msg.playerId)
+        if (this.phase !== 'lobby' || !target || target.name === null || target.id === playerId) return
+        // back to the name screen: still connected, and free to join again
+        target.name = null
+        clearTimeout(target.dropTimer)
+        for (const c of target.conns) c.send({ type: 'error', message: 'The host sent you back to the door.' })
+        if (target.conns.size) this.welcomeFor(target)
+        else this.players.delete(target.id) // offline: nobody to greet
+        this.lobbyLeft()
         this.broadcast()
         return
       }
@@ -430,7 +490,7 @@ export class Room {
         if (this.phase !== 'lobby') return
         if (countActive(this.deps.db) === 0) return fail('There are no questions in the database yet')
         if (this.connectedPlayers().length < MIN_PLAYERS) return fail(`Fermi needs at least ${MIN_PLAYERS} players`)
-        this.startGame()
+        this.startWhenQuiet()
         return
       case 'draft':
       case 'lock': {
@@ -521,9 +581,40 @@ export class Room {
     return [...this.players.values()].filter((p) => p.name !== null)
   }
 
+  /** Joined players still in the game: not gone (see Player.gone). Only they can lead, be named or win awards. */
+  private activePlayers() {
+    return this.joinedPlayers().filter((p) => !p.gone)
+  }
+
   // ---------- game flow ----------
 
+  /** Starts the game, never over her lobby line: one she's still saying holds it until she's done. */
+  private startWhenQuiet() {
+    clearTimeout(this.startTimer)
+    this.startTimer = undefined
+    const until = this.lobbyLine?.until ?? 0
+    if (this.now() < until) {
+      this.startTimer = setTimeout(
+        () =>
+          this.guard('queued start', () => {
+            this.startTimer = undefined
+            // still startable (players may have left meanwhile); otherwise the host sees Start again
+            if (this.phase !== 'lobby') return
+            if (countActive(this.deps.db) > 0 && this.connectedPlayers().length >= MIN_PLAYERS) this.startWhenQuiet()
+            else this.broadcast()
+          }),
+        until - this.now(),
+      )
+      this.broadcast()
+      return
+    }
+    this.startGame()
+  }
+
   private startGame() {
+    this.clearLobbyPending()
+    clearTimeout(this.startTimer)
+    this.startTimer = undefined
     const { db, lines } = this.deps
     const id = randomUUID()
     const joined = this.joinedPlayers()
@@ -532,6 +623,7 @@ export class Room {
       p.dunces = 0
       p.spectating = false
       p.played = false
+      p.gone = false
     }
     this.fermeanieScore = 0
     this.game = {
@@ -601,10 +693,18 @@ export class Room {
       ...(h.dunces ? [{ key: 'roll_call.dunces', vars: { name, dunces: h.dunces } } as const] : []),
       ...(h.losses ? [{ key: 'roll_call.losses', vars: { name, losses: h.losses, games: h.games } } as const] : []),
     ]
+    return this.pickPooled(lines, calls, p.seenKey)
+  }
+
+  /**
+   * A line from one of several pools that all fit: each pool is as likely as it has lines, so a pool that only fits
+   * now and then (caps on record, her last win) joins the mix without taking over.
+   */
+  private pickPooled(lines: LinePicker, calls: LineCall[], seenKey?: string): string {
     const sizes = calls.map((c) => this.deps.lines.categories[c.key].length)
     let r = (this.deps.rand ?? Math.random)() * sizes.reduce((a, b) => a + b, 0)
     const call = calls.find((_, i) => (r -= sizes[i]) < 0) ?? calls[0]
-    return lines.pick(call.key, call.vars as LineArgs<typeof call.key>, p.seenKey)
+    return lines.pick(call.key, call.vars as LineArgs<typeof call.key>, seenKey)
   }
 
   /** The example question: played like a round, but never scored, saved or marked as seen. */
@@ -704,7 +804,7 @@ export class Room {
   private standings(scores?: Scores) {
     const game = this.game!
     return quipNames(
-      this.joinedPlayers().map((p) => ({
+      this.activePlayers().map((p) => ({
         name: p.name!,
         score: scores?.players[p.id] ?? p.score,
         fromStart: p.joinedAt <= game.startedAt,
@@ -727,7 +827,8 @@ export class Room {
       return { call: end ? { key: `for_real.${end}`, vars: {} } : { key: 'intro', vars: { count } } }
     }
     const names = this.standings(scores)
-    const previous = this.game!.leader
+    // a leader who left wasn't overtaken: no lead change, and no naming them
+    const previous = this.activePlayers().some((p) => p.name === this.game!.leader) ? this.game!.leader : undefined
     const call: LineCall =
       roundMultiplier(index, this.settings.rounds) > 1
         ? { key: 'final_round_double', vars: names }
@@ -766,12 +867,15 @@ export class Room {
     return game.lines.pick(call.key, call.vars)
   }
 
-  /** Her voice gets a head start on every sentence that only names this player. */
-  private voiceName(name: string) {
-    if (!this.deps.voice || this.voicedNames.has(name) || this.voicedNames.size >= MAX_PLAYERS * 2) return
+  /** Whether her voice may say this name: it renders a room's names ahead, up to a cap. */
+  private voiceName(name: string): boolean {
+    if (!this.deps.voice) return false
+    if (this.voicedNames.has(name)) return true
+    if (this.voicedNames.size >= MAX_PLAYERS * 2) return false
     this.voicedNames.add(name)
     // speculative (only a few get said), so after the sweep's questions and the lines picked ahead
     this.deps.voice.requestSentences(nameSentences(this.deps.lines, name))
+    return true
   }
 
   /** With a voice, her chat waits for her to finish each message (on every device, so all stay in step). */
@@ -786,10 +890,10 @@ export class Room {
     return sent?.length ? { yourReactions: sent } : {}
   }
 
-  /** The players, best first; with `scores`, as a reveal is about to leave them. */
-  private ranking(scores?: Record<string, number>) {
+  /** The players, best first (those who left after everyone who stayed); with `scores`, as a reveal is about to leave them. */
+  private ranking(scores?: Record<string, number>): FinalView['ranking'] {
     return this.joinedPlayers()
-      .map((p) => ({ playerId: p.id, name: p.name!, score: scores?.[p.id] ?? p.score }))
+      .map((p) => ({ playerId: p.id, name: p.name!, score: scores?.[p.id] ?? p.score, ...(p.gone && { gone: true as const }) }))
       .sort(byStanding)
   }
 
@@ -814,6 +918,12 @@ export class Room {
     const game = this.game
     if (this.phase !== 'question' || !r || !game) return
     clearTimeout(this.timer)
+    // offline from the question's start to its end (anyone back in time joined it): gone, until they reconnect
+    // (one back in the grace period after the deadline is here again, just too late for this question: not gone)
+    for (const p of this.joinedPlayers()) if (!p.spectating && !r.participants.has(p.id) && !p.conns.size) p.gone = true
+    // after the last question, coming back doesn't undo it: the awards (picked during this reveal) and the final ranking
+    // go by the same list
+    if (!r.practice && r.index + 1 >= this.settings.rounds) game.goneSettled = true
     const { db } = this.deps
     const q = r.question
     const ids = [...r.participants]
@@ -1110,7 +1220,7 @@ export class Room {
     this.final = {
       gameId: game.id,
       ranking,
-      winnerId: ranking[0]?.playerId ?? null,
+      winnerId: outcome.winnerId,
       fermeanieScore: this.fermeanieScore,
       fermeanieWon: o.fermeanieWon,
       startedAt,
@@ -1146,10 +1256,20 @@ export class Room {
     return { awards, crownAt: Math.round(t) }
   }
 
-  /** The awards this game gives (the same every time it's asked, until the game ends). */
+  /**
+   * The awards this game gives, picked once (in the last reveal, or as the game ends): never to a player who has left
+   * by then. Kept, so a player coming back before the ceremony doesn't change the awards her voice has rendered.
+   */
   private pickedAwards() {
     const game = this.game!
-    return pickAwards(game.counted, game.id, MAX_AWARDS, this.lastAwards)
+    // picked once (the players who left, worked out only then)
+    return (game.awards ??= pickAwards(
+      game.counted,
+      game.id,
+      MAX_AWARDS,
+      this.lastAwards,
+      new Set(this.joinedPlayers().flatMap((p) => (p.gone ? [p.id] : []))),
+    ))
   }
 
   private playerName(id: string) {
@@ -1196,8 +1316,12 @@ export class Room {
   }
 
   private toLobby() {
+    this.clearLobbyPending()
+    clearTimeout(this.startTimer)
+    this.startTimer = undefined
     clearTimeout(this.timer)
     clearTimeout(this.callTimer)
+    const lastGame = this.final // gone after a game that didn't finish (a crash sends the room back too)
     this.phase = 'lobby'
     this.round = null
     this.reveal = null
@@ -1207,10 +1331,95 @@ export class Room {
     this.intro = null
     for (const p of this.players.values()) {
       p.spectating = false
+      p.gone = false
       if (p.name !== null && p.conns.size === 0) this.players.delete(p.id)
     }
+    // a rematch line, about the game just played when there was one: who won it joins the mix
+    const { wins } = this.fermeanieView()
+    const outcome: LineCall[] = !lastGame
+      ? []
+      : lastGame.fermeanieWon
+        ? [{ key: 'lobby.won', vars: { wins } }]
+        : [{ key: 'lobby.lost', vars: {} }]
+    this.sayInLobby(this.pickPooled(this.lobbyLines, [{ key: 'lobby.back', vars: wins > 0 ? { wins } : {} }, ...outcome]))
     this.ensureHost()
     this.broadcast()
+  }
+
+  /** Her greeting on the name screen, and the quote under it: fixed lines (no variables), so rendered ahead. */
+  private welcomeFor(p: Player) {
+    p.welcome ??= { greeting: this.lobbyLines.pick('greeting', {}), quote: this.lobbyLines.pick('welcome', {}) }
+  }
+
+  /** Her line in the lobby, said now. It holds the stage until she has typed (and said) it. */
+  private sayInLobby(text: string, { quiet = false } = {}) {
+    this.lobbyLine = this.lobbyLineAt(text, this.now())
+    this.greeted = undefined
+    this.lobbyQuiet = quiet
+  }
+
+  /** Her lobby line, said from `at` until she has typed (and said) it. */
+  private lobbyLineAt(text: string, at: number): NonNullable<RoomView['lobbyLine']> {
+    return { text, at, until: at + lineDuration(plainText(text), this.paced) }
+  }
+
+  /** Someone left the lobby (kicked, or gone for good): she remarks on it, or on the empty room, once she's done. */
+  private lobbyLeft() {
+    this.lobbyPending.left = true
+    this.lobbyNext()
+  }
+
+  /**
+   * Her next lobby line, about what happened since her last: never over a line she's still saying (nor straight after
+   * it), so a burst of joins makes one line about all of them. Joiners who are still here win over anyone who left.
+   */
+  private lobbyNext() {
+    if (this.phase !== 'lobby' || (!this.lobbyPending.joins.size && !this.lobbyPending.left)) return
+    const free = this.lobbyLine ? this.lobbyLine.until + LOBBY_LINE_GAP_MS : 0
+    if (this.now() < free) {
+      // (re)timed from her current line, which a rename can make shorter
+      clearTimeout(this.lobbyTimer)
+      this.lobbyTimer = setTimeout(
+        () =>
+          this.guard('lobby line', () => {
+            this.lobbyTimer = undefined
+            this.lobbyNext()
+            this.broadcast()
+          }),
+        free - this.now(),
+      )
+      return
+    }
+    const { joins, left } = this.lobbyPending
+    this.clearLobbyPending()
+    const joiners = [...joins].map((id) => this.players.get(id)).filter((p): p is Player => !!p && p.name !== null)
+    const named = joiners.length <= MAX_NAMED_JOINERS
+    // a name past the room's cap on rendering names is greeted in text only
+    const quiet = named && joiners.some((p) => !this.voiceName(p.name!))
+    if (joiners.length === 1) {
+      const [p] = joiners
+      const chosen = this.lobbyLines.choose('lobby.join', { name: p.name! })
+      this.sayInLobby(this.lobbyLines.say(chosen), { quiet })
+      this.greeted = { ids: [p.id], names: [p.name!], say: ([name]) => this.lobbyLines.say(chosen, { name }) }
+    } else if (joiners.length > 1) {
+      const names = joiners.map((p) => p.name!)
+      const chosen = this.lobbyLines.choose('lobby.joins', {
+        count: joiners.length,
+        others: this.joinedPlayers().length - joiners.length, // who was here before them
+        ...(named && { names: joinNames(names) }),
+      })
+      this.sayInLobby(this.lobbyLines.say(chosen), { quiet })
+      if (named)
+        this.greeted = { ids: joiners.map((p) => p.id), names, say: (now) => this.lobbyLines.say(chosen, { names: joinNames(now) }) }
+    } else if (left) {
+      this.sayInLobby(this.lobbyLines.pick(this.joinedPlayers().length ? 'lobby.leave' : 'lobby.empty', {}))
+    }
+  }
+
+  private clearLobbyPending() {
+    clearTimeout(this.lobbyTimer)
+    this.lobbyTimer = undefined
+    this.lobbyPending = { joins: new Set(), left: false }
   }
 
   private schedule(ms: number, fn: () => void) {
@@ -1239,6 +1448,8 @@ export class Room {
   }
 
   dispose() {
+    this.clearLobbyPending()
+    clearTimeout(this.startTimer)
     clearTimeout(this.timer)
     clearTimeout(this.callTimer)
     clearTimeout(this.voiceTimer)
@@ -1279,7 +1490,7 @@ export class Room {
     return {
       fermeanie: this.fermeanieView(),
       poolSize: countActive(this.deps.db),
-      voice: this.voiceMap(),
+      ...this.voiceMap(),
     }
   }
 
@@ -1288,13 +1499,15 @@ export class Room {
    * her remark, each dunce line as its card flips, then her chat; the break line; the final lines. The one list her
    * voice renders from and clients get clips for.
    */
-  private utterances(): { text: string; at: number }[] {
-    const out: { text: string; at: number }[] = []
-    const say = (text: string | undefined, at: number) => text && out.push({ text, at })
+  private utterances(): { text: string; at: number; tier?: Tier }[] {
+    const out: { text: string; at: number; tier?: Tier }[] = []
+    const say = (text: string | undefined, at: number, tier?: Tier) => text && out.push({ text, at, ...(tier && { tier }) })
     const chat = (texts: (string | undefined)[], at: number) => {
       const said = texts.filter((t): t is string => !!t)
       messageStarts(said.map(plainText), { paced: this.paced }).forEach((t, i) => say(said[i], at + t))
     }
+    // her lobby chatter never holds up a game: a game starting right after a burst of joins has its question read first
+    if (this.phase === 'lobby' && this.lobbyLine && !this.lobbyQuiet) say(this.lobbyLine.text, this.lobbyLine.at, 'lobby')
     if (this.phase === 'intro' && this.intro) for (const step of this.intro.steps) say(step.line, step.at)
     const r = this.round
     if (this.phase === 'question' && r) {
@@ -1322,12 +1535,34 @@ export class Room {
    * Her voice's clips for everything in this snapshot, by text. Asking her voice for them on every broadcast is cheap
    * (rendered and queued clips are skipped, and late ones dropped) and covers a line that changed since it was picked.
    */
-  private voiceMap(): RoomView['voice'] {
+  private voiceMap(): { voice?: RoomView['voice']; welcomeVoice?: Map<string, NonNullable<RoomView['voice']>> } {
     const voice = this.deps.voice
-    if (!voice) return undefined
-    const lines = Object.fromEntries(this.utterances().map(({ text, at }) => [text, voice.request(text, { at })]))
-    this.voiceKeys = new Set(Object.values(lines).flat())
-    return { lines, pending: [...this.voiceKeys].filter((k) => !voice.has(k)) }
+    if (!voice) return {}
+    const view = (lines: Record<string, string[]>) => ({
+      lines,
+      pending: Object.values(lines)
+        .flat()
+        .filter((k) => !voice.has(k)),
+    })
+    const lines: Record<string, string[]> = {}
+    for (const { text, at, tier } of this.utterances()) lines[text] = voice.request(text, { at, tier })
+    // the name screen's greeting and quote, only in the view of whoever is on it
+    const welcomeVoice = new Map<string, NonNullable<RoomView['voice']>>()
+    for (const p of this.players.values())
+      if (p.name === null && p.conns.size && p.welcome)
+        welcomeVoice.set(
+          p.id,
+          view(Object.fromEntries([p.welcome.greeting, p.welcome.quote].map((t) => [t, voice.request(t, { tier: 'ahead' })]))),
+        )
+    this.voiceKeys = new Set([lines, ...[...welcomeVoice.values()].map((w) => w.lines)].flatMap((l) => Object.values(l).flat()))
+    return { voice: view(lines), welcomeVoice }
+  }
+
+  /** The room's clips, plus this viewer's own greeting and quote while they're on the name screen. */
+  private voiceFor(forId: string, shared: ReturnType<Room['sharedView']>): RoomView['voice'] {
+    const own = shared.welcomeVoice?.get(forId)
+    if (!shared.voice || !own) return shared.voice
+    return { lines: { ...shared.voice.lines, ...own.lines }, pending: [...shared.voice.pending, ...own.pending] }
   }
 
   /**
@@ -1346,6 +1581,7 @@ export class Room {
 
   view(forId: string, shared = this.sharedView()): RoomView {
     const r = this.round
+    const viewer = this.players.get(forId)
     const players: PlayerView[] = this.joinedPlayers()
       .sort((a, b) => a.joinedAt - b.joinedAt)
       .map((p) => {
@@ -1360,6 +1596,7 @@ export class Room {
           typing: this.phase === 'question' && !!sheet && sheet.text.trim() !== '',
           spectating: p.spectating || (this.phase === 'question' && !!r && !r.participants.has(p.id)),
           dunces: p.dunces,
+          gone: p.gone,
         }
       })
     const mine = r?.sheets.get(forId)
@@ -1373,7 +1610,10 @@ export class Room {
       players,
       fermeanie: shared.fermeanie,
       poolSize: shared.poolSize,
-      voice: shared.voice,
+      voice: this.voiceFor(forId, shared),
+      ...(viewer?.name === null && viewer.welcome ? { welcome: viewer.welcome } : {}),
+      ...(this.phase === 'lobby' && this.lobbyLine ? { lobbyLine: this.lobbyLine } : {}),
+      ...(this.phase === 'lobby' && this.startTimer ? { starting: true as const } : {}),
       ...(this.phase === 'question' && r
         ? {
             round: {
@@ -1462,13 +1702,21 @@ function sameAnswer(entries: { playerId: string; value: number | null }[]): stri
   return largest.length >= 2 ? largest : []
 }
 
-/** How a game ends, from the final ranking (best first) and her score: she wins only by beating every player. */
-function gameOutcome(ranking: { name: string; score: number }[], fermeanieScore: number) {
+/**
+ * How a game ends, from the final ranking (best first) and her score. A player who left can't win, so the winner is
+ * the best one who stayed, and she wins by beating every player who stayed (with nobody left, by scoring at all).
+ */
+export function gameOutcome(ranking: FinalView['ranking'], fermeanieScore: number) {
+  // the ranking puts those who left last
   const top = ranking[0]
+  // nobody stayed to the end (the whole room left): she wins by default, and no player is crowned; her lines still name
+  // the best of them as the best human
+  if (!top || top.gone) return { winnerId: null, winner: top?.name ?? 'nobody', fermeanieWon: true, tied: false }
   return {
-    winner: top?.name ?? 'nobody',
-    fermeanieWon: fermeanieScore > (top?.score ?? 0),
-    tied: !!top && fermeanieScore === top.score, // a tie goes to the humans
+    winnerId: top.playerId,
+    winner: top.name,
+    fermeanieWon: fermeanieScore > top.score,
+    tied: fermeanieScore === top.score, // a tie goes to the humans
   }
 }
 

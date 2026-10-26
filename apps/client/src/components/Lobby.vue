@@ -1,26 +1,34 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onUnmounted, ref } from 'vue'
+import LobbyLine from './LobbyLine.vue'
 import {
   BREAK_OPTIONS,
+  cleanName,
+  NAME_MAX,
   estimateGameMinutes,
   INTRO_OPTIONS,
   playersMissing,
   PACING_OPTIONS,
   ROUND_OPTIONS,
   TIMER_OPTIONS,
+  type PlayerView,
   type RoomSettings,
   type RoomView,
 } from '@fermi/shared'
 import { CALC_TIPS, HOW_TO_PLAY, S } from '@/lib/strings'
 import FermeanieAvatar from './FermeanieAvatar.vue'
-import FermeanieSays from './FermeanieSays.vue'
 import JoinQr from './JoinQr.vue'
 import { useMediaQuery } from '@/composables/useMediaQuery'
 import PlayerAvatar from './PlayerAvatar.vue'
 import PracticePad from './PracticePad.vue'
 
-const props = defineProps<{ room: RoomView; joinUrl: string }>()
-const emit = defineEmits<{ settings: [RoomSettings]; start: [] }>()
+const props = defineProps<{
+  room: RoomView
+  joinUrl: string
+  /** Server time, for her lobby line (a function, so only her bubble re-renders as it ticks). */
+  clock?: () => number
+}>()
+const emit = defineEmits<{ settings: [RoomSettings]; start: []; rename: [string]; kick: [string] }>()
 
 const isHost = computed(() => props.room.hostId === props.room.you)
 // Phones: the essentials first (code, players, start); QR, rules and practice fold away.
@@ -58,6 +66,39 @@ const canShare = typeof navigator !== 'undefined' && 'share' in navigator
 function set(change: Partial<RoomSettings>) {
   emit('settings', { ...props.room.settings, ...change })
 }
+
+// ---- your name, changed in place: only a commit (Enter, ✓) renames; Esc, ✕ or the game starting cancels ----
+const editing = ref(false)
+const draft = ref('')
+const nameInput = ref<HTMLInputElement[]>([])
+const myName = computed(() => props.room.players.find((p) => p.id === props.room.you)?.name ?? '')
+function startRename() {
+  draft.value = myName.value
+  editing.value = true
+  void nextTick(() => nameInput.value[0]?.select())
+}
+function commitRename() {
+  editing.value = false
+  const name = cleanName(draft.value)
+  if (name && name !== myName.value) emit('rename', name)
+}
+
+// ---- the host sends someone back to the name screen: one tap arms it, a second one sends ----
+const armed = ref<string | null>(null)
+let disarm: ReturnType<typeof setTimeout> | undefined
+function kick(id: string) {
+  clearTimeout(disarm)
+  if (armed.value === id) {
+    armed.value = null
+    emit('kick', id)
+    return
+  }
+  armed.value = id
+  disarm = setTimeout(() => (armed.value = null), 3000)
+}
+/** Armed, the label says a second tap sends them (for screen readers too). */
+const kickLabel = (p: PlayerView) => (armed.value === p.id ? S.kickArmed(p.name) : S.kick(p.name))
+onUnmounted(() => clearTimeout(disarm))
 </script>
 
 <template>
@@ -86,9 +127,63 @@ function set(change: Partial<RoomSettings>) {
           <li v-for="p in room.players" :key="p.id" :class="{ off: !p.connected, you: p.id === room.you }">
             <span class="dot" :class="{ on: p.connected }" aria-hidden="true"></span>
             <PlayerAvatar :seed="p.id" :size="24" :state="p.connected ? 'idle' : 'off'" />
-            <span class="pname">{{ p.name }}</span>
-            <span v-if="p.isHost" class="tag">host</span>
-            <span v-if="p.id === room.you" class="tag you">you</span>
+            <template v-if="editing && p.id === room.you">
+              <input
+                ref="nameInput"
+                v-model="draft"
+                class="input rename"
+                :maxlength="NAME_MAX"
+                :aria-label="S.yourName"
+                autocomplete="nickname"
+                enterkeyhint="done"
+                @keydown.enter.prevent="commitRename"
+                @keydown.esc.prevent="editing = false"
+              />
+              <button
+                class="btn btn-ghost row-btn save"
+                type="button"
+                :aria-label="S.renameSave"
+                :title="S.renameSave"
+                @click="commitRename"
+              >
+                ✓
+              </button>
+              <button
+                class="btn btn-ghost row-btn"
+                type="button"
+                :aria-label="S.renameCancel"
+                :title="S.renameCancel"
+                @click="editing = false"
+              >
+                ✕
+              </button>
+            </template>
+            <template v-else>
+              <span class="pname">{{ p.name }}</span>
+              <span v-if="p.isHost" class="tag">host</span>
+              <span v-if="p.id === room.you" class="tag you">you</span>
+              <button
+                v-if="p.id === room.you"
+                class="btn btn-ghost row-btn"
+                type="button"
+                :aria-label="S.rename"
+                :title="S.rename"
+                @click="startRename"
+              >
+                ✎
+              </button>
+            </template>
+            <button
+              v-if="isHost && p.id !== room.you"
+              class="btn btn-ghost row-btn kick"
+              :class="{ armed: armed === p.id }"
+              type="button"
+              :aria-label="kickLabel(p)"
+              :title="kickLabel(p)"
+              @click="kick(p.id)"
+            >
+              {{ armed === p.id ? S.kickConfirm : '✕' }}
+            </button>
           </li>
           <li class="bot">
             <span class="dot on fer-dot" aria-hidden="true"></span>
@@ -179,25 +274,17 @@ function set(change: Partial<RoomSettings>) {
           v-if="isHost"
           class="btn btn-primary btn-block start"
           type="button"
-          :disabled="room.poolSize === 0 || missingPlayers > 0"
+          :disabled="room.poolSize === 0 || missingPlayers > 0 || !!room.starting"
           @click="emit('start')"
         >
-          ▶ {{ S.start }}
+          {{ room.starting ? S.startingSoon : `▶ ${S.start}` }}
         </button>
-        <p v-else class="muted center">{{ S.waitingForHost }}</p>
+        <p v-else class="muted center">{{ room.starting ? S.startingSoon : S.waitingForHost }}</p>
       </section>
     </div>
 
     <aside class="side">
-      <FermeanieSays
-        :release="room.fermeanie"
-        mood="smug"
-        :text="
-          room.fermeanie.wins > 0
-            ? `I have defeated carbon-based organisms ${room.fermeanie.wins} time${room.fermeanie.wins === 1 ? '' : 's'}. I am the average of all of you. Think about that.`
-            : 'I am the average of all of you. Individually you are noise. Together, you are me. Shall we begin?'
-        "
-      />
+      <LobbyLine v-if="room.lobbyLine" :line="room.lobbyLine" :release="room.fermeanie" :clock="clock" />
       <details class="card how" :open="!narrow">
         <summary class="eyebrow">How it works</summary>
         <ol>
@@ -305,16 +392,33 @@ function set(change: Partial<RoomSettings>) {
 .dot.fer-dot {
   background: var(--fer);
 }
-.tag {
-  font-size: var(--text-xs);
-  padding: 0 6px;
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  color: var(--muted);
-}
 .tag.you {
   border-color: var(--blue);
   color: var(--blue);
+}
+.rename {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 2px var(--space-2);
+}
+/* small buttons inside a player's row; the row itself is the touch target's height */
+.row-btn {
+  flex: none;
+  min-width: 32px;
+  min-height: 0;
+  height: 28px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+}
+.row-btn.save {
+  color: var(--ok);
+}
+.row-btn.kick.armed {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-weight: 600;
 }
 .settings {
   display: flex;

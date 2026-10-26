@@ -77,11 +77,8 @@ withDefaults(defineProps<{ award: Pick<FinalAward, 'kind' | 'playerId' | 'name' 
   font-size: var(--text-2xl);
 }
 .tag {
-  font-size: var(--text-xs);
   color: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  padding: 0 6px;
+  border-color: var(--accent);
 }
 .stat {
   font-size: var(--text-s);

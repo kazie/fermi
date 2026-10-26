@@ -14,3 +14,8 @@ award-hindsight-8 =
     { $count } times, { $name } correctly predicted their own error. I’ve recommended you for a job in quality control. Your own.
 award-hindsight-9 = The Hindsight goes to { $name }, who knew which way the truth was, and still didn’t write it down.
 award-hindsight-10 = { $name }, the best judge of your own estimates. Next time, try being the judge before you answer.
+award-hindsight-11 = { $name } called their own mistakes { $count } times. Self-awareness: excellent. Self-correction: pending.
+award-hindsight-12 = Hindsight: { $name }. You always knew which way you were wrong. The rest of them had to wait for the reveal.
+award-hindsight-13 = The Hindsight goes to { $name }. You could see the truth from where you were standing. You just stood still.
+award-hindsight-14 = { $name }, { $count } right calls. A better forecaster than estimator. Have you considered weather?
+award-hindsight-15 = Hindsight: { $name }. Too high, you said. And it was. Then why did you write it?
