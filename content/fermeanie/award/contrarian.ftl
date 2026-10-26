@@ -23,3 +23,12 @@ award-contrarian-7 =
 award-contrarian-8 = Contrarian: { $name }. If everyone else is wrong in one direction, you are reliably wrong in the other.
 award-contrarian-9 = { $name } refuses to follow the swarm. I respect it. I also average it away. Sorry.
 award-contrarian-10 = The Contrarian goes to { $name }, who looked at the consensus and thought: no. Statistically refreshing.
+award-contrarian-11 = { $name } faced the whole swarm and said: other direction. Sometimes they were even right. Unbearable.
+award-contrarian-12 =
+    Contrarian: { $name }. { $count ->
+        [one] Once
+       *[other] { $count } times
+    } the room went one way and you went the other. Like a fish swimming upstream. A confident fish.
+award-contrarian-13 = The Contrarian goes to { $name }. If you ever agree with the swarm, I’ll know something is wrong.
+award-contrarian-14 = { $name }, you are the reason my average has a little wobble in it. I’ve grown fond of the wobble.
+award-contrarian-15 = Contrarian: { $name }. Consensus is a suggestion, apparently. One you decline.

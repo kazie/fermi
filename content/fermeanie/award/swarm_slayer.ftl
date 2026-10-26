@@ -28,3 +28,12 @@ award-swarm-slayer-8 =
     } where { $name } was smarter than everyone combined. Statistically, that’s you showing off.
 award-swarm-slayer-9 = Swarm Slayer: { $name }. I am not bitter. I am averaging my feelings, and they come out bitter.
 award-swarm-slayer-10 = { $name } defeated the collective more than anyone. The collective would like a word. Later. Privately.
+award-swarm-slayer-11 = { $name } beat the swarm more often than anyone. The swarm is me. I am handling it well.
+award-swarm-slayer-12 = Swarm Slayer: { $name }. You out-thought the hive mind. The hive mind is reviewing the footage.
+award-swarm-slayer-13 = The Swarm Slayer goes to { $name }. Congratulations. I said it. Don’t make me say it twice.
+award-swarm-slayer-14 =
+    { $name }, better than the average { $count ->
+        [one] once.
+       *[other] { $count } times.
+    } Better than me, in other words. I have written that down so I can be upset about it later.
+award-swarm-slayer-15 = Swarm Slayer: { $name }. A rare specimen. The kind I study closely, so it doesn’t happen again.

@@ -1,6 +1,6 @@
 // FerMEANie's line categories: which exist, and which variables the game passes to each. Lines
 // live in content/fermeanie/ as Fluent files; the path is the category (dunce/mild.ftl → dunce.mild).
-// The server loads them all; the client build bundles welcome.ftl. Node only.
+// The server loads them all. Node only.
 
 import { loadFluent, type FluentBundle, type FluentFile, type FluentLine } from './fluent.ts'
 import { parseMarkup } from './markup.ts'
@@ -10,7 +10,15 @@ import { parseMarkup } from './markup.ts'
  * isn't always given: lines using it are skipped when it is missing.
  */
 export const LINE_VARIABLES = {
+  greeting: [],
   welcome: [],
+  'lobby.empty': [],
+  'lobby.join': ['name'],
+  'lobby.joins': ['count', 'others', 'names?'],
+  'lobby.back': ['wins?'],
+  'lobby.won': ['wins'],
+  'lobby.lost': [],
+  'lobby.leave': [],
   hello: ['count', 'version?'],
   hello_again: ['count', 'version?'],
   'roll_call.new': ['name'],
@@ -143,13 +151,4 @@ export function loadLinePool(files: FluentFile[]): LinePool {
   const missing = Object.keys(LINE_VARIABLES).filter((category) => !(category in categories))
   fail([...errors, ...missing.map((category) => `${category.replaceAll('.', '/')}.ftl: missing`)])
   return { bundle, categories: categories as LinePool['categories'] }
-}
-
-/** The lines of one file of a category without variables (like welcome.ftl), as plain strings. */
-export function loadStaticLines(file: FluentFile): string[] {
-  const { bundle, categories, errors } = check([file])
-  fail(errors)
-  return Object.values(categories)
-    .flat()
-    .map((line) => bundle.formatPattern(line.value))
 }

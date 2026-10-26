@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { chatDuration, plainText } from '@fermi/shared'
-import { finalView, T0 } from '@/fixtures/rooms'
+import { finalView, finalWithLeaver, T0 } from '@/fixtures/rooms'
 import FinalScreen from './FinalScreen.vue'
 
 const ceremony = finalView(false)
@@ -17,6 +17,9 @@ const t = ref(second.at - T0 + chatDuration([plainText(second.line)]) + 300)
     ></Variant>
     <Variant title="FerMEANie wins (version bump)"
       ><div class="page"><FinalScreen :final="finalView(true)" you="p0" :is-host="false" /></div
+    ></Variant>
+    <Variant title="The leader left before the end"
+      ><div class="page"><FinalScreen :final="finalWithLeaver()" you="p0" is-host /></div
     ></Variant>
     <Variant title="Awards ceremony (scrub to the crown)">
       <template #default>

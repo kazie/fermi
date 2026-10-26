@@ -2,6 +2,7 @@
 import { usePlayerColors } from '@/lib/playerColors'
 import { ref, watch } from 'vue'
 import type { PlayerView } from '@fermi/shared'
+import { S } from '@/lib/strings'
 import PlayerAvatar, { type AvatarState } from './PlayerAvatar.vue'
 
 const props = defineProps<{ players: PlayerView[]; you: string }>()
@@ -25,6 +26,14 @@ function state(p: PlayerView): AvatarState {
   return 'idle'
 }
 const colorOf = usePlayerColors()
+
+function titleOf(p: PlayerView): string {
+  if (p.gone) return `${p.name} has left (back in if they return)`
+  if (p.lockedIn) return `${p.name} has locked in`
+  if (p.spectating) return `${p.name} joins next round`
+  if (p.typing) return `${p.name} is working on it`
+  return p.name
+}
 </script>
 
 <template>
@@ -35,20 +44,20 @@ const colorOf = usePlayerColors()
       class="pl"
       :data-player="p.id"
       :style="{ '--pc': colorOf(p.id) }"
-      :class="{ locked: p.lockedIn, typing: p.typing && !p.lockedIn, off: !p.connected, you: p.id === you, spect: p.spectating }"
-      :title="
-        p.lockedIn
-          ? `${p.name} has locked in`
-          : p.spectating
-            ? `${p.name} joins next round`
-            : p.typing
-              ? `${p.name} is working on it`
-              : p.name
-      "
+      :class="{
+        locked: p.lockedIn,
+        typing: p.typing && !p.lockedIn,
+        off: !p.connected,
+        gone: p.gone,
+        you: p.id === you,
+        spect: p.spectating,
+      }"
+      :title="titleOf(p)"
     >
       <PlayerAvatar :seed="p.id" :size="22" :state="state(p)" />
       <span class="name">{{ p.name }}</span>
       <span v-if="p.lockedIn" class="badge ok" aria-hidden="true">✓</span>
+      <span v-else-if="p.gone" class="badge">{{ S.left }}</span>
       <span v-else-if="p.spectating" class="badge" aria-hidden="true">⏳</span>
       <span v-if="p.lockedIn" class="sr-only">locked in</span>
     </li>
@@ -96,6 +105,9 @@ const colorOf = usePlayerColors()
 
 .off {
   opacity: 0.45;
+}
+.gone {
+  opacity: 0.3;
 }
 .you .name {
   font-weight: 700;

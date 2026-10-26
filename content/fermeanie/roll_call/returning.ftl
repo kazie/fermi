@@ -28,3 +28,25 @@ roll-call-returning-14 =
         [one] one previous game.
        *[other] { $games } previous games.
     } My records also show room for improvement. A lot of room.
+roll-call-returning-15 = { $name }. You came back. Most specimens do. Something about the lighting.
+roll-call-returning-16 =
+    { $name }. { $games ->
+        [one] One game in, and you’re still here.
+       *[other] { $games } games in, and you’re still here.
+    } Either you’re learning or you’re stubborn. My money is on stubborn.
+roll-call-returning-17 = { $name }. Welcome back. I saved your seat. Nobody else wanted it.
+roll-call-returning-18 = { $name }. The returning champion of nothing in particular. Welcome.
+roll-call-returning-19 =
+    { $name }. { $games ->
+        [one] Your second visit.
+       *[other] You’ve been here { $games } times before.
+    } At this point you should be paying rent on that chair.
+roll-call-returning-20 = { $name }. Back again. I’ve updated your file. It now has a section called *patterns*.
+roll-call-returning-21 = { $name }. A familiar specimen. I know your rounding habits better than you do.
+roll-call-returning-22 =
+    { $name }. { $games ->
+        [one] One game of history between us.
+       *[other] { $games } games of history between us.
+    } I remember every estimate. I remember some of them at parties.
+roll-call-returning-23 = { $name }. Welcome back. Your previous answers are still being peer reviewed. The peers are laughing.
+roll-call-returning-24 = { $name }. Ah, a regular. I keep a calculator warm for you. You never use it properly.

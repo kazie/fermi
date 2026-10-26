@@ -174,6 +174,14 @@ select {
 .btn-primary:hover:not(:disabled) {
   background: #ffab5c;
 }
+/* a small pill next to a name: host, you, left */
+.tag {
+  font-size: var(--text-xs);
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+}
 .btn-ghost {
   background: transparent;
   border-color: transparent;

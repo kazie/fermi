@@ -2,12 +2,17 @@
 import { computed } from 'vue'
 import { estimateGameMinutes, playersMissing, type RoomView } from '@fermi/shared'
 import { S } from '@/lib/strings'
-import FermeanieSays from './FermeanieSays.vue'
+import LobbyLine from './LobbyLine.vue'
 import JoinQr from './JoinQr.vue'
 import PlayerAvatar from './PlayerAvatar.vue'
 
 /** The lobby on a big screen: how to join, who's in, and who will press Start. */
-const props = defineProps<{ room: RoomView; joinUrl: string }>()
+const props = defineProps<{
+  room: RoomView
+  joinUrl: string
+  /** Server time, for her lobby line (a function, so only her bubble re-renders as it ticks). */
+  clock?: () => number
+}>()
 
 const host = computed(() => props.room.players.find((p) => p.id === props.room.hostId))
 const s = computed(() => props.room.settings)
@@ -39,16 +44,7 @@ const minutes = computed(() => estimateGameMinutes(s.value, props.room.players.l
       <p v-else class="empty muted">Nobody yet. Scan the code to join!</p>
     </section>
 
-    <FermeanieSays
-      size="l"
-      mood="smug"
-      :release="room.fermeanie"
-      :text="
-        room.players.length
-          ? 'More specimens. Excellent. The more of you there are, the smarter I get.'
-          : 'An empty room. My favourite kind. Please, come in. I promise to be gentle. Statistically.'
-      "
-    />
+    <LobbyLine v-if="room.lobbyLine" :line="room.lobbyLine" :release="room.fermeanie" :clock="clock" size="l" />
 
     <p class="status">
       <template v-if="host && missingPlayers">{{ S.needPlayers(missingPlayers) }}</template>
@@ -134,11 +130,7 @@ const minutes = computed(() => estimateGameMinutes(s.value, props.room.players.l
   white-space: nowrap;
 }
 .tag {
-  font-size: var(--text-xs);
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
   padding: 0 8px;
-  color: var(--muted);
 }
 .empty {
   font-size: var(--text-l);

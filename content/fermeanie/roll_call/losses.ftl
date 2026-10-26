@@ -34,3 +34,25 @@ roll-call-losses-9 =
        *[other] { $games } games, { $losses } of them mine.
     } Statistically, I’m expected to say something gracious here. Statistically.
 roll-call-losses-10 = { $name }. Please accept my condolences in advance. They’re left over from the last time I beat you.
+roll-call-losses-11 =
+    { $name }. { $losses ->
+        [one] I beat you once.
+       *[other] I have beaten you { $losses } times.
+    } I don’t like to brag. I just like the numbers to do it for me.
+roll-call-losses-12 = { $name }. My old opponent. I remember your estimates. They were delicious.
+roll-call-losses-13 =
+    { $name }. Out of { $games ->
+        [one] one game together,
+       *[other] { $games } games together,
+    } I won { $losses }. I’ve done the maths. It’s my favourite maths.
+roll-call-losses-14 = { $name }. Welcome back to the arena. I have fond memories of beating you here. At least once.
+roll-call-losses-15 =
+    { $name }. { $losses ->
+        [one] One loss to me so far. Don’t think of it as a loss. Think of it as a donation.
+       *[other] { $losses } losses to me so far. Don’t think of them as losses. Think of them as donations.
+    }
+roll-call-losses-16 = { $name }. I have beaten you before. Statistically, I will beat you again. Emotionally, I hope so.
+roll-call-losses-17 = { $name }. Back for revenge? Revenge requires accuracy. I’m counting on you to forget that.
+roll-call-losses-18 = { $name }. Head to head: { $losses } to me, out of { $games }. I keep that number on my desktop. As wallpaper.
+roll-call-losses-19 = { $name }. Ah. You. I still have a few of your points from one of our earlier games. I’m saving them.
+roll-call-losses-20 = { $name }. Welcome back, worthy opponent. That was sarcasm. I’ve beaten you.

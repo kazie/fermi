@@ -69,6 +69,8 @@ line (with markup) → speech text → sentences → clip key per sentence → w
   - _live_: lines being said now, earliest first. One still unrendered 10 s after it was due is dropped, so a backlog
     clears itself.
   - _ahead_: lines picked early, and questions added while the server runs.
+  - _lobby_: her lobby chatter, below anything a game needs. Like _live_, a line still unrendered 10 s after it was
+    due is dropped, so a burst of joins can't leave a backlog.
   - _sweep_: everything that can be rendered before a game, then players' names, in the order asked for; at most
     20,000 waiting, so name renders from many rooms can't pile up.
 - **The clip folder** is checked on demand, so clips copied in while the server runs are found, and a clip deleted
@@ -84,6 +86,15 @@ line (with markup) → speech text → sentences → clip key per sentence → w
     reveal the final lines, so they render while players watch. If the situation changes (a different category of
     line), a fresh line is picked.
   - Each question is read before her line, which gives a just-picked line a few more seconds.
+  - In the lobby (`lobby.*`): her line as the room opens, as someone joins, as someone leaves (kicked or gone), when
+    the room empties, and after a game. They go in the _lobby_ tier, so a game starting right after a burst of joins
+    has its question rendered first. Join lines open with a sentence without the name, which gives the name's clip
+    time to render. A rename edits her greeting to the new name without saying it again, and a name past the room's
+    cap on rendering names is greeted in text only. Clients say a lobby line only when she isn't already talking.
+  - The name screen: her greeting (`greeting`, always to "HUMAN_NAME_HERE", said as "human name here") and the
+    quote under the field (`welcome`), both picked by the server for whoever is on that screen. They're fixed lines,
+    rendered at startup, and the bubble never shows the name being typed, so typing can't make the server render
+    anything. The page says both once, as soon as sound can play (usually the tap into the name field).
 - **Snapshots** carry `voice`: for each line and question in the view, its clip keys, and which of them
   aren't rendered yet (nearly always none).
   Its presence tells the client that her lines are paced to her voice. The speaker button shows either way: sound
@@ -107,7 +118,7 @@ ready: [...] }` over the websocket (clips finishing within 100 ms go in one mess
   saying it (`speechDuration`: about 400 ms a sentence plus 58 ms a character as she reads it, numbers spelled out,
   measured on her clips and rounded up), and the reveal lasts until the last one is said. This is the same on every
   device, sound on or off, so they all stay in step. Only lines she says are paced and voiced: those the server sent
-  clips for, in a bubble on the server clock. The lobby and recaps (their own clock) keep the plain reading pauses.
+  clips for, in a bubble on the server clock. Recaps (their own clock) keep the plain reading pauses.
 
 Measured speed: a full render (about 1,850 clips) took 20 minutes on a 24-core workstation, about 0.65 s per
 sentence. One worker renders one sentence at a time, so more cores barely help. A small server (a 2-core laptop CPU,
@@ -201,7 +212,8 @@ any of them are new voices.
 - Hand-written spoken versions of lines (a Fluent attribute such as `.tts`) where the written line reads badly aloud.
   `loadFluent` rejects attributes today.
 - Pruning clips no setting uses any more.
-- The lobby, home and name-screen lines (client-side text) aren't voiced.
+- The home page's line isn't voiced (no room yet, and no tap, so the browser wouldn't play it anyway). Recaps stay
+  silent on purpose: they're for reading back through a finished game.
 - Several devices with sound on in one room aren't synchronised, so a little echo is possible.
 - More workers, or rendering on a GPU, if `pnpm q voice` shows clips expiring.
 - The e2e videos (`pnpm test:e2e:video`) are silent: Playwright's video recording captures only the screen and has no

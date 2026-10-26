@@ -16,7 +16,7 @@ const codeId = useId()
     <section class="hero">
       <div class="hero-eye" aria-hidden="true"><FermeanieAvatar :size="112" mood="smug" /></div>
       <h1>Fermi</h1>
-      <p class="tag">{{ S.tagline }}</p>
+      <p class="tagline">{{ S.tagline }}</p>
     </section>
 
     <section class="actions card">
@@ -123,7 +123,7 @@ const codeId = useId()
   font-size: clamp(2.6rem, 10vw, 4.5rem);
   letter-spacing: -0.03em;
 }
-.tag {
+.tagline {
   color: var(--text-dim);
   font-size: var(--text-l);
   margin: var(--space-2) 0 0;

@@ -9,6 +9,7 @@ import {
   evaluateSheet,
   fermeanieRelease,
   fermeanieStageMs,
+  lineDuration,
   REVEAL_TIMING,
   scoreRound,
   stolenCards,
@@ -98,6 +99,7 @@ export function players(n: number, opts: Partial<PlayerView> = {}): PlayerView[]
     typing: false,
     spectating: false,
     dunces: 0,
+    gone: false,
     ...opts,
   }))
 }
@@ -119,8 +121,14 @@ function base(phase: RoomView['phase'], ps: PlayerView[], extra: Partial<RoomVie
   }
 }
 
+/** A lobby of `n` players, with her line as the last of them joined (or, with nobody here, about the empty room). */
 export function lobbyRoom(n = 4, extra: Partial<RoomView> = {}): RoomView {
-  return base('lobby', players(n), extra)
+  const ps = players(n)
+  const last = ps.at(-1)?.name
+  const text = last
+    ? `More specimens. Excellent. Hello, ${last}. The more of you there are, the smarter I get.`
+    : 'An empty room. My favourite kind. Please, come in. I promise to be gentle. Statistically.'
+  return base('lobby', ps, { lobbyLine: { text, at: T0, until: T0 + lineDuration(text) }, ...extra })
 }
 
 export function questionRoom(opts: { n?: number; text?: string; locked?: boolean; now?: number } = {}): RoomView {
@@ -297,6 +305,19 @@ let awardsEnd = T0 + AWARD_TIMING.lead
 for (const a of AWARD_LINES) {
   AWARDS_DEMO.push({ ...a, at: awardsEnd })
   awardsEnd += awardDuration(a.line)
+}
+
+/** A final where Cyd led, then left the game: ranked after everyone who stayed, and not the winner. */
+export function finalWithLeaver(): FinalView {
+  const f = finalView(false)
+  return {
+    ...f,
+    ranking: [
+      { playerId: 'p0', name: 'Ada', score: 2650 },
+      { playerId: 'p1', name: 'Bob', score: 2100 },
+      { playerId: 'p2', name: 'Cyd', score: 3100, gone: true },
+    ],
+  }
 }
 
 export function finalView(fermeanieWon: boolean): FinalView {

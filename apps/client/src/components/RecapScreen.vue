@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { finalWinner } from '@fermi/shared'
 import type { DisputeState } from './DisputeForm.vue'
 import type { RecapGame } from '@/lib/recap'
 import AnswerCard from './AnswerCard.vue'
@@ -9,7 +11,7 @@ import DoubleBadge from './DoubleBadge.vue'
 import TruthPanel from './TruthPanel.vue'
 
 /** Every round of a finished game: the answer, its sources, everyone's working. Pure; the view fetches. */
-withDefaults(
+const props = withDefaults(
   defineProps<{
     game: RecapGame
     /** Your public id in this game, to highlight your cards. */
@@ -19,6 +21,7 @@ withDefaults(
   { me: null, disputes: () => ({}) },
 )
 const emit = defineEmits<{ dispute: [questionId: string, message: string] }>()
+const recapWinner = computed(() => props.game.final && finalWinner(props.game.final))
 </script>
 
 <template>
@@ -30,8 +33,8 @@ const emit = defineEmits<{ dispute: [questionId: string, message: string] }>()
         <AwardCard v-for="a in game.final.awards" :key="a.kind" :award="a" />
       </div>
       <p v-if="game.final" class="muted">
-        Winner: <strong>{{ game.final.ranking[0]?.name }}</strong> ({{ game.final.ranking[0]?.score }} pts) · FerMEANie
-        {{ game.final.version }}: {{ game.final.fermeanieScore }} pts
+        Winner: <strong>{{ recapWinner?.name }}</strong> ({{ recapWinner?.score }} pts) · FerMEANie {{ game.final.version }}:
+        {{ game.final.fermeanieScore }} pts
       </p>
     </header>
     <section v-for="r in game.rounds" :key="r.index" class="round">

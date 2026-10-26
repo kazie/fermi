@@ -31,6 +31,8 @@ const nudge = computed(() => {
   return silence === 'locked' || (silence === 'muted' && room.value?.phase === 'lobby') ? silence : null
 })
 const now = useServerNow(offset)
+/** The clock as a function, for views where only a small part needs it (the lobby's line). */
+const clock = () => now.value
 // the big screen plays the shared sounds: the countdown, the reveal, the steal
 useGameSfx(room, now, voice, socket.onReaction)
 useWakeLock(() => !!room.value) // a TV page should never fall asleep
@@ -72,7 +74,7 @@ async function toggleFullscreen() {
     <p v-else-if="!room" class="muted">Connecting to room {{ code }}…</p>
     <template v-else>
       <SoundNudge v-if="nudge" :state="nudge" tv @on="voice.enable()" />
-      <ScreenLobby v-if="room.phase === 'lobby'" :room="room" :join-url="joinUrl" />
+      <ScreenLobby v-if="room.phase === 'lobby'" :room="room" :join-url="joinUrl" :clock="clock" />
       <IntroSequence
         v-else-if="room.phase === 'intro' && room.intro"
         :intro="room.intro"

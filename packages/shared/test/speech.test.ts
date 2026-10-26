@@ -17,6 +17,7 @@ describe('speechText', () => {
     ['FerMEANie v3.14 is out.', 'FerMEANie version 3 point 1 4 is out.'],
     ['How many 1,000,000 km² of CO₂ per 2.5 m³?', 'How many 1000000 km squared of CO2 per 2 point 5 m cubed?'],
     ['Between 3, 400 and 1999 people', 'Between 3, 400 and 1999 people'],
+    ['Subject HUMAN_NAME_HERE, please step in.', 'Subject human name here, please step in.'],
   ])('%s', (line, spoken) => expect(speechText(line)).toBe(spoken))
 
   it('joins digit groups only with the narrow space the game uses', () => {

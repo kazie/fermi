@@ -13,7 +13,7 @@ import {
   type RoomView,
   type ServerMessage,
 } from '@fermi/shared'
-import { Room, DEADLINE_GRACE_MS, HOST_HANDOVER_MS, LOBBY_DROP_MS, quipNames } from '../src/game.ts'
+import { Room, DEADLINE_GRACE_MS, gameOutcome, HOST_HANDOVER_MS, LOBBY_DROP_MS, LOBBY_LINE_GAP_MS, quipNames } from '../src/game.ts'
 import { getQuestion } from '../src/questions/repo.ts'
 import { loadExamples } from '../src/intro.ts'
 import { makeQuestion, seed, testDb, testLines } from './fixtures.ts'
@@ -40,14 +40,25 @@ class FakeConn {
 }
 
 /** Connects and names players: Ada, Bob, Cyd… */
+/** Joins `count` players, then lets her finish greeting them (so a test can start the game straight away). */
 function joinPlayers(room: Room, count: number) {
-  return Array.from({ length: count }, (_, i) => {
-    const id = `player-${i}-xxxxxxxx`
-    const conn = new FakeConn()
-    room.connect(id, conn)
-    room.handle(id, { type: 'join', name: ['Ada', 'Bob', 'Cyd', 'Dee', 'Eve'][i] }, conn)
-    return { id, conn }
-  })
+  const players = Array.from({ length: count }, (_, i) => joinOne(room, `player-${i}-xxxxxxxx`, ['Ada', 'Bob', 'Cyd', 'Dee', 'Eve'][i]))
+  if (players[0]) letHerFinish(players[0].conn)
+  return players
+}
+
+/** Moves the fake clock on until she has said everything in the lobby: the game can't start over her. */
+function letHerFinish(conn: FakeConn) {
+  const free = () => (conn.last.lobbyLine ? conn.last.lobbyLine.until + LOBBY_LINE_GAP_MS : 0)
+  while (Date.now() < free()) vi.advanceTimersByTime(free() - Date.now())
+}
+
+/** Connects and joins one more player (no waiting for her). */
+function joinOne(room: Room, id: string, name: string) {
+  const conn = new FakeConn()
+  room.connect(id, conn)
+  room.handle(id, { type: 'join', name }, conn)
+  return { id, conn }
 }
 
 function setup(playerCount: number, questions = 6) {
@@ -786,6 +797,7 @@ describe('the intro', () => {
 
     room.handle(a.id, { type: 'play_again' }, a.conn)
     expect(a.conn.last.settings.intro).toBe('short')
+    letHerFinish(a.conn)
     room.handle(a.id, { type: 'start' }, a.conn)
     const steps = a.conn.last.intro!.steps
     expect(steps.map((s) => s.kind)).toEqual(['hello', 'player', 'player', 'player', 'player'])
@@ -956,5 +968,242 @@ describe('Room robustness', () => {
     // only the minimum shrinks; the steal and her chat take their real time
     const real = fermeanieStageMs(rv.lines, stolenCards(rv.fermeanie, rv.cards), 0)
     expect(rv.timeline.scoreboardAt - rv.timeline.fermeanieAt).toBeGreaterThanOrEqual(real)
+  })
+})
+
+describe('players who leave, kicks and her lobby lines', () => {
+  /** Locks everyone given in and moves on to the next question (or the final). */
+  function playRound(room: Room, lockers: { id: string; conn: FakeConn }[], text: (i: number) => string) {
+    const before = lockers[0].conn.last.round!.index
+    lockers.forEach((p, i) => room.handle(p.id, { type: 'lock', text: text(i) }, p.conn))
+    while (lockers[0].conn.last.phase !== 'final' && lockers[0].conn.last.round?.index === before) vi.advanceTimersByTime(1000)
+    while (!['question', 'final'].includes(lockers[0].conn.last.phase)) vi.advanceTimersByTime(1000)
+  }
+
+  it('offline for a whole question: gone, ranked last and never the winner; back in on reconnecting', () => {
+    const { room, players, answerOf } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 60, breakSec: 0, intro: 'off' }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    const truth = answerOf()
+    playRound(room, [a, b, c], (i) => (i === 2 ? `${truth}` : '1e99')) // Cyd leads
+    room.disconnect(c.id, c.conn) // and leaves during round 2
+    playRound(room, [a, b], () => '1')
+    expect(a.conn.last.players.find((p) => p.id === c.id)!.gone).toBe(false) // was there as it started: not gone yet
+
+    playRound(room, [a, b], () => '1') // missed round 3 from start to end
+    expect(a.conn.last.players.find((p) => p.id === c.id)!.gone).toBe(true)
+
+    // a reconnect clears it; leaving again for a whole question brings it back
+    const back = new FakeConn()
+    room.connect(c.id, back)
+    expect(a.conn.last.players.find((p) => p.id === c.id)!.gone).toBe(false)
+    room.disconnect(c.id, back)
+    while (a.conn.last.phase !== 'final') playRound(room, [a, b], () => '1')
+
+    const final = a.conn.last.final!
+    expect(final.ranking.at(-1)).toMatchObject({ playerId: c.id, gone: true })
+    expect(final.ranking.filter((x) => x.gone)).toHaveLength(1)
+    expect(final.winnerId).not.toBe(c.id)
+    expect(final.awards.map((x) => x.playerId)).not.toContain(c.id)
+
+    // play again: everyone starts fresh, and she has a line for the lobby
+    room.handle(a.id, { type: 'play_again' }, a.conn)
+    expect(a.conn.last.phase).toBe('lobby')
+    expect(a.conn.last.lobbyLine!.text).toMatch(/^BACK/)
+  })
+
+  it('who won: the best player who stayed; when the whole room left, she wins by default', () => {
+    const stayed = [
+      { playerId: 'b', name: 'Bob', score: 200 },
+      { playerId: 'a', name: 'Ada', score: 900, gone: true as const },
+    ]
+    expect(gameOutcome(stayed, 300)).toMatchObject({ winnerId: 'b', fermeanieWon: true })
+    const allGone = [
+      { playerId: 'a', name: 'Ada', score: 900, gone: true as const },
+      { playerId: 'b', name: 'Bob', score: 200, gone: true as const },
+    ]
+    expect(gameOutcome(allGone, 300)).toEqual({ winnerId: null, winner: 'Ada', fermeanieWon: true, tied: false })
+  })
+
+  it('kick: only the host, only in the lobby, never themselves; the kicked player can join again', () => {
+    const { room, players } = setup(3)
+    const [a, b, c] = players
+    room.handle(b.id, { type: 'kick', playerId: c.id }, b.conn)
+    expect(b.conn.errors.at(-1)).toMatchObject({ message: /Only the host/ })
+    room.handle(a.id, { type: 'kick', playerId: a.id }, a.conn)
+    expect(a.conn.last.players.map((p) => p.name)).toEqual(['Ada', 'Bob', 'Cyd'])
+
+    room.handle(a.id, { type: 'kick', playerId: c.id }, a.conn)
+    expect(a.conn.last.players.map((p) => p.name)).toEqual(['Ada', 'Bob'])
+    expect(c.conn.errors.at(-1)).toMatchObject({ message: /sent you back/ })
+    expect(c.conn.last.players.some((p) => p.id === c.id)).toBe(false) // the name screen again
+    room.handle(c.id, { type: 'join', name: 'Cyd' }, c.conn)
+    expect(a.conn.last.players.map((p) => p.name)).toEqual(['Ada', 'Bob', 'Cyd'])
+
+    letHerFinish(a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    room.handle(a.id, { type: 'kick', playerId: b.id }, a.conn)
+    expect(a.conn.last.players).toHaveLength(3) // not mid-game
+  })
+
+  it('her lobby line: as the room opens and as someone joins; a rename edits her greeting without saying it again', () => {
+    const db = testDb()
+    seed(db, 6)
+    const room = new Room('ABCD', { db, lines: testLines, rand: () => 0 })
+    const { conn } = joinOne(room, 'player-0-xxxxxxxx', 'Ada')
+    expect(conn.last.lobbyLine!.text).toBe('EMPTY.') // the room has only just opened: she's still saying that
+    letHerFinish(conn)
+    const joined = conn.last.lobbyLine!
+    expect(joined.text).toBe('JOIN Ada.')
+    vi.advanceTimersByTime(1000)
+    room.handle('player-0-xxxxxxxx', { type: 'rename', name: 'Ava' }, conn)
+    expect(conn.last.lobbyLine).toEqual({ ...joined, text: 'JOIN Ava.' }) // same moment: not said again
+  })
+
+  it('her lobby line: never over the one she is saying; a burst of joins gets one line, naming up to four', () => {
+    const { room, players } = setup(3)
+    const [a] = players
+    expect(a.conn.last.lobbyLine!.text).toBe('JOINS Ada, Bob and Cyd.') // they joined while the room's line was said
+    joinOne(room, 'player-3-xxxxxxxx', 'Dee')
+    const dee = a.conn.last.lobbyLine!
+    expect(dee.text).toBe('JOIN Dee.') // she was quiet: said at once
+    joinOne(room, 'player-4-xxxxxxxx', 'Eve')
+    joinOne(room, 'player-5-xxxxxxxx', 'Fay')
+    expect(a.conn.last.lobbyLine).toEqual(dee) // not while she's talking
+    vi.advanceTimersByTime(dee.until - Date.now())
+    expect(a.conn.last.lobbyLine).toEqual(dee) // nor straight after
+    vi.advanceTimersByTime(LOBBY_LINE_GAP_MS)
+    expect(a.conn.last.lobbyLine!.text).toBe('JOINS 2 AFTER 4.') // the naming line was used already: no repeats while there's another
+    letHerFinish(a.conn)
+    for (const [i, name] of ['Gus', 'Hal', 'Ida', 'Jo', 'Kim'].entries()) joinOne(room, `player-${6 + i}-xxxxxxxx`, name)
+    expect(a.conn.last.lobbyLine!.text).toBe('JOIN Gus.')
+    letHerFinish(a.conn)
+    expect(a.conn.last.lobbyLine!.text).toBe('JOINS Hal, Ida, Jo and Kim.')
+  })
+
+  it('her lobby line: five or more at once are only counted', () => {
+    const { room, players } = setup(3)
+    joinOne(room, 'player-3-xxxxxxxx', 'Dee')
+    for (const [i, name] of ['Eve', 'Fay', 'Gus', 'Hal', 'Ida'].entries()) joinOne(room, `player-${4 + i}-xxxxxxxx`, name)
+    letHerFinish(players[0].conn)
+    expect(players[0].conn.last.lobbyLine!.text).toBe('JOINS 5 AFTER 4.')
+  })
+
+  it('her lobby line: a joiner kicked before her turn is never greeted; the latest name is used', () => {
+    const { room, players } = setup(3)
+    const [a] = players
+    joinOne(room, 'player-3-xxxxxxxx', 'Dee')
+    const eve = joinOne(room, 'player-4-xxxxxxxx', 'Eve')
+    const fay = joinOne(room, 'player-5-xxxxxxxx', 'Fay')
+    room.handle(a.id, { type: 'kick', playerId: eve.id }, a.conn)
+    room.handle(fay.id, { type: 'rename', name: 'Flo' }, fay.conn)
+    letHerFinish(a.conn)
+    expect(a.conn.last.lobbyLine!.text).toBe('JOIN Flo.')
+    // the only joiner gone again before her turn: she remarks on the leaving instead
+    joinOne(room, 'player-6-xxxxxxxx', 'Gus')
+    const gus = joinOne(room, 'player-7-xxxxxxxx', 'Hal')
+    expect(a.conn.last.lobbyLine!.text).toBe('JOIN Gus.')
+    room.handle(a.id, { type: 'kick', playerId: gus.id }, a.conn)
+    letHerFinish(a.conn)
+    expect(a.conn.last.lobbyLine!.text).toBe('LEAVE.')
+  })
+
+  it('her lobby line: a group greeting follows a rename too', () => {
+    const { room, players } = setup(3)
+    const [a, b] = players
+    expect(a.conn.last.lobbyLine!.text).toBe('JOINS Ada, Bob and Cyd.')
+    room.handle(b.id, { type: 'rename', name: 'Bo' }, b.conn)
+    expect(a.conn.last.lobbyLine!.text).toBe('JOINS Ada, Bo and Cyd.')
+  })
+
+  it('her lobby line: a rename that shortens her greeting brings her next line forward', () => {
+    const { room, players } = setup(3)
+    const [a] = players
+    const long = joinOne(room, 'player-3-xxxxxxxx', 'Bartholomew-Maximilian the Third')
+    joinOne(room, 'player-4-xxxxxxxx', 'Eve') // waits for her turn
+    room.handle(long.id, { type: 'rename', name: 'Bo' }, long.conn)
+    const bo = a.conn.last.lobbyLine!
+    expect(bo.text).toBe('JOIN Bo.')
+    vi.advanceTimersByTime(bo.until + LOBBY_LINE_GAP_MS - Date.now())
+    expect(a.conn.last.lobbyLine!.text).toBe('JOIN Eve.')
+  })
+
+  it('a start while she is talking waits for her to finish; what she had left to say is dropped', () => {
+    const { room, players } = setup(3)
+    const [a] = players
+    joinOne(room, 'player-3-xxxxxxxx', 'Dee')
+    const dee = a.conn.last.lobbyLine!
+    room.handle(a.id, { type: 'start' }, a.conn)
+    expect(a.conn.errors).toEqual([])
+    expect(a.conn.last).toMatchObject({ phase: 'lobby', starting: true })
+    joinOne(room, 'player-4-xxxxxxxx', 'Eve') // waits for her turn, which never comes
+    vi.advanceTimersByTime(dee.until - Date.now())
+    expect(a.conn.last.phase).not.toBe('lobby')
+    vi.advanceTimersByTime(LOBBY_LINE_GAP_MS)
+    expect(a.conn.last.lobbyLine).toBeUndefined()
+  })
+
+  it('a queued start is called off if too few players are left when she finishes', () => {
+    const { room, players } = setup(3)
+    const [a, , c] = players
+    joinOne(room, 'player-3-xxxxxxxx', 'Dee')
+    const dee = a.conn.last.lobbyLine!
+    room.handle(a.id, { type: 'start' }, a.conn)
+    room.handle(a.id, { type: 'kick', playerId: c.id }, a.conn)
+    room.handle(a.id, { type: 'kick', playerId: 'player-3-xxxxxxxx' }, a.conn)
+    vi.advanceTimersByTime(dee.until - Date.now())
+    expect(a.conn.last.phase).toBe('lobby')
+    expect(a.conn.last.starting).toBeUndefined() // Start is back for the host
+  })
+
+  it('her lobby line: someone leaving gets a remark, and an emptied room goes back to the empty-room line', () => {
+    const { room, players } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'kick', playerId: c.id }, a.conn)
+    expect(a.conn.last.lobbyLine!.text).toBe('LEAVE.') // never 'JOIN Cyd.' any more
+    room.disconnect(b.id, b.conn)
+    vi.advanceTimersByTime(LOBBY_DROP_MS)
+    expect(a.conn.last.lobbyLine!.text).toBe('LEAVE.')
+    room.disconnect(a.id, a.conn)
+    vi.advanceTimersByTime(LOBBY_DROP_MS)
+    const watcher = new FakeConn()
+    room.connect('watcher-xxxxxxxxxxxx', watcher)
+    expect(watcher.last.lobbyLine!.text).toBe('EMPTY.')
+  })
+
+  it('back just after the deadline: too late for that question, but not gone', () => {
+    const { room, players } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 60, breakSec: 0, intro: 'off' }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    playRound(room, [a, b, c], () => '1')
+    room.disconnect(c.id, c.conn)
+    playRound(room, [a, b], () => '1') // c was in this one as it started
+    // round 3: c is away from the start, and comes back in the grace period after the deadline
+    room.handle(a.id, { type: 'lock', text: '1' }, a.conn)
+    room.handle(b.id, { type: 'draft', text: '1' }, b.conn)
+    vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS / 2)
+    const back = new FakeConn()
+    room.connect(c.id, back)
+    vi.advanceTimersByTime(DEADLINE_GRACE_MS)
+    expect(back.last.phase).toBe('reveal')
+    expect(back.last.players.find((p) => p.id === c.id)!.gone).toBe(false)
+  })
+
+  it('a leader who leaves is never named, and nobody overtook them: no lead change', () => {
+    const { room, players, answerOf } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'settings', rounds: 10, timerSec: 60, breakSec: 0, intro: 'off' }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    const truth = answerOf()
+    playRound(room, [a, b, c], (i) => (i === 2 ? `${truth}` : '1e99')) // Cyd leads
+    room.disconnect(c.id, c.conn)
+    playRound(room, [a, b], () => '1e99') // Cyd was here as it started, and still leads
+    // Cyd misses this whole question (gone as it ends) while Ada scores: Ada now leads the players still here
+    playRound(room, [a, b], (i) => (i === 0 ? `${answerOf()}` : '1e99'))
+    const line = a.conn.last.round!.line
+    expect(line).not.toContain('Cyd')
+    expect(line).not.toMatch(/took the lead/)
   })
 })

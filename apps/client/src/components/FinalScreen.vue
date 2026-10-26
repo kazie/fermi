@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { FinalView } from '@fermi/shared'
+import { byStanding, finalWinner, type FinalView } from '@fermi/shared'
 import { S } from '@/lib/strings'
 import AwardCard from './AwardCard.vue'
 import FermeanieAvatar from './FermeanieAvatar.vue'
@@ -29,11 +29,17 @@ const current = computed(() => {
   return shown.at(-1)
 })
 
-const winner = computed(() => props.final.ranking[0])
+const winner = computed(() => finalWinner(props.final))
+// FerMEANie among the players, in the same order the server ranks them (those who left last)
 const rows = computed(() => {
   const humans = props.final.ranking.map((r) => ({ ...r, bot: false }))
-  const bot = { playerId: 'fermeanie', name: `FerMEANie ${props.final.version}`, score: props.final.fermeanieScore, bot: true }
-  return [...humans, bot].sort((a, b) => b.score - a.score || Number(a.bot) - Number(b.bot))
+  const bot: (typeof humans)[number] = {
+    playerId: 'fermeanie',
+    name: `FerMEANie ${props.final.version}`,
+    score: props.final.fermeanieScore,
+    bot: true,
+  }
+  return [...humans, bot].sort(byStanding)
 })
 </script>
 
@@ -59,7 +65,7 @@ const rows = computed(() => {
   </div>
   <div v-else class="final">
     <section class="crown card">
-      <span class="eyebrow">Best carbon-based organism</span>
+      <span v-if="winner" class="eyebrow">Best carbon-based organism</span>
       <div v-if="winner" class="winner">
         <span class="emoji" aria-hidden="true">👑</span>
         <h1>{{ winner.name }}</h1>
@@ -86,11 +92,12 @@ const rows = computed(() => {
     <section class="card">
       <h2 class="eyebrow">Final scores</h2>
       <ol class="list">
-        <li v-for="(r, i) in rows" :key="r.playerId" :class="{ bot: r.bot, you: r.playerId === you }">
-          <span class="pos mono">{{ i + 1 }}</span>
+        <li v-for="(r, i) in rows" :key="r.playerId" :class="{ bot: r.bot, you: r.playerId === you, gone: r.gone }">
+          <span class="pos mono">{{ r.gone ? '–' : i + 1 }}</span>
           <FermeanieAvatar v-if="r.bot" :size="24" :mood="final.fermeanieWon ? 'smug' : 'sulk'" />
-          <PlayerAvatar v-else :seed="r.playerId" :size="24" :state="i === 0 ? 'locked' : 'idle'" />
+          <PlayerAvatar v-else :seed="r.playerId" :size="24" :state="r.gone ? 'off' : i === 0 ? 'locked' : 'idle'" />
           <span class="name">{{ r.name }}</span>
+          <span v-if="r.gone" class="tag" :title="S.leftHint">{{ S.left }}</span>
           <span class="mono score">{{ r.score }}</span>
         </li>
       </ol>
@@ -213,6 +220,9 @@ const rows = computed(() => {
 }
 .list li.you {
   outline: 1px solid var(--blue);
+}
+.list li.gone {
+  opacity: 0.55;
 }
 .pos {
   width: 2ch;

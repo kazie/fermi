@@ -164,6 +164,21 @@ describe('awards', () => {
     expect(awardWinners(rounds).find((a) => a.kind === 'hindsight')).toMatchObject({ playerId: 'ada', value: 4 })
   })
 
+  it('never goes to a player who left: the best of those who stayed gets it instead', () => {
+    const rounds = [
+      round([card('ada', 0.02), card('bob', 0.02), card('cyd', 0.01)]),
+      round([card('ada', 0.03), card('bob', 0.5), card('cyd', 0.02)]),
+      round([card('ada', 0.5), card('bob', 0.5), card('cyd', 0.02)]),
+    ]
+    expect(kinds(rounds).bullseye).toBe('cyd')
+    const stayed = Object.fromEntries(awardWinners(rounds, new Set(['cyd'])).map((a) => [a.kind, a.playerId]))
+    expect(stayed.bullseye).toBe('ada') // not dropped because the one who left had more
+    // a tie with a player who left is no tie
+    const tied = [round([card('ada', 0.02), card('cyd', 0.02), card('bob', 0.9)])]
+    expect(kinds(tied).bullseye).toBeUndefined()
+    expect(Object.fromEntries(awardWinners(tied, new Set(['cyd'])).map((a) => [a.kind, a.playerId])).bullseye).toBe('ada')
+  })
+
   it('every award has its line category, with its number as the variable', () => {
     for (const kind of AWARDS) expect(LINE_VARIABLES[`award.${kind}`], kind).toEqual(['name', AWARD_VALUES[kind]])
   })

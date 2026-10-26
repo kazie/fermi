@@ -96,6 +96,13 @@ async function hostGame(page: Page, name: string) {
   return page.url()
 }
 
+/** Taps Start: the game begins once FerMEANie has finished her lobby line (longer when she says it aloud). */
+async function startGame(page: Page) {
+  await page.getByRole('button', { name: /Start game/ }).click()
+  const lobbyLineMs = (process.env.FERMI_VOICE === '1' ? 30_000 : 15_000) * SLOWER
+  await expect(page.getByRole('button', { name: /Start game|Starting as/ })).toHaveCount(0, { timeout: lobbyLineMs })
+}
+
 async function answer(page: Page, text: string, last = false) {
   const ta = page.getByLabel('Your calculation')
   await ta.fill(text)
@@ -116,14 +123,24 @@ const FINAL_WAIT_MS = REVEAL_WAIT_MS + 40_000 * SLOWER
 
 // Once per worker; a worker started after a failed test finds the questions already there.
 test.beforeAll(async ({ request }) => {
+  const headers = { authorization: `Bearer ${TOKEN}` }
   const health = await (await request.get('/api/health')).json()
-  if (health.questions >= 6) return
-  const res = await request.post('/api/admin/questions', {
-    headers: { authorization: `Bearer ${TOKEN}` },
-    data: { questions: [0, 1, 2, 3, 4, 5].map(question), batchId: 'e2e' },
-  })
-  const body = await res.json()
-  expect(body.results.map((r: { status: string }) => r.status)).toEqual(Array(6).fill('added'))
+  if (health.questions < 6) {
+    const res = await request.post('/api/admin/questions', {
+      headers,
+      data: { questions: [0, 1, 2, 3, 4, 5].map(question), batchId: 'e2e' },
+    })
+    const body = await res.json()
+    expect(body.results.map((r: { status: string }) => r.status)).toEqual(Array(6).fill('added'))
+  }
+  // With her voice, adding a question renders its clip. The clips folder starts empty every run, so wait for them:
+  // a game started sooner reads its first question before the cold renderer has it, and the client stops waiting.
+  if (process.env.FERMI_VOICE === '1')
+    await expect
+      .poll(async () => (await (await request.get('/api/admin/voice', { headers })).json()).questionsMissing, {
+        timeout: 120_000 * SLOWER,
+      })
+      .toBe(0)
 })
 
 test('three players (one on a phone) play a full game against FerMEANie', async ({ browser }) => {
@@ -145,7 +162,7 @@ test('three players (one on a phone) play a full game against FerMEANie', async 
   await host.getByRole('group', { name: 'Break between rounds' }).getByRole('button', { name: 'Off' }).click()
   await expect(phone.getByText('About')).toContainText('min')
   await host.getByRole('group', { name: 'Intro' }).getByRole('button', { name: 'Off' }).click()
-  await host.getByRole('button', { name: /Start game/ }).click()
+  await startGame(host)
 
   for (let round = 1; round <= 5; round++) {
     for (const p of [host, phone, desk]) await expect(p.getByText(`Question ${round} of 5`)).toBeVisible()
@@ -223,7 +240,7 @@ test('big screen + three phones: the TV hosts, phones play, the break can be ski
   await annie.getByRole('group', { name: 'Seconds per question' }).getByRole('button', { name: '30s' }).click()
   await annie.getByRole('group', { name: 'Break between rounds' }).getByRole('button', { name: '60s' }).click()
   await annie.getByRole('group', { name: 'Intro' }).getByRole('button', { name: 'Off' }).click()
-  await annie.getByRole('button', { name: /Start game/ }).click()
+  await startGame(annie)
 
   for (let round = 1; round <= 5; round++) {
     await expect(tv.getByText(`Question ${round} of 5`)).toBeVisible()
@@ -286,7 +303,7 @@ test('with sound on, FerMEANie reads the question out and says her lines', async
   await joinAs(browser, url, 'Quiet two')
   await host.getByRole('group', { name: 'Break between rounds' }).getByRole('button', { name: 'Off' }).click()
   await host.getByRole('group', { name: 'Intro' }).getByRole('button', { name: 'Off' }).click()
-  await host.getByRole('button', { name: /Start game/ }).click()
+  await startGame(host)
   await expect(host.getByText('Question 1 of')).toBeVisible()
   await expect
     .poll(() => host.evaluate(() => (window as unknown as { played: number }).played), { timeout: INTRO_WAIT_MS })
@@ -307,7 +324,7 @@ test('the intro: FerMEANie introduces everyone and explains the rules, and a maj
   // Full is the default
   await expect(host.getByRole('group', { name: 'Intro' }).getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'true')
   await host.getByRole('group', { name: 'Rounds' }).getByRole('button', { name: '5', exact: true }).click()
-  await host.getByRole('button', { name: /Start game/ }).click()
+  await startGame(host)
 
   // the roll call, in join order, on every device; each phone knows its own turn
   for (const name of ['Hosty', 'Phoney', 'Desky'])
@@ -322,4 +339,35 @@ test('the intro: FerMEANie introduces everyone and explains the rules, and a maj
   await expect(phone.getByRole('button', { name: /Waiting for others · 1\/2/ })).toBeVisible()
   await desk.getByRole('button', { name: /Skip intro/ }).click()
   for (const page of [host, phone, desk]) await expect(page.getByText(/Question 1 of 5/)).toBeVisible()
+})
+
+test('the lobby: rename yourself, and the host sends someone back to the name screen', async ({ browser }) => {
+  const ctx = await newContext(browser, 'Hosty', { viewport: { width: 1280, height: 860 } })
+  const host = await ctx.newPage()
+  const url = await hostGame(host, 'Hosty')
+  const guest = await joinAs(browser, url, 'Guesty', true)
+  await expect(host.getByText('Test subjects (2)')).toBeVisible()
+
+  // a guest renames themselves in place
+  await guest.getByRole('button', { name: 'Change your name' }).click()
+  await guest.getByLabel('Your name').fill('Renamed Guesty')
+  await guest.getByLabel('Your name').press('Enter')
+  await expect(host.locator('.players').getByText('Renamed Guesty')).toBeVisible()
+
+  // only the host can kick, never themselves, and it takes a second tap to confirm
+  await expect(guest.getByRole('button', { name: /back to the name screen/ })).toHaveCount(0)
+  await expect(host.getByRole('button', { name: 'Send Hosty back to the name screen' })).toHaveCount(0)
+  const kick = host.getByRole('button', { name: /Renamed Guesty back to the name screen/ })
+  await host.setViewportSize({ width: 360, height: 740 }) // the row's buttons fit on a small phone
+  await noHorizontalScroll(host)
+  await kick.click()
+  await expect(kick).toHaveText('Kick?')
+  await kick.click()
+  await expect(host.getByText('Test subjects (1)')).toBeVisible()
+
+  // the guest is back at the name screen and can join again
+  await expect(guest.getByRole('button', { name: 'Join' })).toBeVisible()
+  await guest.getByLabel('Your name').fill('Guesty again')
+  await guest.getByRole('button', { name: 'Join' }).click()
+  await expect(host.getByText('Test subjects (2)')).toBeVisible()
 })

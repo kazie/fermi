@@ -3,6 +3,7 @@
 // clip rendered anywhere is valid everywhere. Clips are rendered in order of need:
 //   live:  lines being said now, earliest first; dropped unrendered once too late, so a backlog clears itself
 //   ahead: lines picked early (the next question's line, the final lines), and questions added while running
+//   lobby: her lobby chatter, below anything a game needs; dropped unrendered once too late, like live
 //   sweep: the questions, every sentence that needs no variables, then players' names
 
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
@@ -11,8 +12,12 @@ import { sentences, speechText } from '@fermi/shared'
 import { clipKey } from './speech.ts'
 import { voiceFingerprint, WorkerRenderer, type Renderer } from './worker.ts'
 
-export type Tier = 'live' | 'ahead' | 'sweep'
-const RANK: Record<Tier, number> = { live: 0, ahead: 1, sweep: 2 }
+export type Tier = 'live' | 'ahead' | 'lobby' | 'sweep'
+/** The tiers, most urgent first. */
+const TIERS: readonly Tier[] = ['live', 'ahead', 'lobby', 'sweep']
+const RANK = Object.fromEntries(TIERS.map((t, i) => [t, i])) as Record<Tier, number>
+/** Tiers whose clips are only worth rendering while they can still be heard. */
+const EXPIRES: ReadonlySet<Tier> = new Set(['live', 'lobby'])
 /** How urgent a request is: its tier (live by default), and when it's needed (now by default). */
 export interface When {
   tier?: Tier
@@ -35,7 +40,12 @@ interface Job {
   /** When it's needed (server ms); sweep jobs run in the order they came. */
   at: number
   seq: number
+  /** A tier that doesn't expire (ahead, sweep) it was also asked for: where it goes back to, rather than being dropped. */
+  keep?: Tier
 }
+
+/** The more urgent of two tiers. */
+const higher = (a: Tier | undefined, b: Tier) => (a && RANK[a] < RANK[b] ? a : b)
 
 /** The job in a tier that goes first: the earliest deadline, then the earliest request. */
 function earliest(tier: Map<string, Job>): Job | undefined {
@@ -82,7 +92,7 @@ export class Voice {
   /** Keys with a clip on disk. */
   private done = new Set<string>()
   /** Clips to render, by tier. The sweep tier is in request order already (a Map keeps insertion order). */
-  private tiers: Record<Tier, Map<string, Job>> = { live: new Map(), ahead: new Map(), sweep: new Map() }
+  private tiers = Object.fromEntries(TIERS.map((t) => [t, new Map<string, Job>()])) as Record<Tier, Map<string, Job>>
   private seq = 0
   private running = false
   private closed = false
@@ -158,6 +168,8 @@ export class Voice {
       if (this.done.has(key)) continue
       const job = this.find(key)
       if (job) {
+        // a need that lasts (ahead, the sweep's) outlives a passing one: an expired lobby or live need falls back to it
+        for (const t of [tier, job.tier]) if (!EXPIRES.has(t)) job.keep = higher(job.keep, t)
         // a higher tier, or a fresh need for a clip whose last one passed: that's the deadline now
         if (RANK[tier] < RANK[job.tier] || this.tooLate(job.tier, job.at)) this.move(job, tier, at)
         else if (tier === job.tier) job.at = Math.min(job.at, at)
@@ -171,7 +183,10 @@ export class Voice {
   }
 
   private find(key: string) {
-    return this.tiers.live.get(key) ?? this.tiers.ahead.get(key) ?? this.tiers.sweep.get(key)
+    for (const t of TIERS) {
+      const job = this.tiers[t].get(key)
+      if (job) return job
+    }
   }
 
   private move(job: Job, tier: Tier, at: number) {
@@ -181,7 +196,7 @@ export class Voice {
   }
 
   private get queued() {
-    return this.tiers.live.size + this.tiers.ahead.size + this.tiers.sweep.size
+    return TIERS.reduce((n, t) => n + this.tiers[t].size, 0)
   }
 
   /** Whether a clip is rendered (as far as this server knows: see onDisk). */
@@ -203,7 +218,7 @@ export class Voice {
 
   /** A live clip still unrendered this long after it was due is dropped: by then nobody is waiting for it. */
   private tooLate(tier: Tier, at: number) {
-    return tier === 'live' && this.now() - at > EXPIRE_MS
+    return EXPIRES.has(tier) && this.now() - at > EXPIRE_MS
   }
 
   /**
@@ -212,12 +227,22 @@ export class Voice {
    * never scanned.
    */
   private next(): Job | undefined {
-    for (const job of this.tiers.live.values()) {
-      if (!this.tooLate(job.tier, job.at)) continue
-      this.tiers.live.delete(job.key)
-      this.stats.expired++
+    for (const tier of EXPIRES)
+      for (const job of this.tiers[tier].values()) {
+        if (!this.tooLate(tier, job.at)) continue
+        if (job.keep) {
+          this.move(job, job.keep, job.at)
+          job.keep = undefined
+          continue
+        }
+        this.tiers[tier].delete(job.key)
+        this.stats.expired++
+      }
+    for (const t of TIERS) {
+      // the sweep runs in the order it was asked for (and is never scanned); the others by deadline
+      const job = t === 'sweep' ? this.tiers.sweep.values().next().value : earliest(this.tiers[t])
+      if (job) return job
     }
-    return earliest(this.tiers.live) ?? earliest(this.tiers.ahead) ?? this.tiers.sweep.values().next().value
   }
 
   /** After failures in a row: rest a moment, or (clearly broken: no uv, no ffmpeg, no model…) a while, then go on. */
@@ -271,7 +296,7 @@ export class Voice {
   }
 
   status(): VoiceStatus {
-    const queued = { live: this.tiers.live.size, ahead: this.tiers.ahead.size, sweep: this.tiers.sweep.size }
+    const queued = Object.fromEntries(TIERS.map((t) => [t, this.tiers[t].size])) as Record<Tier, number>
     const { rendered, expired, failed, renderMs } = this.stats
     return {
       enabled: true,

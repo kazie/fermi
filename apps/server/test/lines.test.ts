@@ -1,6 +1,7 @@
 import type { FluentFile } from '@fermi/shared/fluent'
 import { describe, expect, it } from 'vitest'
 import { loadLinePool } from '@fermi/shared/lines'
+import { NAME_PLACEHOLDER } from '@fermi/shared'
 import { LinePicker, loadLines } from '../src/lines.ts'
 import { testDb, testLineFiles, testLines } from './fixtures.ts'
 
@@ -15,6 +16,10 @@ describe('FerMEANie lines', () => {
     for (const [key, lines] of Object.entries(pool.categories)) expect(lines.length, key).toBeGreaterThanOrEqual(10)
     const dunce = Object.entries(pool.categories).filter(([k]) => k.startsWith('dunce.'))
     expect(dunce.reduce((n, [, lines]) => n + lines.length, 0)).toBeGreaterThanOrEqual(150)
+  })
+
+  it('greets the name screen as HUMAN_NAME_HERE in every greeting', () => {
+    expect(texts.filter(({ category, text }) => category === 'greeting' && !text.includes(NAME_PLACEHOLDER))).toEqual([])
   })
 
   it('never calls anyone a troll, and never says crowd', () => {

@@ -37,3 +37,29 @@ roll-call-dunces-9 =
        *[other] I had hoped it would stop going up.
     } Hope is not very scientific.
 roll-call-dunces-10 = { $name }. The lab has asked me to keep a dunce cap on standby for you. Purely a precaution. Mostly.
+roll-call-dunces-11 =
+    { $name }. { $dunces ->
+        [one] One paper hat on your record.
+       *[other] { $dunces } paper hats on your record.
+    } I’ve kept the receipts. The hats were cheap. The estimates were cheaper.
+roll-call-dunces-12 = { $name }. Welcome back. The dunce cap has been dusted and pointed in your general direction.
+roll-call-dunces-13 =
+    { $name }. { $dunces ->
+        [one] Last time the cap fit you rather well.
+       *[other] The cap has fit you { $dunces } times now.
+    } It’s on standby today. Please give it the day off.
+roll-call-dunces-14 = { $name }. Your file has a drawing of a pointed hat on the cover. I didn’t draw it. I did colour it in.
+roll-call-dunces-15 =
+    { $name }. { $dunces ->
+        [one] One cap so far: an accident.
+       *[other] { $dunces } caps so far: a methodology.
+    } Today, try a different one.
+roll-call-dunces-16 = { $name }. I recognise those estimates. They usually come with a hat.
+roll-call-dunces-17 = { $name }. Welcome back. Please leave your dunce cap at the door. You can collect it after the reveal.
+roll-call-dunces-18 =
+    { $name }. Previous dunce caps: { $dunces }. { $dunces ->
+        [one] A rounding error, surely.
+       *[other] A trend, surely.
+    } Shall we test the hypothesis?
+roll-call-dunces-19 = { $name }. The lab safety officer would like a word about your last estimate. The safety officer is me.
+roll-call-dunces-20 = { $name }. I have reserved the dunce cap for whoever needs it most. I won’t say who I’m thinking of.

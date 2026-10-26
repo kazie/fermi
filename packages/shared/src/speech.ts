@@ -4,6 +4,9 @@
 import { GROUP } from './calc/format.ts'
 import { safeParseMarkup } from './markup.ts'
 
+/** How late a device may still start one of her lines (a remount, a reconnect); later, it stays silent. */
+export const VOICE_MAX_LATE_MS = 1500
+
 /** A digit group separator (the game's narrow space, or a comma): 3 200 and 1,000,000 are one number. */
 const DIGIT_GROUP = new RegExp(`(\\d)[${GROUP},](?=\\d{3}(?!\\d))`, 'g')
 const SUPERSCRIPT = '⁰¹²³⁴⁵⁶⁷⁸⁹'
@@ -35,6 +38,8 @@ export function speakable(plain: string): string {
       // FerMEANie's versions (v3.14), then decimals digit by digit: 3.14 → 3 point 1 4
       .replace(/\bv(\d)/g, 'version $1')
       .replace(/(\d)\.(\d+)/g, (_, int: string, dec: string) => `${int} point ${[...dec].join(' ')}`)
+      // placeholders in capitals (HUMAN_NAME_HERE) as plain words, not spelled out letter by letter
+      .replace(/\b[A-Z]+(?:_[A-Z]+)+\b/g, (m) => m.toLowerCase().replaceAll('_', ' '))
       .replace(/\s+/g, ' ')
       .replace(/ ([,.!?;:])/g, '$1')
       .trim()

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sentences, speechText, type RevealView, type RoomView, type ServerMessage } from '@fermi/shared'
-import { DEADLINE_GRACE_MS, Room, VOICE_READY_BATCH_MS } from '../src/game.ts'
+import { DEADLINE_GRACE_MS, LOBBY_LINE_GAP_MS, Room, VOICE_READY_BATCH_MS } from '../src/game.ts'
 import { startServer } from '../src/index.ts'
 import { Voice, type Tier } from '../src/voice/index.ts'
 import { clipKey } from '../src/voice/speech.ts'
@@ -77,21 +77,51 @@ describe('Voice', () => {
     expect(again.status().rendered).toBe(1)
   })
 
-  it('renders live lines first, earliest first, then ahead, then the sweep', async () => {
+  it('renders live lines first, earliest first, then ahead, then lobby chatter, then the sweep', async () => {
     const now = 1000
     const { voice, renderer } = makeVoice({ now: () => now })
     renderer.hold()
     voice.request('Busy.', { tier: 'sweep' }) // takes the worker while the rest queue up
     voice.requestSentences(['Swept.'])
+    voice.request('Lobby.', { tier: 'lobby' })
     voice.request('Ahead.', { tier: 'ahead' })
     voice.request('Later.', { at: 3000 })
     voice.request('Sooner.', { at: 2000 })
     voice.request('Swept.', { at: 2500 }) // asked for live now: moves up
     voice.request('Later.', { tier: 'sweep' }) // asking again never lowers a clip
-    expect(voice.status().queued).toEqual({ live: 3, ahead: 1, sweep: 0 })
+    expect(voice.status().queued).toEqual({ live: 3, ahead: 1, lobby: 1, sweep: 0 })
     renderer.release()
     await voice.idle()
-    expect(renderer.rendered).toEqual(['Busy.', 'Sooner.', 'Swept.', 'Later.', 'Ahead.'])
+    expect(renderer.rendered).toEqual(['Busy.', 'Sooner.', 'Swept.', 'Later.', 'Ahead.', 'Lobby.'])
+  })
+
+  it('drops lobby chatter that is too late to be heard, as it does live lines', async () => {
+    let now = 1000
+    const { voice, renderer } = makeVoice({ now: () => now })
+    renderer.hold()
+    voice.request('Busy.')
+    voice.request('Hello, Ada.', { tier: 'lobby' })
+    now += 20_000 // a backlog of joins, long past
+    renderer.release()
+    await voice.idle()
+    expect(renderer.rendered).toEqual(['Busy.'])
+    expect(voice.status().expired).toBe(1)
+  })
+
+  it('sends a clip waiting to be swept back to the sweep when a lobby need for it passes, rather than dropping it', async () => {
+    let now = 1000
+    const { voice, renderer } = makeVoice({ now: () => now })
+    renderer.hold()
+    voice.request('Busy.')
+    voice.requestSentences(['Welcome, Bob.']) // his name, rendered ahead
+    voice.request('Welcome, Bob.', { tier: 'lobby' }) // then said in the lobby: moves up
+    voice.request('Gone.', { tier: 'lobby' })
+    expect(voice.status().queued).toMatchObject({ lobby: 2, sweep: 0 })
+    now += 20_000 // the server was busy: the lobby line passed unheard
+    renderer.release()
+    await voice.idle()
+    expect(renderer.rendered).toEqual(['Busy.', 'Welcome, Bob.'])
+    expect(voice.status().expired).toBe(1) // only the one nothing else wanted
   })
 
   it("doesn't let a request too late to be heard take over a clip waiting to be swept", async () => {
@@ -271,6 +301,10 @@ describe('Room with a voice', () => {
       room.handle(id, { type: 'join', name }, conn)
       return { id, conn }
     })
+    // let her finish in the lobby (the room's line, then one line for all three), so the game can start
+    const conn = players[0].conn
+    const free = () => (conn.last.lobbyLine ? conn.last.lobbyLine.until + LOBBY_LINE_GAP_MS : 0)
+    while (Date.now() < free()) vi.advanceTimersByTime(free() - Date.now())
     room.handle(players[0].id, { type: 'settings', rounds: 5, timerSec: 60, breakSec: 0, intro: 'off' }, players[0].conn)
     return { db, room, players, voice, renderer, asked, named }
   }
@@ -284,9 +318,25 @@ describe('Room with a voice', () => {
   it('sends the clips for what she says and reads out, and asks for them in time', () => {
     const { room, players, voice, asked } = setup()
     const [a, b, c] = players
-    expect(a.conn.last.voice).toEqual({ lines: {}, pending: [] })
+    // in the lobby: her line for the three who joined (the greeting only while someone is on the name screen)
+    const lobby = a.conn.last.lobbyLine!
+    expect(lobby.text).toBe('JOINS Ada, Bob and Cyd.')
+    expect(a.conn.last.voice!.lines).toEqual({ [lobby.text]: voice.keys(lobby.text) })
+    expect(asked.find((x) => x.text === lobby.text)!.tier).toBe('lobby')
+    const naming = new FakeConn()
+    room.connect('someone-new-xxxxxxxx', naming)
+    // on the name screen: her greeting (to HUMAN_NAME_HERE) and the quote, both fixed lines, and their clips
+    const { greeting, quote } = naming.last.welcome!
+    expect(greeting).toContain('HUMAN_NAME_HERE')
+    for (const text of [greeting, quote]) expect(naming.last.voice!.lines[text]).toEqual(voice.keys(text))
+    expect(a.conn.last.welcome).toBeUndefined() // joined: no name screen
+    expect(a.conn.last.voice!.lines[greeting]).toBeUndefined() // nor the visitor's clips: those are theirs alone
+    room.disconnect('someone-new-xxxxxxxx', naming)
+    room.handle(a.id, { type: 'rename', name: 'Ada' }, a.conn) // any later snapshot
+    expect(a.conn.last.voice!.lines[greeting]).toBeUndefined() // nobody on the name screen any more
     room.handle(a.id, { type: 'start' }, a.conn)
     const round = a.conn.last.round!
+    expect(a.conn.last.lobbyLine).toBeUndefined()
     expect(a.conn.last.voice!.lines).toEqual({
       [round.question.question]: voice.keys(round.question.question),
       [round.line]: voice.keys(round.line),
@@ -301,6 +351,22 @@ describe('Room with a voice', () => {
     vi.advanceTimersByTime(rv.timeline.endsAt - Date.now() + DEADLINE_GRACE_MS)
     expect(a.conn.last.phase).toBe('question')
     expect(ahead).toContain(a.conn.last.round!.line)
+  })
+
+  it('a typo fixed at once is greeted with the right name; a later rename edits her line quietly', () => {
+    const { room, players } = setup()
+    const [a] = players
+    const dee = new FakeConn()
+    room.connect('player-3-xxxxxxxx', dee)
+    room.handle('player-3-xxxxxxxx', { type: 'join', name: 'Deee' }, dee)
+    expect(a.conn.last.lobbyLine!.text).toBe('JOIN Deee.')
+    vi.advanceTimersByTime(500)
+    room.handle('player-3-xxxxxxxx', { type: 'rename', name: 'Dee' }, dee)
+    expect(a.conn.last.voice!.lines['JOIN Dee.']).toBeDefined() // still voiced: devices may not have started it yet
+    vi.advanceTimersByTime(2000)
+    room.handle('player-3-xxxxxxxx', { type: 'rename', name: 'Di' }, dee)
+    expect(a.conn.last.lobbyLine!.text).toBe('JOIN Di.')
+    expect(a.conn.last.voice!.lines['JOIN Di.']).toBeUndefined() // said already: not said (or rendered) again
   })
 
   it('renders a limited number of names, however often someone renames', () => {

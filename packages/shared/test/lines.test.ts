@@ -1,19 +1,15 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { LINE_VARIABLES, loadStaticLines } from '../src/lines.ts'
+import { LINE_VARIABLES, loadLinePool } from '../src/lines.ts'
 
-const welcome = (source: string) => () => loadStaticLines({ path: 'welcome.ftl', source })
+const welcome = (source: string) => () => loadLinePool([{ path: 'welcome.ftl', source }])
 
-describe('loadStaticLines (bundled welcome lines)', () => {
-  it('gives the lines as plain strings', () => {
-    expect(welcome('### Welcome lines\nfirst = Hello\nsecond = Welcome back\n')()).toEqual(['Hello', 'Welcome back'])
-  })
-
-  it('applies the same checks as the server', () => {
+describe('loadLinePool checks', () => {
+  it('names the file and line of what is wrong', () => {
     expect(welcome('ok = Fine\nbroken = {\n')).toThrow(/welcome\.ftl:\d+:\d+: E\d+/)
     expect(welcome('x = Hi\nx = Again\n')).toThrow(/duplicate ID "x"/)
     expect(welcome('welcome = Hello, { $name }!\n')).toThrow(/"welcome" uses \$name, but the variables passed are: none/)
-    expect(() => loadStaticLines({ path: 'nope.ftl', source: 'x = Hi\n' })).toThrow(/there is no "nope" category/)
+    expect(() => loadLinePool([{ path: 'nope.ftl', source: 'x = Hi\n' }])).toThrow(/there is no "nope" category/)
   })
 })
 
