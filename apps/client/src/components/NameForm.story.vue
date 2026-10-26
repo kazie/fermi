@@ -3,7 +3,7 @@ import NameForm from './NameForm.vue'
 
 const welcome = {
   greeting: 'Subject HUMAN_NAME_HERE, please step into the testing area.',
-  quote: 'Please state your name for the lab report. Legibly. The last specimen wrote theirs in crayon.',
+  line: 'The last specimen wrote their name in crayon. I am still recovering.',
 }
 </script>
 

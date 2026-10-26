@@ -16,7 +16,7 @@ content/fermeanie/
 │   └── skipped.ftl          # key: for_real.skipped
 ├── intro.ftl                # key: intro
 ├── greeting.ftl             # key: greeting (name screen)
-├── welcome.ftl              # key: welcome (name screen, the quote under the field)
+├── welcome.ftl              # key: welcome (name screen, her line after the greeting)
 ├── lobby/
 │   ├── empty.ftl            # key: lobby.empty
 │   ├── join.ftl             # key: lobby.join
@@ -205,7 +205,7 @@ Use placeholders exactly as written. A line may use any of its situation's place
 | `for_real.skipped`      | The first real question, after someone skipped the intro                                                                 | none                                                        |                                                                                                   |
 | `intro`                 | Game start without an intro, as the first question appears                                                               | `{ $count }` players                                        |                                                                                                   |
 | `greeting`              | Name screen, before a name is typed: she greets them as `HUMAN_NAME_HERE` (every line uses it, written exactly so)       | none                                                        |                                                                                                   |
-| `welcome`               | Name screen, the quote under the name field, after her greeting (picked by the server, said aloud)                       | none                                                        |                                                                                                   |
+| `welcome`               | Name screen, her line after the greeting, in the same bubble; never a second hello (picked by the server, said aloud)    | none                                                        |                                                                                                   |
 | `lobby.empty`           | The lobby opens and nobody has joined yet                                                                                | none                                                        |                                                                                                   |
 | `lobby.join`            | Someone joins in the lobby (never on a rename). Open with a sentence without the name: the name's clip renders meanwhile | `{ $name }`                                                 |                                                                                                   |
 | `lobby.joins`           | Several joined while she was talking (at least two). Open with a sentence without the names                              | `{ $count }`, `{ $others }` (in the lobby before them)      | `{ $names }` (up to four; more are only counted)                                                  |

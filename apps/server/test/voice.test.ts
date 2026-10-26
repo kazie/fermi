@@ -325,10 +325,10 @@ describe('Room with a voice', () => {
     expect(asked.find((x) => x.text === lobby.text)!.tier).toBe('lobby')
     const naming = new FakeConn()
     room.connect('someone-new-xxxxxxxx', naming)
-    // on the name screen: her greeting (to HUMAN_NAME_HERE) and the quote, both fixed lines, and their clips
-    const { greeting, quote } = naming.last.welcome!
+    // on the name screen: her greeting (to HUMAN_NAME_HERE) and the line after it, both fixed lines, and their clips
+    const { greeting, line } = naming.last.welcome!
     expect(greeting).toContain('HUMAN_NAME_HERE')
-    for (const text of [greeting, quote]) expect(naming.last.voice!.lines[text]).toEqual(voice.keys(text))
+    for (const text of [greeting, line]) expect(naming.last.voice!.lines[text]).toEqual(voice.keys(text))
     expect(a.conn.last.welcome).toBeUndefined() // joined: no name screen
     expect(a.conn.last.voice!.lines[greeting]).toBeUndefined() // nor the visitor's clips: those are theirs alone
     room.disconnect('someone-new-xxxxxxxx', naming)

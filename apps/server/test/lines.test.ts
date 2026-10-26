@@ -1,7 +1,7 @@
 import type { FluentFile } from '@fermi/shared/fluent'
 import { describe, expect, it } from 'vitest'
 import { loadLinePool } from '@fermi/shared/lines'
-import { NAME_PLACEHOLDER } from '@fermi/shared'
+import { NAME_PLACEHOLDER, plainText } from '@fermi/shared'
 import { LinePicker, loadLines } from '../src/lines.ts'
 import { testDb, testLineFiles, testLines } from './fixtures.ts'
 
@@ -20,6 +20,11 @@ describe('FerMEANie lines', () => {
 
   it('greets the name screen as HUMAN_NAME_HERE in every greeting', () => {
     expect(texts.filter(({ category, text }) => category === 'greeting' && !text.includes(NAME_PLACEHOLDER))).toEqual([])
+  })
+
+  it('keeps the name screen short: greeting and welcome share one bubble above the name field', () => {
+    const long = texts.filter(({ category, text }) => (category === 'greeting' || category === 'welcome') && plainText(text).length > 105)
+    expect(long).toEqual([])
   })
 
   it('never calls anyone a troll, and never says crowd', () => {

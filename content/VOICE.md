@@ -92,7 +92,7 @@ line (with markup) → speech text → sentences → clip key per sentence → w
     time to render. A rename edits her greeting to the new name without saying it again, and a name past the room's
     cap on rendering names is greeted in text only. Clients say a lobby line only when she isn't already talking.
   - The name screen: her greeting (`greeting`, always to "HUMAN_NAME_HERE", said as "human name here") and the
-    quote under the field (`welcome`), both picked by the server for whoever is on that screen. They're fixed lines,
+    line after it in the same bubble (`welcome`), both picked by the server for whoever is on that screen. They're fixed lines,
     rendered at startup, and the bubble never shows the name being typed, so typing can't make the server render
     anything. The page says both once, as soon as sound can play (usually the tap into the name field).
 - **Snapshots** carry `voice`: for each line and question in the view, its clip keys, and which of them

@@ -358,8 +358,8 @@ describe('useVoice', () => {
 })
 
 describe('the name screen and her voice', () => {
-  const welcome = { greeting: 'Hello, HUMAN_NAME_HERE.', quote: 'State your name.' }
-  it('says the greeting and the quote once sound can play; the bubble never shows the name being typed', async () => {
+  const welcome = { greeting: 'Hello, HUMAN_NAME_HERE.', line: 'State your name.' }
+  it('says the greeting once sound can play, and her next line as the bubble types it; never the name being typed', async () => {
     const running = ref(false)
     const said: { keys: string[]; id: string }[] = []
     let hushed = 0
@@ -368,7 +368,7 @@ describe('the name screen and her voice', () => {
       get running() {
         return running.value
       },
-      keys: (text) => ({ [welcome.greeting]: ['greeting-key'], [welcome.quote]: ['quote-key'] })[text],
+      keys: (text) => ({ [welcome.greeting]: ['greeting-key'], [welcome.line]: ['line-key'] })[text],
       say: (keys, { id }) => void said.push({ keys, id }),
       hush: () => void hushed++,
     }
@@ -376,10 +376,16 @@ describe('the name screen and her voice', () => {
     expect(said).toEqual([]) // no sound before the first tap
     running.value = true
     await nextTick()
-    expect(said).toEqual([{ keys: ['greeting-key', 'quote-key'], id: expect.stringContaining(welcome.greeting) }])
+    expect(said).toEqual([{ keys: ['greeting-key'], id: expect.stringContaining(welcome.greeting) }])
+    w.findComponent(FermeanieSays).vm.$emit('start', 1) // the bubble starts typing her next line
+    await nextTick()
+    expect(said).toEqual([
+      { keys: ['greeting-key'], id: expect.stringContaining(welcome.greeting) },
+      { keys: ['line-key'], id: expect.stringContaining(welcome.line) },
+    ])
     await w.find('input').setValue('Ada')
     await nextTick()
-    expect(said).toHaveLength(1) // typing never asks for another line
+    expect(said).toHaveLength(2) // typing never asks for another line
     expect(w.text()).not.toContain('Ada')
     w.unmount() // joined: her welcome stops, so her greeting in the lobby isn't skipped for being said over it
     expect(hushed).toBe(1)
@@ -390,7 +396,7 @@ describe('the name screen and her voice', () => {
     const player: VoicePlayer = {
       voiced: true,
       running: true,
-      keys: (text) => ({ [welcome.greeting]: ['greeting-key'], [welcome.quote]: ['quote-key'] })[text],
+      keys: (text) => ({ [welcome.greeting]: ['greeting-key'], [welcome.line]: ['line-key'] })[text],
       say: (_keys, { id }) => void said.push(id),
       hush: () => {},
     }

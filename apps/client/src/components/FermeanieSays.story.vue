@@ -42,6 +42,11 @@ onUnmounted(() => clearInterval(chatTick))
         <FermeanieSays :messages="chat" :start-at="chatStart" :now="chatNow" :release="{ version: 'v3.14159' }" mood="smug" size="l" />
       </div>
     </Variant>
+    <Variant title="Several messages, kept (loops)">
+      <div style="padding: 16px; max-width: 560px">
+        <FermeanieSays :messages="chat" :start-at="chatStart" :now="chatNow" keep mood="smug" size="l" />
+      </div>
+    </Variant>
     <Variant title="Small (dunce / bullseye remark)">
       <div style="padding: 16px; max-width: 360px">
         <FermeanieSays text="Ada, I’ve filed your answer under ‘phenomena’, between black holes and printer jams." size="s" mood="smug" />

@@ -479,8 +479,8 @@ export interface RoomView {
   break?: BreakView
   /** With FerMEANie's voice on (the server's FERMI_VOICE): the clips for what she says in this view. */
   voice?: VoiceView
-  /** On the name screen (you haven't joined): her greeting, and the quote under the name field. */
-  welcome?: { greeting: string; quote: string }
+  /** On the name screen (you haven't joined): her greeting, and the line she adds after it in the same bubble. */
+  welcome?: { greeting: string; line: string }
   /**
    * In the lobby: what FerMEANie last said (as the room opened, someone joined, or a game ended), when (server ms), and
    * until when it holds the stage: no new line of hers, and no game start, before `until`.

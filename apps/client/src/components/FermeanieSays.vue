@@ -33,6 +33,8 @@ const props = withDefaults(
     look?: { x: number; y: number } | null
     /** A remark on the side (a dunce cap): her voice says it only when she isn't already talking. */
     aside?: boolean
+    /** Earlier messages stay in the bubble above the one being typed, instead of being replaced by it. */
+    keep?: boolean
   }>(),
   {
     text: '',
@@ -46,8 +48,11 @@ const props = withDefaults(
     gloat: false,
     look: null,
     aside: false,
+    keep: false,
   },
 )
+
+const emit = defineEmits<{ start: [index: number] }>()
 
 const reduced = useMediaQuery('(prefers-reduced-motion: reduce)')
 const seq = computed(() => {
@@ -156,6 +161,15 @@ const complete = computed(() => {
   if (s.done) return seq.value.length
   return s.index + (s.dots || typing.value ? 0 : 1)
 })
+// Each message as she starts typing it (a parent that voices her lines itself, like the name screen).
+watch(
+  () => (state.value.dots ? -1 : state.value.index),
+  (index) => {
+    if (index >= 0) emit('start', index)
+  },
+  { immediate: true },
+)
+
 // ---- her voice ----
 // Each message is said as she starts typing it (on devices with sound on). A bubble that mounts mid-message (a
 // reconnect) stays quiet for that one: the player missed its start.
@@ -170,6 +184,17 @@ watch(
 
 /** Stacked mode shows a message as soon as it starts. */
 const stackedCount = computed(() => (state.value.dots ? state.value.index : Math.min(seq.value.length, state.value.index + 1)))
+/** Messages each on their own line: stacked, or kept. */
+const block = computed(() => stacked.value || props.keep)
+/** Which messages are on screen: all started ones when stacked or kept, else only the one being typed. */
+const onScreen = computed(() => {
+  const s = state.value
+  if (stacked.value) return [...Array(stackedCount.value).keys()]
+  const upTo = s.dots ? s.index : s.index + 1
+  return props.keep ? [...Array(upTo).keys()] : s.dots ? [] : [s.index]
+})
+/** Her "typing…" beat. Stacked mode shows it only before the first message. */
+const dots = computed(() => (stacked.value ? seq.value.length > 0 && stackedCount.value === 0 : state.value.dots))
 const avatarSize = computed(() => ({ s: 28, m: 44, l: 64 })[props.size])
 </script>
 
@@ -185,16 +210,14 @@ const avatarSize = computed(() => ({ s: 28, m: 44, l: 64 })[props.size])
         <span class="sr-only" aria-live="polite"
           ><span v-for="(m, i) in spokenSeq.slice(0, complete)" :key="i">{{ m }} </span></span
         >
-        <template v-if="stacked">
-          <TypingDots v-if="seq.length && stackedCount === 0" aria-hidden="true" />
-          <span v-for="(m, i) in seq.slice(0, stackedCount)" :key="i" class="msg" aria-hidden="true"
-            ><FerText :text="m" :shown="plainSeq[i].length"
-          /></span>
-        </template>
-        <TypingDots v-else-if="state.dots" aria-hidden="true" />
-        <span v-else aria-hidden="true"
-          ><FerText :text="seq[state.index] ?? ''" :shown="state.shown" /><span v-if="typing" class="cursor">▍</span></span
+        <span v-for="i in onScreen" :key="i" :class="{ msg: block }" aria-hidden="true"
+          ><FerText :text="seq[i]" :shown="i === state.index && !stacked ? state.shown : plainSeq[i].length" /><span
+            v-if="typing && i === state.index && !stacked"
+            class="cursor"
+            >▍</span
+          ></span
         >
+        <span v-if="dots" :class="{ msg: block }" aria-hidden="true"><TypingDots /></span>
       </p>
     </div>
   </figure>

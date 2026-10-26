@@ -110,8 +110,8 @@ interface Player {
   dropTimer?: ReturnType<typeof setTimeout>
   /** When they last reacted (server ms, oldest first): reactions are rate-limited. */
   reactedAt: number[]
-  /** On the name screen: her greeting and the quote under it, picked once per visit (see welcomeFor). */
-  welcome?: { greeting: string; quote: string }
+  /** On the name screen: her greeting and the line after it, picked once per visit (see welcomeFor). */
+  welcome?: { greeting: string; line: string }
 }
 
 interface Sheet {
@@ -1346,9 +1346,9 @@ export class Room {
     this.broadcast()
   }
 
-  /** Her greeting on the name screen, and the quote under it: fixed lines (no variables), so rendered ahead. */
+  /** Her greeting on the name screen, and the line after it: fixed lines (no variables), so rendered ahead. */
   private welcomeFor(p: Player) {
-    p.welcome ??= { greeting: this.lobbyLines.pick('greeting', {}), quote: this.lobbyLines.pick('welcome', {}) }
+    p.welcome ??= { greeting: this.lobbyLines.pick('greeting', {}), line: this.lobbyLines.pick('welcome', {}) }
   }
 
   /** Her line in the lobby, said now. It holds the stage until she has typed (and said) it. */
@@ -1546,19 +1546,19 @@ export class Room {
     })
     const lines: Record<string, string[]> = {}
     for (const { text, at, tier } of this.utterances()) lines[text] = voice.request(text, { at, tier })
-    // the name screen's greeting and quote, only in the view of whoever is on it
+    // the name screen's greeting and the line after it, only in the view of whoever is on it
     const welcomeVoice = new Map<string, NonNullable<RoomView['voice']>>()
     for (const p of this.players.values())
       if (p.name === null && p.conns.size && p.welcome)
         welcomeVoice.set(
           p.id,
-          view(Object.fromEntries([p.welcome.greeting, p.welcome.quote].map((t) => [t, voice.request(t, { tier: 'ahead' })]))),
+          view(Object.fromEntries([p.welcome.greeting, p.welcome.line].map((t) => [t, voice.request(t, { tier: 'ahead' })]))),
         )
     this.voiceKeys = new Set([lines, ...[...welcomeVoice.values()].map((w) => w.lines)].flatMap((l) => Object.values(l).flat()))
     return { voice: view(lines), welcomeVoice }
   }
 
-  /** The room's clips, plus this viewer's own greeting and quote while they're on the name screen. */
+  /** The room's clips, plus this viewer's own greeting and line while they're on the name screen. */
   private voiceFor(forId: string, shared: ReturnType<Room['sharedView']>): RoomView['voice'] {
     const own = shared.welcomeVoice?.get(forId)
     if (!shared.voice || !own) return shared.voice
