@@ -175,8 +175,8 @@ test('three players (one on a phone) play a full game against FerMEANie', async 
       await phone.getByRole('button', { name: /Higher/ }).click()
       await expect(phone.getByRole('button', { name: /Higher/ })).toHaveAttribute('aria-pressed', 'true')
       await expect(phone.getByText(/You called it|Wrong twice/)).toBeVisible({ timeout: REVEAL_WAIT_MS })
-      await desk.getByRole('button', { name: 'React 🔥' }).click()
-      await expect(host.locator('.layer').getByText('🔥')).toBeVisible()
+      await desk.getByRole('button', { name: 'React: On fire' }).click()
+      await expect(host.locator('.layer svg.fire')).toBeVisible()
     }
     // reveal
     await expect(phone.getByText('The answer', { exact: true })).toBeVisible({ timeout: REVEAL_WAIT_MS })

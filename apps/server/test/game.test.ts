@@ -612,17 +612,17 @@ describe('the call and reactions', () => {
   it('passes reactions on to everyone, at most one per player every moment, and only in the reveal or break', () => {
     const { room, players } = setup(3)
     const [a, b] = players
-    room.handle(a.id, { type: 'react', emoji: '🔥' }, a.conn) // the lobby: no
+    room.handle(a.id, { type: 'react', kind: 'fire' }, a.conn) // the lobby: no
     room.handle(a.id, { type: 'start' }, a.conn)
     for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
-    room.handle(a.id, { type: 'react', emoji: '🔥' }, a.conn)
-    room.handle(a.id, { type: 'react', emoji: '💀' }, a.conn) // too soon after the first
+    room.handle(a.id, { type: 'react', kind: 'fire' }, a.conn)
+    room.handle(a.id, { type: 'react', kind: 'dead' }, a.conn) // too soon after the first
     vi.advanceTimersByTime(REACTION_GAP_MS)
-    room.handle(a.id, { type: 'react', emoji: '👏' }, a.conn)
+    room.handle(a.id, { type: 'react', kind: 'rocket' }, a.conn)
     const seen = b.conn.messages.filter((m) => m.type === 'reaction')
     expect(seen).toEqual([
-      { type: 'reaction', playerId: a.id, emoji: '🔥', at: expect.any(Number) },
-      { type: 'reaction', playerId: a.id, emoji: '👏', at: expect.any(Number) },
+      { type: 'reaction', playerId: a.id, kind: 'fire', at: expect.any(Number) },
+      { type: 'reaction', playerId: a.id, kind: 'rocket', at: expect.any(Number) },
     ])
   })
   it('cools a spammer down, and tells a reloaded phone when it last reacted', () => {
@@ -631,7 +631,7 @@ describe('the call and reactions', () => {
     room.handle(a.id, { type: 'start' }, a.conn)
     for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
     for (let i = 0; i < REACTION_BURST + 1; i++) {
-      room.handle(a.id, { type: 'react', emoji: '🔥' }, a.conn)
+      room.handle(a.id, { type: 'react', kind: 'fire' }, a.conn)
       vi.advanceTimersByTime(REACTION_GAP_MS)
     }
     // the last one came inside the window after a full burst: dropped

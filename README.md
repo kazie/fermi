@@ -39,7 +39,7 @@ One container serves the client, the websocket and the API; the SQLite database 
 **Sound.** Sound is on by default, from the first tap (browsers won't play anything before one); the big screen asks
 for a click until it gets one. The speaker in the header turns it off for that device. Sound effects are synthesised
 in the browser (no audio files): a lab-style chime for each question, a ticking last five seconds and a time's-up
-alarm, the truth landing, cards flipping, the steal, the winner, and each emoji reaction its own little noise. Where sound plays depends on the mode:
+alarm, the truth landing, cards flipping, the steal, the winner, and each reaction its own little noise. Where sound plays depends on the mode:
 
 - **Online** (no big screen): every device plays everything.
 - **Party** (a big screen is connected): the big screen plays FerMEANie's voice and the shared sounds, and phones play
@@ -109,8 +109,9 @@ since the group has just heard the rules.
    5. The scoreboard shows.
 3. **Break** (see Pacing). There is no break after the last round.
 
-During the reveal and the break, players can send **reactions** (🧪 🔥 😬 👏 💀 🎯) from their phones; they float up on
-every screen, with the sender's avatar.
+During the reveal and the break, players can send **reactions** (bullseye, on fire, mind blown, to the moon, I'm dead,
+big brain) from their phones; they float up on every screen, with the sender's avatar. They're drawn by the game, so
+they look the same on every device, and each one is animated.
 
 **Scoring.** Error is measured in orders of magnitude (`|log10(guess / answer)|`), so 2× too high counts the same as
 2× too low. Points are `100 × (N − rank + 1)`, plus +100 for being within 10% or +50 for being within 2×. If

@@ -54,8 +54,8 @@ export const ROOM_CODE_RE = /^[A-Z]{4}$/
 /** A player's private key (never shown to other players): 32 random bytes, base64url. */
 export const KEY_RE = /^[A-Za-z0-9_-]{32,128}$/
 
-/** The emoji reactions players can send during the reveal and the break. */
-export const REACTIONS = ['🧪', '🔥', '😬', '👏', '💀', '🎯'] as const
+/** The reactions players can send (drawn by the client, so they look the same everywhere) during the reveal and the break. */
+export const REACTIONS = ['bullseye', 'fire', 'mindblown', 'rocket', 'dead', 'brain'] as const
 export type Reaction = (typeof REACTIONS)[number]
 /** The least time between two reactions from one player (ms). */
 export const REACTION_GAP_MS = 1500
@@ -208,8 +208,8 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('lock'), text: sheet }),
   z.object({ type: z.literal('unlock') }),
   z.object({ type: z.literal('skip_break') }),
-  /** An emoji reaction during the reveal or the break. */
-  z.object({ type: z.literal('react'), emoji: z.enum(REACTIONS) }),
+  /** A reaction during the reveal or the break. */
+  z.object({ type: z.literal('react'), kind: z.enum(REACTIONS) }),
   /** The call at the start of a reveal. */
   z.object({ type: z.literal('call'), call: z.enum(CALLS) }),
   /** The host skips the intro at once; anyone else votes, and a majority skips it. */
@@ -506,7 +506,7 @@ export type ServerMessage =
   | { type: 'voice'; ready: string[] }
   | { type: 'pong'; t: number; serverNow: number }
   /** Someone reacted (sent on its own: a reaction doesn't need a whole snapshot). */
-  | { type: 'reaction'; playerId: string; emoji: Reaction; /** when the server took it (server ms) */ at: number }
+  | { type: 'reaction'; playerId: string; kind: Reaction; /** when the server took it (server ms) */ at: number }
   /** To its sender only: a reaction came too soon and was dropped; when they last reacted (server ms). */
   | { type: 'reactions'; yourReactions: number[] }
   | { type: 'error'; message: string; fatal?: boolean }

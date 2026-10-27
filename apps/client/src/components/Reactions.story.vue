@@ -9,7 +9,7 @@ import { playCue } from '@/lib/synth'
 import ReactionBar from './ReactionBar.vue'
 import ReactionLayer from './ReactionLayer.vue'
 
-// The bar and what it shows, together: tap an emoji and it floats up, from you (the first player). The others can
+// The bar and what it shows, together: tap a reaction and it floats up, from you (the first player). The others can
 // react in a burst, or one of them can spam. With sound ticked it plays as the big screen would (stories are otherwise
 // silent), with the same limits as the game.
 const ps = players(5)
@@ -25,15 +25,15 @@ const heard = { last: -Infinity }
 let id = 0
 /** Like the server: when each player last reacted, so a reaction goes out only when their limit allows. */
 const sent = ref<Record<string, number[]>>({})
-function arrive(playerId: string, emoji: Reaction) {
+function arrive(playerId: string, kind: Reaction) {
   const t = Date.now()
   if (t < reactionRest(sent.value[playerId] ?? []).until) return
   sent.value = { ...sent.value, [playerId]: reactionSent(sent.value[playerId] ?? [], t) }
-  reactions.value = addReaction(reactions.value, { id: ++id, playerId, emoji, t })
+  reactions.value = addReaction(reactions.value, { id: ++id, playerId, kind, t })
   if (!sound.value) return
   ctx ??= new AudioContext()
   void ctx.resume()
-  for (const e of reactionCues({ playerId, emoji }, you, t, heard)) playCue(ctx, ctx.destination, e)
+  for (const e of reactionCues({ playerId, kind }, you, t, heard)) playCue(ctx, ctx.destination, e)
 }
 
 const mine = computed(() => sent.value[you] ?? [])

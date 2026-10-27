@@ -1,38 +1,29 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { PlayerView, Reaction } from '@fermi/shared'
+import type { PlayerView } from '@fermi/shared'
 import { REACTION_SHOW_MS, type FloatingReaction } from '@/composables/useSocket'
 import { rng } from '@/lib/random'
 import PlayerAvatar from './PlayerAvatar.vue'
+import ReactionIcon from './ReactionIcon.vue'
 
 /**
  * Reactions floating up from the bottom of the screen, each with the sender's avatar, for a few seconds. The float is a
  * CSS animation (smooth, unlike the 100 ms game clock); `now` (server ms) drops expired ones and starts a remounted
  * one mid-flight, so stories can freeze it. Each starts in a lane picked from its id, so a burst spreads out.
  *
- * To feel alive, each pops in, sways as it rises and does its emoji's own move. How far it sways, tilts and rises
- * comes from its id, not Math.random, so a remount or a story looks the same.
+ * To feel alive, each pops in, sways as it rises and plays its own animation (inside ReactionIcon, on the same clock).
+ * How far it sways, tilts and rises comes from its id, not Math.random, so a remount or a story looks the same.
  */
 const props = defineProps<{ reactions: FloatingReaction[]; players: PlayerView[]; now: number; big?: boolean }>()
 
-/** Each emoji's own move (a class below). */
-const MOVES: Record<Reaction, string> = {
-  '🧪': 'wobble',
-  '🔥': 'flicker',
-  '😬': 'shiver',
-  '👏': 'clap',
-  '💀': 'spin',
-  '🎯': 'land',
-}
-
-/** How one reaction floats: its emoji's move, and its sway, tilt, size and rise as CSS variables. */
+/** How one reaction floats: its sway, tilt, size and rise as CSS variables. */
 function float(r: FloatingReaction, age: number) {
   const rand = rng(r.id)
   const between = (lo: number, hi: number) => lo + rand() * (hi - lo)
   const sign = rand() < 0.5 ? -1 : 1
   return {
     ...r,
-    move: MOVES[r.emoji],
+    age,
     style: {
       left: `${8 + ((r.id * 37) % 84)}%`,
       '--delay': `-${age}ms`,
@@ -75,7 +66,7 @@ const live = computed(() => {
     <span v-for="r in live" :key="r.id" class="float" :style="r.style">
       <span class="sway">
         <span class="pop">
-          <span class="emoji" :class="r.move">{{ r.emoji }}</span>
+          <ReactionIcon class="icon" :kind="r.kind" play="float" :age="r.age" />
           <PlayerAvatar :seed="r.playerId" :size="big ? 28 : 18" />
         </span>
       </span>
@@ -145,100 +136,16 @@ const live = computed(() => {
     transform: scale(var(--scale));
   }
 }
-.emoji {
-  display: inline-block;
-  font-size: 2rem;
+.icon {
+  font-size: 2.6rem;
 }
-.big .emoji {
-  font-size: 3.5rem;
-}
-.wobble {
-  animation: wobble 0.5s ease-in-out infinite alternate;
-}
-@keyframes wobble {
-  from {
-    transform: rotate(-16deg);
-  }
-  to {
-    transform: rotate(16deg);
-  }
-}
-.flicker {
-  animation: flicker 0.18s steps(2) infinite alternate;
-  transform-origin: bottom;
-}
-@keyframes flicker {
-  from {
-    transform: scale(1, 1);
-    opacity: 1;
-  }
-  to {
-    transform: scale(0.94, 1.1);
-    opacity: 0.8;
-  }
-}
-.shiver {
-  animation: shiver 0.08s linear infinite alternate;
-}
-@keyframes shiver {
-  from {
-    transform: translateX(-2px);
-  }
-  to {
-    transform: translateX(2px);
-  }
-}
-.clap {
-  animation: clap 0.36s ease-out infinite;
-}
-@keyframes clap {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  30% {
-    transform: scale(1.25);
-  }
-  60% {
-    transform: scale(0.95);
-  }
-}
-/* spins, and sinks a little at the end */
-.spin {
-  animation: spin 3s ease-in-out both;
-}
-@keyframes spin {
-  from {
-    transform: translateY(0) rotate(0);
-  }
-  70% {
-    transform: translateY(0) rotate(300deg);
-  }
-  to {
-    transform: translateY(5vh) rotate(360deg);
-  }
-}
-/* lands with a punch, then holds still */
-.land {
-  animation: land 3s ease-out both;
-}
-@keyframes land {
-  from {
-    transform: scale(1.9);
-  }
-  10% {
-    transform: scale(0.85);
-  }
-  16%,
-  to {
-    transform: scale(1);
-  }
+.big .icon {
+  font-size: 4.4rem;
 }
 /* every animation here runs on the reaction's own clock: its age, as a negative delay (after the shorthands above) */
 .float,
 .sway,
-.pop,
-.emoji {
+.pop {
   animation-delay: var(--delay);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -247,8 +154,7 @@ const live = computed(() => {
     transform: translate(-50%, -20vh);
   }
   .sway,
-  .pop,
-  .emoji {
+  .pop {
     animation: none;
   }
   @keyframes fade {

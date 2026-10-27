@@ -1,16 +1,26 @@
 <script setup lang="ts">
+import { reactive } from 'vue'
 import { REACTIONS, type Reaction } from '@fermi/shared'
 import type { ReactRest } from '@/composables/useSocket'
 import { S } from '@/lib/strings'
+import ReactionIcon from './ReactionIcon.vue'
 
 /**
- * The emoji buttons on a phone during the reveal and the break. After a reaction the bar rests (the server would drop
+ * The reaction buttons on a phone during the reveal and the break. After a reaction the bar rests (the server would drop
  * one sent sooner): dimmed, with a line filling back up from `rest.from` to `rest.until`, a CSS animation that starts
  * where the rest was when it first showed. After a burst the rest is longer, and says so. Taps go out either way: the
- * sender decides.
+ * sender decides. A tap that will go out plays its reaction's animation once; one while the bar rests doesn't, so
+ * it never looks sent when it wasn't. Each button counts its own taps as its key, so a new tap restarts its animation
+ * without cutting off another button's.
  */
-defineProps<{ rest?: ReactRest | null }>()
+const props = defineProps<{ rest?: ReactRest | null }>()
 const emit = defineEmits<{ react: [Reaction] }>()
+
+const taps = reactive<Partial<Record<Reaction, number>>>({})
+function tap(kind: Reaction) {
+  if (!props.rest) taps[kind] = (taps[kind] ?? 0) + 1
+  emit('react', kind)
+}
 </script>
 
 <template>
@@ -21,11 +31,12 @@ const emit = defineEmits<{ react: [Reaction] }>()
         :key="e"
         type="button"
         class="r"
-        :aria-label="`${S.react} ${e}`"
+        :aria-label="`${S.react}: ${S.reactions[e]}`"
+        :title="S.reactions[e]"
         :aria-disabled="!!rest"
-        @click="emit('react', e)"
+        @click="tap(e)"
       >
-        {{ e }}
+        <ReactionIcon :key="taps[e] ?? 0" :kind="e" :play="taps[e] ? 'once' : undefined" />
       </button>
     </div>
     <!-- one fixed-height row, so the sticky bar doesn't grow when the message shows -->
@@ -66,7 +77,9 @@ const emit = defineEmits<{ react: [Reaction] }>()
 .r {
   min-width: 44px;
   min-height: 44px;
-  font-size: 1.4rem;
+  display: grid;
+  place-items: center;
+  font-size: 1.75rem;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--surface-2);

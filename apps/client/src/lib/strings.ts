@@ -1,4 +1,4 @@
-import { formatFactor, MIN_PLAYERS, type AwardKind, type IntroMode, type Rule, type RoomSettings } from '@fermi/shared'
+import { formatFactor, MIN_PLAYERS, type AwardKind, type IntroMode, type Reaction, type Rule, type RoomSettings } from '@fermi/shared'
 
 // All user-facing copy in one place, so a translation can slot in later.
 export const S = {
@@ -112,6 +112,15 @@ export const S = {
     tally: (right: number, made: number) => `${right} of ${made} called it`,
   },
   react: 'React',
+  /** Each reaction's name, for screen readers and tooltips. */
+  reactions: {
+    bullseye: 'Bullseye',
+    fire: 'On fire',
+    mindblown: 'Mind blown',
+    rocket: 'To the moon',
+    dead: "I'm dead",
+    brain: 'Big brain',
+  } satisfies Record<Reaction, string>,
   /** After a burst of reactions, the bar rests for a while. */
   reactRest: 'Let the lab air out… 🧪',
   lookUp: 'Look at the big screen',

@@ -66,10 +66,10 @@ describe('cues', () => {
 describe('reaction sounds', () => {
   const hear = (route: 'all' | 'personal', events: [string, number][]) => {
     const heard = { last: -Infinity }
-    return events.map(([playerId, t]) => audible(reactionCues({ playerId, emoji: '👏' }, 'me', t, heard), route).map((e) => e.cue))
+    return events.map(([playerId, t]) => audible(reactionCues({ playerId, kind: 'rocket' }, 'me', t, heard), route).map((e) => e.cue))
   }
 
-  it("plays each emoji's own sound where everything plays, plus a click for your own; a phone at a party only the click", () => {
+  it("plays each reaction's own sound where everything plays, plus a click for your own; a phone at a party only the click", () => {
     expect(
       hear('all', [
         ['ann', 0],

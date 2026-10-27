@@ -113,39 +113,46 @@ type Sound = (c: BaseAudioContext, out: AudioNode, t: number, j: number) => void
  * sound like one sample on repeat.
  */
 const REACTION_SOUNDS: Record<Reaction, Sound> = {
-  // bubbles
-  '🧪': (c, out, t, j) => {
-    for (let i = 0; i < 3; i++) {
-      const freq = (520 + i * 210 + Math.random() * 120) * j
-      tone(c, out, t, { freq, to: freq * 1.6, at: i * 0.07, dur: 0.06, gain: 0.1 })
-    }
-  },
-  // a crackly whoosh
-  '🔥': (c, out, t, j) => {
-    noise(c, out, t, { dur: 0.3, gain: 0.1, from: 500 * j, to: 2600 * j })
-    for (let i = 0; i < 3; i++)
-      noise(c, out, t, { at: 0.04 + Math.random() * 0.2, dur: 0.02, gain: 0.08, from: 4000, to: 3000, kind: 'highpass' })
-  },
-  // a tense rub
-  '😬': (c, out, t, j) => {
-    tone(c, out, t, { type: 'square', freq: 466 * j, dur: 0.2, gain: 0.04 })
-    tone(c, out, t, { type: 'square', freq: 494 * j, dur: 0.2, gain: 0.04 })
-  },
-  // claps
-  '👏': (c, out, t, j) => {
-    for (let i = 0; i < 3; i++) noise(c, out, t, { at: i * 0.09, dur: 0.05, gain: 0.16, from: 1800 * j, to: 1100, kind: 'highpass' })
-  },
-  // a sinking boop
-  '💀': (c, out, t, j) => tone(c, out, t, { type: 'triangle', freq: 420 * j, to: 130 * j, dur: 0.35, gain: 0.11 }),
   // thunk, then a ping
-  '🎯': (c, out, t, j) => {
+  bullseye: (c, out, t, j) => {
     noise(c, out, t, { dur: 0.1, gain: 0.14, from: 320, to: 90, kind: 'lowpass' })
     tone(c, out, t, { freq: 150, to: 60, dur: 0.12, gain: 0.16 })
     tone(c, out, t, { freq: 2093 * j, at: 0.06, dur: 0.25, gain: 0.06 })
   },
+  // a crackly whoosh
+  fire: (c, out, t, j) => {
+    noise(c, out, t, { dur: 0.3, gain: 0.1, from: 500 * j, to: 2600 * j })
+    for (let i = 0; i < 3; i++)
+      noise(c, out, t, { at: 0.04 + Math.random() * 0.2, dur: 0.02, gain: 0.08, from: 4000, to: 3000, kind: 'highpass' })
+  },
+  // a pop, then sparkles rising
+  mindblown: (c, out, t, j) => {
+    noise(c, out, t, { dur: 0.08, gain: 0.16, from: 900, to: 200, kind: 'lowpass' })
+    tone(c, out, t, { freq: 220 * j, to: 90, dur: 0.1, gain: 0.12 })
+    notes(
+      c,
+      out,
+      t,
+      [1320, 1650, 1980, 2310].map((f) => f * j),
+      0.045,
+      { at: 0.06, dur: 0.09, gain: 0.04 },
+    )
+  },
+  // lift-off: a low rumble under a rising whoosh
+  rocket: (c, out, t, j) => {
+    tone(c, out, t, { type: 'triangle', freq: 70 * j, to: 140 * j, dur: 0.45, gain: 0.1 })
+    noise(c, out, t, { dur: 0.5, gain: 0.12, from: 250 * j, to: 2200 * j })
+  },
+  // a sinking boop
+  dead: (c, out, t, j) => tone(c, out, t, { type: 'triangle', freq: 420 * j, to: 130 * j, dur: 0.35, gain: 0.11 }),
+  // an idea: a bubbly upward wobble, then a lightbulb ding
+  brain: (c, out, t, j) => {
+    tone(c, out, t, { freq: 600 * j, to: 950 * j, dur: 0.14, gain: 0.07 })
+    tone(c, out, t, { freq: 1760 * j, at: 0.12, dur: 0.3, gain: 0.05 })
+  },
 }
 
-/** Plays a cue into `out` now: for `tick`, `n` seconds left (the tick rises as the deadline nears); for `reaction`, its `emoji`. */
+/** Plays a cue into `out` now: for `tick`, `n` seconds left (the tick rises as the deadline nears); for `reaction`, its `kind`. */
 export function playCue(c: BaseAudioContext, out: AudioNode, e: CueEvent) {
   const t = c.currentTime + 0.01
   switch (e.cue) {
@@ -203,7 +210,7 @@ export function playCue(c: BaseAudioContext, out: AudioNode, e: CueEvent) {
     case 'humansWin':
       return notes(c, out, t, [523, 659, 784, 1046], 0.1, { type: 'triangle', dur: 0.4, gain: 0.16 })
     case 'reaction':
-      return REACTION_SOUNDS[e.emoji](c, out, t, 0.92 + Math.random() * 0.16)
+      return REACTION_SOUNDS[e.kind](c, out, t, 0.92 + Math.random() * 0.16)
     case 'youReacted':
       return tone(c, out, t, { freq: 1200, dur: 0.03, gain: 0.06 })
   }
