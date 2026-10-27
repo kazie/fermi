@@ -15,11 +15,11 @@ export const REACTION_SHOW_MS = 3000
 /** How much later than the server's limit a phone sends its next reaction (ms), for clock error. */
 const REACT_SLACK_MS = 150
 
-/** A reaction as the floating layer shows it: who, which emoji, and when it arrived (server ms). */
+/** A reaction as the floating layer shows it: who, which reaction, and when it arrived (server ms). */
 export interface FloatingReaction {
   id: number
   playerId: string
-  emoji: Reaction
+  kind: Reaction
   t: number
 }
 
@@ -54,7 +54,7 @@ export function useSocket(code: string, opts: { screen?: boolean } = {}) {
   const room = shallowRef<RoomView | null>(null)
   /** Her voice's clips rendered since the last snapshot (kept apart, so a clip arriving doesn't redraw the room). */
   const voiceReady = shallowRef<string[]>([])
-  /** Recent emoji reactions (newest last), for the floating layer. */
+  /** Recent reactions (newest last), for the floating layer. */
   const reactions = shallowRef<FloatingReaction[]>([])
   let reactionId = 0
   /** Called with each reaction as it arrives (sounds, without diffing the list). */
@@ -127,7 +127,7 @@ export function useSocket(code: string, opts: { screen?: boolean } = {}) {
         reactPending.value = null
       } else if (msg.type === 'reaction') {
         // a short-lived list: each reaction floats up for a few seconds, then it's dropped
-        const r = { id: ++reactionId, playerId: msg.playerId, emoji: msg.emoji, t: Date.now() + offset.value }
+        const r = { id: ++reactionId, playerId: msg.playerId, kind: msg.kind, t: Date.now() + offset.value }
         reactions.value = addReaction(reactions.value, r)
         if (msg.playerId === room.value?.you) {
           reacted.value = reactionSent(reacted.value, msg.at)
@@ -250,18 +250,22 @@ export function useSocket(code: string, opts: { screen?: boolean } = {}) {
     ws?.close()
   })
 
-  /** The reaction bar's rest (server ms): from the last reaction until the next is allowed; indefinite while one is on its way. */
+  /**
+   * The reaction bar's rest (server ms): from the last reaction until the next is sent; indefinite while one is on its
+   * way. It ends a little after the server's limit (our estimate of its clock can be off by part of a round trip), so
+   * the bar and `react` agree on when a tap goes out.
+   */
   const reactRest = computed(() => {
     if (reactPending.value !== null) return { from: reactPending.value, until: Infinity, burst: false }
-    return { from: reacted.value.at(-1), ...reactionRest(reacted.value) }
+    const { until, burst } = reactionRest(reacted.value)
+    return { from: reacted.value.at(-1), until: until + REACT_SLACK_MS, burst }
   })
   /** Sends a reaction, unless the bar is resting. */
-  function react(emoji: Reaction) {
+  function react(kind: Reaction) {
     const now = Date.now() + offset.value
-    // a little slack: our estimate of the server's clock can be off by part of a round trip
-    if (now < reactRest.value.until + REACT_SLACK_MS) return
+    if (now < reactRest.value.until) return
     reactPending.value = now
-    send({ type: 'react', emoji })
+    send({ type: 'react', kind })
   }
   const onReaction = (f: (r: FloatingReaction) => void) => reactionListeners.push(f)
 

@@ -175,8 +175,8 @@ test('three players (one on a phone) play a full game against FerMEANie', async 
       await phone.getByRole('button', { name: /Higher/ }).click()
       await expect(phone.getByRole('button', { name: /Higher/ })).toHaveAttribute('aria-pressed', 'true')
       await expect(phone.getByText(/You called it|Wrong twice/)).toBeVisible({ timeout: REVEAL_WAIT_MS })
-      await desk.getByRole('button', { name: 'React 🔥' }).click()
-      await expect(host.locator('.layer').getByText('🔥')).toBeVisible()
+      await desk.getByRole('button', { name: 'React: On fire' }).click()
+      await expect(host.locator('.layer svg.fire')).toBeVisible()
     }
     // reveal
     await expect(phone.getByText('The answer', { exact: true })).toBeVisible({ timeout: REVEAL_WAIT_MS })
@@ -330,6 +330,8 @@ test('the intro: FerMEANie introduces everyone and explains the rules, and a maj
   for (const name of ['Hosty', 'Phoney', 'Desky'])
     await expect(desk.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: INTRO_WAIT_MS })
   await expect(phone.getByRole('heading', { name: 'Work it out' })).toBeVisible({ timeout: INTRO_WAIT_MS })
+  await noHorizontalScroll(phone)
+  await expect(phone.getByRole('heading', { name: 'Higher or lower?' })).toBeVisible({ timeout: INTRO_WAIT_MS })
   await noHorizontalScroll(phone)
   await expect(phone.getByRole('heading', { name: 'The swarm' })).toBeVisible({ timeout: INTRO_WAIT_MS })
 

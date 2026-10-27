@@ -9,8 +9,10 @@ import {
   evaluateSheet,
   fermeanieRelease,
   fermeanieStageMs,
+  INTRO_TIMING,
   lineDuration,
   REVEAL_TIMING,
+  RULES,
   scoreRound,
   stolenCards,
   type CallView,
@@ -18,6 +20,7 @@ import {
   type FinalView,
   type IntroStep,
   type IntroView,
+  type Rule,
   type PlayerView,
   type RevealedQuestion,
   type RevealView,
@@ -398,6 +401,15 @@ export function recapGame(): import('@/lib/recap').RecapGame {
   return { id: 'demo-game', createdAt: '2026-10-17T19:30:00Z', rounds, final: finalView(true) }
 }
 
+/** Her line for each rule slide (a missing rule fails the type check). */
+const RULE_LINES = {
+  sheet: 'Everyone gets the same question. Nobody knows the answer. Work it out one step per line.',
+  times_off: 'Twice too high is exactly as bad as twice too low. Symmetry. You’re welcome.',
+  points: 'The closer you are, the more points you get. Get very far and there’s a hat.',
+  call: 'Before the truth lands, tell me: is it higher or lower than your answer? No points.',
+  swarm: 'And me? I play the average of all your answers. If I beat every one of you, I take the whole round.',
+} satisfies Record<Rule, string>
+
 /** The intro of a game with these players (Ada hosts and is `you`), steps timed like the server's minimums. */
 export function introRoom(opts: { n?: number; mode?: IntroView['mode']; votes?: number; youVoted?: boolean } = {}): RoomView {
   const ps = players(opts.n ?? 4)
@@ -426,31 +438,7 @@ export function introRoom(opts: { n?: number; mode?: IntroView['mode']; votes?: 
   ps.forEach((p, i) =>
     add({ kind: 'player', at: t, playerId: p.id, name: p.name, line: `${p.name}. ${compliments[i % compliments.length]}` }, 4500),
   )
-  if (mode === 'full') {
-    add(
-      {
-        kind: 'rule',
-        at: t,
-        rule: 'sheet',
-        line: 'Everyone gets the same question. Nobody knows the answer. Work it out one step per line.',
-      },
-      7000,
-    )
-    add(
-      { kind: 'rule', at: t, rule: 'times_off', line: 'Twice too high is exactly as bad as twice too low. Symmetry. You’re welcome.' },
-      7000,
-    )
-    add({ kind: 'rule', at: t, rule: 'points', line: 'The closer you are, the more points you get. Get very far and there’s a hat.' }, 7000)
-    add(
-      {
-        kind: 'rule',
-        at: t,
-        rule: 'swarm',
-        line: 'And me? I play the average of all your answers. If I beat every one of you, I take the whole round.',
-      },
-      7000,
-    )
-  }
+  if (mode === 'full') for (const rule of RULES) add({ kind: 'rule', at: t, rule, line: RULE_LINES[rule] }, INTRO_TIMING.rule)
   return base('intro', ps, {
     intro: {
       mode,

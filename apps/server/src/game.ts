@@ -537,7 +537,7 @@ export class Room {
           return
         }
         p.reactedAt = reactionSent(p.reactedAt, now)
-        this.sendAll({ type: 'reaction', playerId, emoji: msg.emoji, at: now })
+        this.sendAll({ type: 'reaction', playerId, kind: msg.kind, at: now })
         return
       }
       case 'skip_break': {

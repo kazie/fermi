@@ -45,7 +45,7 @@ export type Cue =
   | 'award'
   | 'fermeanieWins'
   | 'humansWin'
-  /** someone's emoji reaction (each emoji has its own sound) */
+  /** someone's reaction (each has its own sound) */
   | 'reaction'
   // personal: this device's player
   /** you locked in */
@@ -63,7 +63,7 @@ export type CueEvent = {
   personal?: boolean
 } & (
   | { cue: 'tick'; /** seconds left */ n: number }
-  | { cue: 'reaction'; /** which emoji (each has its own sound) */ emoji: Reaction }
+  | { cue: 'reaction'; /** which reaction (each has its own sound) */ kind: Reaction }
   | { cue: Exclude<Cue, 'tick' | 'reaction'> }
 )
 
@@ -142,15 +142,15 @@ export const audible = (events: CueEvent[], route: SoundRoute) => events.filter(
 const REACTION_SOUND_SPACING_MS = 90
 
 /**
- * The moments a reaction arriving at `t` (ms on a steady clock) brings: its emoji's sound, and a click if it's your own
+ * The moments a reaction arriving at `t` (ms on a steady clock) brings: its own sound, and a click if it's your own
  * (at a party a phone plays only the click, as `audible` has it). Someone else's is skipped if a reaction sound just
  * played; your own never is, it's the feedback that it went out. `heard` is when the last one played.
  */
-export function reactionCues(r: { playerId: string; emoji: Reaction }, you: string, t: number, heard: { last: number }): CueEvent[] {
+export function reactionCues(r: { playerId: string; kind: Reaction }, you: string, t: number, heard: { last: number }): CueEvent[] {
   const own = r.playerId === you
   if (!own && t - heard.last < REACTION_SOUND_SPACING_MS) return []
   heard.last = t
-  return [{ cue: 'reaction', emoji: r.emoji }, ...(own ? [{ cue: 'youReacted' as const, personal: true }] : [])]
+  return [{ cue: 'reaction', kind: r.kind }, ...(own ? [{ cue: 'youReacted' as const, personal: true }] : [])]
 }
 
 /** Phones buzz for their player's own moments, at a party or not (vibration never echoes). */

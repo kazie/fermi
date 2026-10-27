@@ -14,16 +14,16 @@ const tick = setInterval(() => {
   now.value = Date.now()
   reactions.value = [
     ...reactions.value.filter((r) => now.value - r.t < 3000),
-    { id: ++id, playerId: ps[id % ps.length].id, emoji: REACTIONS[id % REACTIONS.length], t: now.value },
+    { id: ++id, playerId: ps[id % ps.length].id, kind: REACTIONS[id % REACTIONS.length], t: now.value },
   ]
 }, 300)
 onUnmounted(() => clearInterval(tick))
 
-// one of each emoji, each starting at a different moment of its flight
-const frozen: FloatingReaction[] = REACTIONS.map((emoji, i) => ({
+// one of each reaction, each starting at a different moment of its flight
+const frozen: FloatingReaction[] = REACTIONS.map((kind, i) => ({
   id: 100 + i,
   playerId: ps[i % ps.length].id,
-  emoji,
+  kind,
   t: T - 300 - i * 350,
 }))
 </script>

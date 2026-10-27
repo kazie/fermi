@@ -1,6 +1,11 @@
-import { formatFactor, MIN_PLAYERS, type AwardKind, type IntroMode, type Rule, type RoomSettings } from '@fermi/shared'
+import { formatFactor, MIN_PLAYERS, type AwardKind, type IntroMode, type Reaction, type Rule, type RoomSettings } from '@fermi/shared'
 
 // All user-facing copy in one place, so a translation can slot in later.
+/** Words used in more than one string below. */
+const HIGHER = 'Higher'
+const LOWER = 'Lower'
+const HINDSIGHT = 'Hindsight'
+
 export const S = {
   appName: 'Fermi',
   botName: 'FerMEANie',
@@ -66,6 +71,10 @@ export const S = {
       title: 'Points',
       text: 'The closest answer scores the most. Within 2× earns a bonus, within 10% a bigger one. The final question counts double.',
     },
+    call: {
+      title: 'Higher or lower?',
+      text: 'As each reveal starts, call whether the truth is higher or lower than your own answer. No points, just bragging rights, and an award for the best hindsight.',
+    },
     swarm: {
       title: 'The swarm',
       text: 'FerMEANie plays the average of all your answers. If she beats every human, she steals the round’s points.',
@@ -94,12 +103,16 @@ export const S = {
     round_numbers: { emoji: '🔵', title: 'Round Numbers', stat: (n: number) => `${n} perfectly round answer${n === 1 ? '' : 's'}` },
     near_miss: { emoji: '🤏', title: 'Near Miss', stat: (n: number) => `${n} answers within 2×, no bullseye` },
     swarm_donor: { emoji: '💸', title: 'Swarm Donor', stat: (n: number) => `${n} points given to the swarm` },
-    hindsight: { emoji: '🔮', title: 'Hindsight', stat: (n: number) => `called higher or lower right ${n} times` },
+    hindsight: { emoji: '🔮', title: HINDSIGHT, stat: (n: number) => `called higher or lower right ${n} times` },
   } satisfies Record<AwardKind, { emoji: string; title: string; stat: (value: number) => string }>,
   call: {
     ask: 'Is the truth higher or lower than your answer?',
-    higher: 'Higher',
-    lower: 'Lower',
+    /** Under the question while the call is open: what it's for (not in the practice round, which no award counts). */
+    why: `No points: just bragging rights, and the ${HINDSIGHT} award.`,
+    higher: HIGHER,
+    lower: LOWER,
+    /** The call's buttons (and the rule slide's picture of them). */
+    button: { higher: `⬆ ${HIGHER}`, lower: `⬇ ${LOWER}` },
     closesIn: (s: number) => `Closes in ${s}s`,
     youSaid: (c: string) => `You said ${c.toLowerCase()}. Truth incoming…`,
     tooLate: 'Calls are closed. Truth incoming…',
@@ -112,6 +125,15 @@ export const S = {
     tally: (right: number, made: number) => `${right} of ${made} called it`,
   },
   react: 'React',
+  /** Each reaction's name, for screen readers and tooltips. */
+  reactions: {
+    bullseye: 'Bullseye',
+    fire: 'On fire',
+    mindblown: 'Mind blown',
+    rocket: 'To the moon',
+    dead: "I'm dead",
+    brain: 'Big brain',
+  } satisfies Record<Reaction, string>,
   /** After a burst of reactions, the bar rests for a while. */
   reactRest: 'Let the lab air out… 🧪',
   lookUp: 'Look at the big screen',

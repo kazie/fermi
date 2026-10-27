@@ -13,9 +13,9 @@ function play(e: CueEvent) {
 }
 /** A cue on its own (a tick with 3 s left; reactions have their own button). */
 const playOne = (cue: Cue) => play(cue === 'tick' ? { cue, n: 3 } : ({ cue } as CueEvent))
-/** Each emoji's reaction sound in turn. */
-let emoji = 0
-const nextReaction = () => play({ cue: 'reaction', emoji: REACTIONS[emoji++ % REACTIONS.length] })
+/** Each reaction's sound in turn. */
+let next = 0
+const nextReaction = () => play({ cue: 'reaction', kind: REACTIONS[next++ % REACTIONS.length] })
 function countdown() {
   TICK_SECONDS.forEach((n, i) => setTimeout(() => play({ cue: 'tick', n }), i * 1000))
   setTimeout(() => play({ cue: 'timesUp' }), TICK_SECONDS.length * 1000)
@@ -29,7 +29,7 @@ function countdown() {
         <button v-for="c in CUES.filter((c) => c !== 'tenLeft' && c !== 'reaction')" :key="c" class="btn" type="button" @click="playOne(c)">
           {{ c }}
         </button>
-        <button class="btn" type="button" @click="nextReaction">reaction (each emoji in turn)</button>
+        <button class="btn" type="button" @click="nextReaction">reaction (each in turn)</button>
         <button class="btn btn-primary" type="button" @click="countdown">countdown → time's up</button>
       </div>
     </Variant>

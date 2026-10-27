@@ -28,6 +28,7 @@ export const LINE_VARIABLES = {
   'rules.sheet': [],
   'rules.times_off': [],
   'rules.points': [],
+  'rules.call': [],
   'rules.swarm': [],
   'practice.question': [],
   'practice.guide': [],

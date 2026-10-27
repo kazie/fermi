@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { BULLSEYE_BONUS, CLOSE_BONUS, FINAL_ROUND_MULTIPLIER, RANK_POINTS, type Rule } from '@fermi/shared'
+import { BULLSEYE_BONUS, CLOSE_BONUS, FINAL_ROUND_MULTIPLIER, formatCompact, RANK_POINTS, type Rule } from '@fermi/shared'
 import { S } from '@/lib/strings'
+import CallButtons from './CallButtons.vue'
 import FermeanieAvatar from './FermeanieAvatar.vue'
 import LogNumberLine from './LogNumberLine.vue'
 import WorkingView from './WorkingView.vue'
@@ -35,6 +36,13 @@ const TIMES_OFF = [
           <span class="mono">×{{ FINAL_ROUND_MULTIPLIER }}</span> on the final question, steal included
         </li>
       </ol>
+      <!-- the call as a phone shows it: a picture, not buttons -->
+      <div v-else-if="rule === 'call'" class="call" aria-hidden="true">
+        <p class="muted">
+          {{ S.call.yourAnswer }}: <strong class="mono">{{ formatCompact(2000) }}</strong>
+        </p>
+        <CallButtons inert />
+      </div>
       <div v-else class="swarm">
         <FermeanieAvatar :size="96" mood="smug" gloat />
       </div>
@@ -90,5 +98,15 @@ h2 {
   display: grid;
   place-items: center;
   padding: var(--space-3) 0;
+}
+.call {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+.call p {
+  margin: 0;
 }
 </style>
