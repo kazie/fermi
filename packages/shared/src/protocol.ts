@@ -31,7 +31,7 @@ export const SCOREBOARD_BEFORE_BREAK_MS = 3000
 export const INTRO_OPTIONS = ['full', 'short', 'off'] as const
 export type IntroMode = (typeof INTRO_OPTIONS)[number]
 /** The rule slides, in order. */
-export const RULES = ['sheet', 'times_off', 'points', 'swarm'] as const
+export const RULES = ['sheet', 'times_off', 'points', 'call', 'swarm'] as const
 export type Rule = (typeof RULES)[number]
 /**
  * Intro pacing (ms): the shortest each step lasts. A step also lasts until her line is typed out (and said, with a

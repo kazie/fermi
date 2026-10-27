@@ -53,6 +53,7 @@ content/fermeanie/
 │   ├── sheet.ftl            # key: rules.sheet
 │   ├── times_off.ftl        # key: rules.times_off
 │   ├── points.ftl           # key: rules.points
+│   ├── call.ftl             # key: rules.call
 │   └── swarm.ftl            # key: rules.swarm
 ├── practice/
 │   ├── question.ftl         # key: practice.question
@@ -196,6 +197,7 @@ Use placeholders exactly as written. A line may use any of its situation's place
 | `rules.sheet`           | Intro rule slide: everyone works it out in the answer block, one step per line                                           | none                                                        |                                                                                                   |
 | `rules.times_off`       | Intro rule slide: closeness is "times off", 2× high as good as 2× low                                                    | none                                                        |                                                                                                   |
 | `rules.points`          | Intro rule slide: points by rank, a bonus for being very close                                                           | none                                                        |                                                                                                   |
+| `rules.call`            | Intro rule slide: call higher or lower than your own answer before the truth lands; no points                            | none                                                        |                                                                                                   |
 | `rules.swarm`           | Intro rule slide: she plays the average and steals the round if it beats everyone                                        | none                                                        |                                                                                                   |
 | `practice.question`     | The intro's example question appears (no points)                                                                         | none                                                        |                                                                                                   |
 | `practice.guide`        | The example's reveal, as answers drop on the number line: what the line shows                                            | none                                                        |                                                                                                   |

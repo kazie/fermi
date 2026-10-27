@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { reactive } from 'vue'
 import { logEvent } from 'histoire/client'
+import { RULES, type Rule } from '@fermi/shared'
 import { introRoom, T0 } from '@/fixtures/rooms'
+import { S } from '@/lib/strings'
 import IntroSequence from './IntroSequence.vue'
 
 const full = introRoom()
@@ -9,18 +11,19 @@ const short = introRoom({ mode: 'short', votes: 1 })
 const voted = introRoom({ votes: 2, youVoted: true })
 const intro = full.intro!
 const at = (i: number) => intro.steps[i].at + 3500
+/** A rule's slide, found by name: positions shift whenever the rules change. */
+const ruleAt = (r: Rule) => intro.steps.find((s) => s.kind === 'rule' && s.rule === r)!.at + 3500
 const variants = [
   { title: 'Hello (phone)', room: full, variant: 'phone' as const, now: at(0) },
   { title: 'Roll call: that’s you', room: full, variant: 'phone' as const, now: at(1) },
   { title: 'Roll call: someone else', room: full, variant: 'phone' as const, now: at(3) },
-  { title: 'Rule: work it out', room: full, variant: 'phone' as const, now: at(5) },
-  { title: 'Rule: times off', room: full, variant: 'phone' as const, now: at(6) },
-  { title: 'Rule: points', room: full, variant: 'phone' as const, now: at(7) },
-  { title: 'Rule: the swarm', room: voted, variant: 'phone' as const, now: at(8) },
+  ...RULES.map((r) => ({ title: `Rule: ${S.rules[r].title}`, room: full, variant: 'phone' as const, now: ruleAt(r) })),
+  { title: 'A vote to skip, on a rule', room: voted, variant: 'phone' as const, now: ruleAt('swarm') },
   { title: 'Short intro, a vote to skip', room: short, variant: 'phone' as const, now: at(2) },
   { title: 'Controller mode, your turn', room: full, variant: 'compact' as const, now: at(1) },
   { title: 'Big screen: roll call', room: { ...full, you: '' }, variant: 'tv' as const, now: at(2) },
-  { title: 'Big screen: rule', room: { ...voted, you: '' }, variant: 'tv' as const, now: at(6) },
+  { title: 'Big screen: rule', room: { ...voted, you: '' }, variant: 'tv' as const, now: ruleAt('times_off') },
+  { title: 'Big screen: higher or lower', room: { ...voted, you: '' }, variant: 'tv' as const, now: ruleAt('call') },
 ]
 const times = reactive<Record<string, number>>(Object.fromEntries(variants.map((v) => [v.title, v.now - T0])))
 </script>

@@ -89,7 +89,7 @@ reveal run on their own, and the host can't cut answering short.
 
 **Intro.** Before the first question FerMEANie introduces herself, then each player in the order they joined, with a
 backhanded compliment (players she has records on hear about their past games and dunce caps). **Full** goes on to
-explain the rules on four slides and play an unscored example question from a small static pool
+explain the rules on five slides and play an unscored example question from a small static pool
 ([`content/intro/examples.json`](content/intro/examples.json)): it's a real round with a short reveal, but nothing is
 scored, saved or marked as seen. **Short** is the hello and the roll call only. The host can skip the intro at any
 point, its example included, and anyone else can vote: a majority skips it. **Play again** switches Full to Short,

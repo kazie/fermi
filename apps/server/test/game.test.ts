@@ -702,6 +702,7 @@ describe('the intro', () => {
       'sheet',
       'times_off',
       'points',
+      'call',
       'swarm',
     ])
     expect(intro.steps[0].line).toBe('HELLO 3.')

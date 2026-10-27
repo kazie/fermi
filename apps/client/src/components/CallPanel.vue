@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { callRight, CALLS, formatCompact, type Call, type CallView, type RevealView } from '@fermi/shared'
+import { callRight, formatCompact, type Call, type CallView, type RevealView } from '@fermi/shared'
 import { S } from '@/lib/strings'
+import CallButtons from './CallButtons.vue'
 
 /**
  * The call at the start of a reveal: is the truth higher or lower than your answer? While it's open (`call`), two
@@ -19,7 +20,6 @@ const calls = computed(() => Object.entries(props.reveal?.calls ?? {}))
 const right = computed(
   () => calls.value.filter(([id, c]) => callRight(c, props.reveal!.cards.find((card) => card.playerId === id)?.direction ?? null)).length,
 )
-const label = { higher: `⬆ ${S.call.higher}`, lower: `⬇ ${S.call.lower}` }
 </script>
 
 <template>
@@ -27,26 +27,16 @@ const label = { higher: `⬆ ${S.call.higher}`, lower: `⬇ ${S.call.lower}` }
   <template v-if="call">
     <div v-if="!you" class="call tv" role="status">
       <p class="ask">{{ S.call.tvAsk }}</p>
+      <p v-if="!call.practice" class="muted">{{ S.call.why }}</p>
       <p class="muted">{{ S.call.made(call.made) }} · {{ S.call.closesIn(secs) }}</p>
     </div>
     <div v-else-if="call.yours !== undefined" class="call card" role="group" :aria-label="S.call.ask">
       <p class="ask">{{ S.call.ask }}</p>
+      <p v-if="!call.practice" class="muted small">{{ S.call.why }}</p>
       <p class="muted small">
         {{ S.call.yourAnswer }}: <strong class="mono">{{ formatCompact(call.yours) }}</strong>
       </p>
-      <div class="buttons">
-        <button
-          v-for="c in CALLS"
-          :key="c"
-          type="button"
-          class="btn"
-          :class="{ 'btn-primary': yourCall === c }"
-          :aria-pressed="yourCall === c"
-          @click="emit('call', c)"
-        >
-          {{ label[c] }}
-        </button>
-      </div>
+      <CallButtons :selected="yourCall" @call="(c) => emit('call', c)" />
       <p class="muted small">{{ S.call.closesIn(secs) }}</p>
     </div>
   </template>
@@ -81,16 +71,6 @@ const label = { higher: `⬆ ${S.call.higher}`, lower: `⬇ ${S.call.lower}` }
 }
 .tv .ask {
   font-size: var(--text-xl);
-}
-.buttons {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  width: 100%;
-}
-.buttons .btn {
-  min-height: 52px;
-  font-size: var(--text-l);
 }
 .small {
   font-size: var(--text-s);

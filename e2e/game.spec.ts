@@ -331,6 +331,8 @@ test('the intro: FerMEANie introduces everyone and explains the rules, and a maj
     await expect(desk.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: INTRO_WAIT_MS })
   await expect(phone.getByRole('heading', { name: 'Work it out' })).toBeVisible({ timeout: INTRO_WAIT_MS })
   await noHorizontalScroll(phone)
+  await expect(phone.getByRole('heading', { name: 'Higher or lower?' })).toBeVisible({ timeout: INTRO_WAIT_MS })
+  await noHorizontalScroll(phone)
   await expect(phone.getByRole('heading', { name: 'The swarm' })).toBeVisible({ timeout: INTRO_WAIT_MS })
 
   // the example question: practice, no points; two of three vote to skip the rest
