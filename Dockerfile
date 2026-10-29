@@ -1,7 +1,7 @@
 # One container: the Node server serves the built client, the websocket and the admin API.
 # SQLite (and FerMEANie's voice clips, if on) live on the /data volume.
 # uv runs FerMEANie's voice worker; a FROM line, so Dependabot keeps the version current
-FROM ghcr.io/astral-sh/uv:0.13.5 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
 
 FROM node:26-slim AS base
 RUN npm install -g pnpm@12.8.1 && npm cache clean --force
