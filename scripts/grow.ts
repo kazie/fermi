@@ -125,7 +125,7 @@ async function worker(w: number) {
         // A usage limit isn't a failure: put the topic back and sleep until it lifts, or stop if that's too far off.
         if (!auto) queue.unshift(topic)
         inUse.delete(topic)
-        const limitUntil = limitWait(limit, new Date())
+        const limitUntil = limitWait(limit, Temporal.Now.instant())
         if (!limitUntil) {
           log(w, "usage limit won't lift within 6 h; stopping (switch FERMI_CLAUDE_CONFIG_DIR in .env and restart)")
           return

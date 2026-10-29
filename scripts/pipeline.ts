@@ -115,7 +115,7 @@ export function parseList(out: string) {
 }
 
 /** Today's date as drafts record it (`accessed`), so generators don't need a shell to look it up. */
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => Temporal.Now.plainDateISO('UTC').toString()
 
 export const generatorBrief = (batch: string, topic: string, n = DRAFTS_PER_GENERATOR) =>
   `Write ${n} drafts into \`${batch}/drafts/\`. Existing ids and categories: \`${batch}/existing.tsv\`; questions per ` +

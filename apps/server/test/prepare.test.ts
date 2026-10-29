@@ -5,7 +5,7 @@ import { ingestQuestion } from '../src/questions/ingest.ts'
 import { addRejection } from '../src/questions/repo.ts'
 import { makeQuestion, testDb } from './fixtures.ts'
 
-const NOW = new Date('2026-10-17T00:00:00Z')
+const NOW = Temporal.Instant.from('2026-10-17T00:00:00Z')
 
 function deps(pages: Record<string, string | null>, db = testDb()): PrepareDeps & { archived: string[] } {
   const archived: string[] = []

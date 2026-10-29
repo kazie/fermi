@@ -25,7 +25,7 @@ export interface IngestOptions {
   batchId?: string
   /** Insert as a corrected version of this question and retire the old one. */
   replaces?: string
-  now?: Date
+  now?: Temporal.Instant
   /** Run every check but write nothing. */
   dryRun?: boolean
   /** Preloaded duplicate candidates (shared across a batch; inserted questions are appended). */
@@ -39,7 +39,13 @@ export interface IngestOptions {
   reword?: boolean
 }
 
-const DAY = 86_400_000
+const DAY = Temporal.Duration.from({ hours: 24 })
+
+/** The UTC calendar date of an instant, as `YYYY-MM-DD`. */
+export const utcDate = (t: Temporal.Instant) => t.toZonedDateTimeISO('UTC').toPlainDate().toString()
+
+/** How far apart two instants are, ignoring which comes first. */
+const apart = (a: Temporal.Instant, b: Temporal.Instant) => a.since(b).abs()
 
 // Players are mostly outside the US: questions use metric units and don't ask about US-wide figures.
 // Only the question and its unit are checked; sources and derived inputs keep the source's own units.
@@ -49,7 +55,7 @@ const US_WIDE =
   /(?<![\w.])(?:U\.S\.(?:A\.)?|USA|US|United States|(?<!(?:North|South|Central|Latin) )Americans?)(?!\w)(?!\s*(?:dollars?|\$))|\b(?:penny|pennies|dimes?)\b/
 
 /** Locale and freshness rules from QUESTION_RULES.md §1. Messages name the matched term only, never the question. */
-export function localeIssues(q: Question, now = new Date()): string[] {
+export function localeIssues(q: Question, now = Temporal.Now.instant()): string[] {
   const errors: string[] = []
   for (const [field, text] of [
     ['question', q.question],
@@ -60,7 +66,7 @@ export function localeIssues(q: Question, now = new Date()): string[] {
     const us = US_WIDE.exec(text)
     if (us) errors.push(`${field} is about US-wide figures ("${us[0]}"): ask about the world, or name a famous place or thing instead`)
   }
-  const minYear = now.getUTCFullYear() - MAX_DATA_AGE_YEARS
+  const minYear = now.toZonedDateTimeISO('UTC').year - MAX_DATA_AGE_YEARS
   const year = Number(q.validAsOf.slice(0, 4))
   if (q.timeSensitive && year < minYear) {
     errors.push(`validAsOf ${q.validAsOf} is too old for a time-sensitive fact: use data from ${minYear} or later`)
@@ -68,30 +74,44 @@ export function localeIssues(q: Question, now = new Date()): string[] {
   return errors
 }
 
-function archiveDate(url: string): Date | null {
+/** An instant, or null if the text isn't a valid one (a regex-shaped `2026-13-45` included). */
+function instant(text: string): Temporal.Instant | null {
+  try {
+    return Temporal.Instant.from(text)
+  } catch {
+    return null
+  }
+}
+
+function archiveDate(url: string): Temporal.Instant | null {
   const m = /web\.archive\.org\/web\/(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?/.exec(url)
   if (!m) return null
   const [, y, mo, d, h = '00', mi = '00', s = '00'] = m
-  return new Date(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`)
+  return instant(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`)
 }
 
 /** Content checks beyond the schema. Pure: no DB access. */
-export function checkQuestion(q: Question, now = new Date()): string[] {
+export function checkQuestion(q: Question, now = Temporal.Now.instant()): string[] {
   const errors = localeIssues(q, now)
 
   for (const s of q.sources) {
-    const accessed = new Date(`${s.accessed}T00:00:00Z`)
-    if (accessed.getTime() > now.getTime() + DAY) errors.push(`source ${s.id}: accessed date is in the future`)
+    const accessed = instant(`${s.accessed}T00:00:00Z`)
+    if (!accessed) {
+      errors.push(`source ${s.id}: accessed is not a valid date`)
+      continue
+    }
+    if (Temporal.Instant.compare(accessed, now.add(DAY)) > 0) errors.push(`source ${s.id}: accessed date is in the future`)
     const snap = archiveDate(s.archiveUrl)
     if (!snap) {
       errors.push(`source ${s.id}: archiveUrl has no snapshot timestamp`)
     } else {
-      if (Math.abs(snap.getTime() - accessed.getTime()) > (ARCHIVE_MAX_DAYS + 1) * DAY) {
+      if (Temporal.Duration.compare(apart(snap, accessed), { hours: (ARCHIVE_MAX_DAYS + 1) * 24 }) > 0) {
         errors.push(
-          `source ${s.id}: archive snapshot (${snap.toISOString().slice(0, 10)}) is more than ${ARCHIVE_MAX_DAYS} days from the access date (${s.accessed})`,
+          `source ${s.id}: archive snapshot (${utcDate(snap)}) is more than ${ARCHIVE_MAX_DAYS} days from the access date (${s.accessed})`,
         )
       }
-      if (Math.abs(new Date(s.archivedAt).getTime() - snap.getTime()) > DAY) {
+      const archivedAt = instant(s.archivedAt)
+      if (!archivedAt || Temporal.Duration.compare(apart(archivedAt, snap), DAY) > 0) {
         errors.push(`source ${s.id}: archivedAt does not match the snapshot timestamp`)
       }
     }
@@ -130,7 +150,7 @@ export function checkQuestion(q: Question, now = new Date()): string[] {
     }
   }
 
-  if (q.recheckAfter && q.recheckAfter <= now.toISOString().slice(0, 10)) errors.push('recheckAfter is already in the past')
+  if (q.recheckAfter && q.recheckAfter <= utcDate(now)) errors.push('recheckAfter is already in the past')
   return errors
 }
 
@@ -188,7 +208,7 @@ export function ingestQuestion(db: DB, input: unknown, opts: IngestOptions = {})
       opts.candidates?.push({ id: q.id, question: q.question, status: opts.import?.status ?? 'active', ...incoming })
     if (opts.import) {
       const flags = [...(opts.import.flags ?? [])]
-      if (q.recheckAfter && q.recheckAfter <= (opts.now ?? new Date()).toISOString().slice(0, 10) && !flags.includes('recheck-due'))
+      if (q.recheckAfter && q.recheckAfter <= utcDate(opts.now ?? Temporal.Now.instant()) && !flags.includes('recheck-due'))
         flags.push('recheck-due')
       if (flags.length) setFlags(db, q.id, flags)
       if (opts.import.status && opts.import.status !== 'active') setStatus(db, q.id, opts.import.status, opts.import.replacedBy)

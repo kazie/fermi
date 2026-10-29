@@ -4,7 +4,7 @@ import { QuestionSchema } from '@fermi/shared'
 import type { DB } from '../db.ts'
 import { normalizeText } from './dedupe.ts'
 import { fetchPageText } from './html.ts'
-import { checkQuestion } from './ingest.ts'
+import { checkQuestion, utcDate } from './ingest.ts'
 import { addDispute, allQuestions, getQuestion, setFlags } from './repo.ts'
 
 export const LINK_CONCURRENCY = 6
@@ -29,7 +29,8 @@ export interface CheckReport {
 }
 
 export async function checkPool(db: DB, opts: { links?: boolean; fetchImpl?: typeof fetch } = {}): Promise<CheckReport> {
-  const today = new Date().toISOString().slice(0, 10)
+  const now = Temporal.Now.instant()
+  const today = utcDate(now)
   const report: CheckReport = { checked: 0, issues: [], disputed: [] }
   const all = allQuestions(db).filter((x) => x.status !== 'retired')
   report.checked = all.length
@@ -39,7 +40,7 @@ export async function checkPool(db: DB, opts: { links?: boolean; fetchImpl?: typ
     const parsed = QuestionSchema.safeParse(q)
     if (!parsed.success) issues.push(...parsed.error.issues.map((i) => `schema ${i.path.join('.')}: ${i.message}`))
     // recheckAfter in the past is expected here: it is what flags a question as due.
-    issues.push(...checkQuestion(q, new Date()).filter((e) => !e.startsWith('recheckAfter')))
+    issues.push(...checkQuestion(q, now).filter((e) => !e.startsWith('recheckAfter')))
     // Only check's own flags are recomputed; the rest (e.g. `reviewed:v1`) are kept, read again right before writing.
     const own = (f: string) => f.startsWith('source-changed') || f.startsWith('dead-link') || f === 'recheck-due'
     const newFlags: string[] = []
