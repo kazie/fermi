@@ -44,6 +44,6 @@ updates:
       interval: weekly
       day: monday
     ignore:
-      # The Node major is a deliberate choice (engines >=24.2); bump it by hand.
+      # The Node major is a deliberate choice (engines >=26); bump it by hand.
       - dependency-name: node
         update-types: [version-update:semver-major]

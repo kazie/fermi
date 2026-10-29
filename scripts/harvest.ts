@@ -147,7 +147,7 @@ if (import.meta.main) {
   const system =
     `You turn rows of a table into questions for "Fermi", a party game where players estimate numbers. Follow the ` +
     `question rules and templates below.\n\n<rules>\n${agents.allRules}\n</rules>\n\n<templates>\n${agents.templates}\n</templates>`
-  const today = new Date().toISOString().slice(0, 10)
+  const today = Temporal.Now.plainDateISO('UTC').toString()
   const r = await agents.run(category, count, {
     async draft(batch, topic, need, existing) {
       const a = await askModel('sonnet', system, pickPrompt(topic, need, page, existing), configDir)

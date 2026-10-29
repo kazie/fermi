@@ -15,7 +15,7 @@ import {
 } from '../src/questions/repo.ts'
 import { derivedQuestion, makeQuestion, testDb } from './fixtures.ts'
 
-const NOW = new Date('2026-10-17T00:00:00Z')
+const NOW = Temporal.Instant.from('2026-10-17T00:00:00Z')
 const replacedBy = (db: ReturnType<typeof testDb>, id: string) =>
   (db.prepare('SELECT replaced_by FROM questions WHERE id = ?').get(id) as { replaced_by: string | null }).replaced_by
 
@@ -94,6 +94,14 @@ describe('checkQuestion', () => {
     q.sources[0].archiveUrl = 'https://web.archive.org/web/20270101000000/https://x.org/'
     q.sources[0].archivedAt = '2027-01-01T00:00:00Z'
     expect(checkQuestion(q, NOW).join()).toMatch(/in the future/)
+  })
+  it('rejects dates that only look valid', () => {
+    const q = makeQuestion()
+    q.sources[0].accessed = '2026-02-30'
+    expect(checkQuestion(q, NOW).join()).toMatch(/accessed is not a valid date/)
+    const r = makeQuestion()
+    r.sources[0].archiveUrl = 'https://web.archive.org/web/20261345000000/https://www.toureiffel.paris/'
+    expect(checkQuestion(r, NOW).join()).toMatch(/archiveUrl has no snapshot timestamp/)
   })
 })
 
@@ -341,9 +349,9 @@ describe('ingestQuestion', () => {
   it('a reword keeps old data but only works on active questions', () => {
     const db = testDb()
     const old = makeQuestion({ id: 'r1', validAsOf: '2015', timeSensitive: true, recheckAfter: '2026-10-18' })
-    expect(ingestQuestion(db, old, { now: new Date('2026-10-01T00:00:00Z') }).status).toBe('invalid') // too old for new questions
+    expect(ingestQuestion(db, old, { now: Temporal.Instant.from('2026-10-01T00:00:00Z') }).status).toBe('invalid') // too old for new questions
     expect(ingestQuestion(db, old, { now: NOW, import: {} }).status).toBe('added')
-    const later = new Date('2026-11-01T00:00:00Z') // recheckAfter has passed too
+    const later = Temporal.Instant.from('2026-11-01T00:00:00Z') // recheckAfter has passed too
     expect(ingestQuestion(db, { ...old, id: 'r1-v2' }, { now: later, replaces: 'r1' }).status).toBe('invalid')
     expect(ingestQuestion(db, { ...old, id: 'r1-v2' }, { now: later, replaces: 'r1', reword: true }).status).toBe('added')
     // r1 is now retired: it can't be reworded again

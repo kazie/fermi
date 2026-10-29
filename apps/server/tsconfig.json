@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "types": ["node"] },
+  "compilerOptions": { "lib": ["ES2023", "ESNext.Temporal"], "types": ["node"] },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }
