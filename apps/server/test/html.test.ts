@@ -6,6 +6,8 @@ import { ingestQuestion } from '../src/questions/ingest.ts'
 import { getQuestion, setFlags } from '../src/questions/repo.ts'
 import { makeQuestion, testDb } from './fixtures.ts'
 
+const NOW = Temporal.Instant.from('2026-10-17T00:00:00Z')
+
 describe('htmlToText', () => {
   it('decodes named and numeric entities and strips markup', () => {
     expect(htmlToText('<p>don&#8217;t &amp; can&rsquo;t &#x2019; 2&nbsp;500&thinsp;000</p><script>x()</script>')).toBe(
@@ -16,22 +18,22 @@ describe('htmlToText', () => {
     const db = testDb()
     const q = makeQuestion({ id: 'entity-q', validAsOf: '2025', timeSensitive: true, recheckAfter: '2030-01-01' })
     q.sources[0].quote = 'The tower’s 2,500,000 rivets don’t rust.'
-    expect(ingestQuestion(db, q, { now: Temporal.Instant.from('2026-10-17T00:00:00Z') }).status).toBe('added')
+    expect(ingestQuestion(db, q, { now: NOW }).status).toBe('added')
     const page = '<p>The tower&#8217;s 2,500,000 rivets don&rsquo;t rust.</p>'
     expect(normalizeText(htmlToText(page)).includes(normalizeText(q.sources[0].quote))).toBe(true)
-    const report = await checkPool(db, { links: true, fetchImpl: (async () => new Response(page)) as typeof fetch })
+    const report = await checkPool(db, { links: true, fetchImpl: (async () => new Response(page)) as typeof fetch, now: NOW })
     expect(report.disputed).toEqual([])
     expect(report.issues).toEqual([])
   })
   it('check keeps flags set by others while it fetches links', async () => {
     const db = testDb()
-    expect(ingestQuestion(db, makeQuestion({ id: 'flag-q' }), { now: Temporal.Instant.from('2026-10-17T00:00:00Z') }).status).toBe('added')
+    expect(ingestQuestion(db, makeQuestion({ id: 'flag-q' }), { now: NOW }).status).toBe('added')
     const page = '<p>The tower is made of 18,038 metallic parts held together by 2,500,000 rivets.</p>'
     const fetchImpl = (async () => {
       setFlags(db, 'flag-q', ['reviewed:v1']) // e.g. `pnpm review`, while check waits for the page
       return new Response(page)
     }) as typeof fetch
-    await checkPool(db, { links: true, fetchImpl })
+    await checkPool(db, { links: true, fetchImpl, now: NOW })
     expect(getQuestion(db, 'flag-q')?.flags).toEqual(['reviewed:v1'])
   })
 })

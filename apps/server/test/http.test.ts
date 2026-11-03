@@ -214,9 +214,10 @@ describe('export → import merge', () => {
         question: 'How many lighthouses guard the coast of an imaginary test country?',
         unit: 'lighthouses',
         answer: 1234,
-        validAsOf: '2025',
+        // goes through the API, which checks against the real clock: keep both dates valid whenever this runs
+        validAsOf: String(Temporal.Now.plainDateISO('UTC').year),
         timeSensitive: true,
-        recheckAfter: '2026-11-01',
+        recheckAfter: '2099-01-01',
       })
       overdue.sources[0] = { ...overdue.sources[0], url: 'https://example.org/lighthouses', quote: 'There are 1,234 lighthouses.' }
       expect((await post('/api/admin/questions', { questions: [overdue] })).status).toBe(201)

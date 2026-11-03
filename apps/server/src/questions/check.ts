@@ -28,8 +28,11 @@ export interface CheckReport {
   disputed: string[]
 }
 
-export async function checkPool(db: DB, opts: { links?: boolean; fetchImpl?: typeof fetch } = {}): Promise<CheckReport> {
-  const now = Temporal.Now.instant()
+export async function checkPool(
+  db: DB,
+  opts: { links?: boolean; fetchImpl?: typeof fetch; now?: Temporal.Instant } = {},
+): Promise<CheckReport> {
+  const now = opts.now ?? Temporal.Now.instant()
   const today = utcDate(now)
   const report: CheckReport = { checked: 0, issues: [], disputed: [] }
   const all = allQuestions(db).filter((x) => x.status !== 'retired')
