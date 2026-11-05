@@ -7,3 +7,4 @@ test-results
 playwright-report
 coverage
 content/*.json
+flake.lock
