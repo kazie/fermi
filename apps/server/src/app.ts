@@ -42,10 +42,13 @@ export interface AppDeps {
 
 export const RATE_LIMITS = { rooms: { max: 10, windowMs: 60_000 }, disputes: { max: 20, windowMs: 3_600_000 } }
 
-/** The client's address. Behind a reverse proxy set FERMI_TRUST_PROXY=1 to use X-Forwarded-For. */
+/**
+ * The client's address. Behind a reverse proxy set FERMI_TRUST_PROXY=1 to use X-Forwarded-For. Only its last entry
+ * is used: the proxy appends the address it saw, and anything before that came from the client, who can make it up.
+ */
 function clientIp(c: Context): string {
   if (process.env.FERMI_TRUST_PROXY) {
-    const fwd = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    const fwd = c.req.header('x-forwarded-for')?.split(',').at(-1)?.trim()
     if (fwd) return fwd
   }
   const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined

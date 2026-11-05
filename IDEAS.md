@@ -94,10 +94,9 @@ Not bugs: choices to make, with the trade-off.
   or cache its serialized part.
 - **Version handshake:** after a deploy, old tabs keep talking to the new server. Send a build id in the snapshot
   and reload when it changes.
-- **Abuse basics:** 24⁴ room codes with no lookup rate limit; with `FERMI_TRUST_PROXY` the leftmost
-  `X-Forwarded-For` (client-controlled) is used, which dodges the rate limits; the admin token is compared with
-  `!==` and failures aren't limited; names allow zero-width and bidi lookalikes (and `slice(0, 21)` can split a
-  surrogate pair); player keys travel in the WebSocket URL, so they land in proxy logs.
+- **Abuse basics:** 24⁴ room codes with no lookup rate limit; the admin token is compared with `!==` and failures
+  aren't limited; names allow zero-width and bidi lookalikes (and `slice(0, 21)` can split a surrogate pair); player
+  keys travel in the WebSocket URL, so they land in proxy logs.
 - **Leaks:** `keyToId` is never pruned; TV sockets have no heartbeat, so a half-open TV keeps a room alive forever.
 - **Decide once whether a dispute counts.** Only players who were dealt a question count towards taking it out of
   rotation. Today that's worked out at count time: every new dispute re-checks all open ones against `player_seen`,
