@@ -29,6 +29,14 @@ updates:
       python:
         patterns: ['*']
 
+  # The Nix dev shell's nixpkgs (flake.lock). Weekly, with the npm bumps, so Nix's Playwright browsers keep up with
+  # @playwright/test. Merged by hand: CI doesn't build the dev shell, so a green run says nothing about it.
+  - package-ecosystem: nix
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
