@@ -201,6 +201,24 @@ describe('identity and abuse protection', () => {
     expect(statuses.slice(0, 10).every((s) => s === 201)).toBe(true)
     expect(statuses.slice(10)).toEqual([429, 429])
   })
+
+  it('behind a proxy, rate-limits by the address the proxy saw, not one the client made up', async () => {
+    process.env.FERMI_TRUST_PROXY = '1'
+    const limited = startServer({ port: 0, host: '127.0.0.1', db: testDb(), lines: testLines, staticDir: '/nonexistent' })
+    try {
+      const url = `http://127.0.0.1:${await limited.ready}/api/rooms`
+      // the proxy appends what it saw (203.0.113.7); the entries before it are the client's own, new each time
+      const room = (fwd: string) => fetch(url, { method: 'POST', headers: { 'x-forwarded-for': fwd } }).then((r) => r.status)
+      const statuses: number[] = []
+      for (let i = 0; i < 12; i++) statuses.push(await room(`10.0.0.${i}, 203.0.113.7`))
+      expect(statuses.slice(0, 10).every((s) => s === 201)).toBe(true)
+      expect(statuses.slice(10)).toEqual([429, 429])
+      expect(await room('203.0.113.8')).toBe(201) // another client has its own limit
+    } finally {
+      delete process.env.FERMI_TRUST_PROXY
+      await limited.close()
+    }
+  })
 })
 
 describe('export → import merge', () => {

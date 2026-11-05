@@ -321,7 +321,7 @@ Disputes from anyone else are kept for the recheck but don't count.
 | `PORT`                    | `3000`                                         | The server's port                                                                           |
 | `HOST`                    | `0.0.0.0`                                      | The address the server listens on                                                           |
 | `FERMI_SERVER`            | `http://localhost:3000`                        | Where `pnpm q` sends requests                                                               |
-| `FERMI_TRUST_PROXY`       | off                                            | Set to `1` behind a reverse proxy, so rate limits see the real client address               |
+| `FERMI_TRUST_PROXY`       | off                                            | Set to `1` behind one reverse proxy, so rate limits see the real client address             |
 | `FERMI_TIME_SCALE`        | `1`                                            | Speeds up reveals and breaks; for tests only                                                |
 | `FERMI_VOICE`             | off                                            | `1` turns on FerMEANie's voice (see [content/VOICE.md](content/VOICE.md))                   |
 | `FERMI_VOICE_DIR`         | `voice/` next to the database                  | Where her voice's clips are kept                                                            |
