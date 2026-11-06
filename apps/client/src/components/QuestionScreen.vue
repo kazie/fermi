@@ -171,7 +171,7 @@ function lock() {
         </div>
         <PlayerStrip :players="room.players" :you="room.you" @locked-in="glance" />
         <div ref="remarkBox">
-          <FermeanieSays :text="round.line" :start-at="round.startedAt" :now="now" :release="room.fermeanie" mood="smug" :look="look" />
+          <FermeanieSays :text="round.line" :start-at="round.lineAt" :now="now" :release="room.fermeanie" mood="smug" :look="look" />
         </div>
       </aside>
     </div>

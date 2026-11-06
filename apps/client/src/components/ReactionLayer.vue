@@ -27,11 +27,11 @@ function float(r: FloatingReaction, age: number) {
     style: {
       left: `${8 + ((r.id * 37) % 84)}%`,
       '--delay': `-${age}ms`,
-      '--sway': `${sign * between(1.5, 4)}vw`,
+      '--sway': `calc(${sign * between(1.5, 4)}vw / var(--zoom, 1))`, // the big screen's zoom would scale vw/vh too
       '--sway-dur': `${between(0.9, 1.6)}s`,
       '--tilt': `${sign * between(4, 12)}deg`,
       '--scale': between(0.85, 1.2),
-      '--rise': `${between(50, 70)}vh`,
+      '--rise': `calc(${between(50, 70)}vh / var(--zoom, 1))`,
     },
   }
 }
@@ -151,7 +151,7 @@ const live = computed(() => {
 @media (prefers-reduced-motion: reduce) {
   .float {
     animation-name: fade;
-    transform: translate(-50%, -20vh);
+    transform: translate(-50%, calc(-20vh / var(--zoom, 1)));
   }
   .sway,
   .pop {

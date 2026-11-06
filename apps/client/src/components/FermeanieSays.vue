@@ -201,7 +201,7 @@ const avatarSize = computed(() => ({ s: 28, m: 44, l: 64 })[props.size])
 <template>
   <figure class="says" :class="`size-${size}`">
     <FermeanieAvatar :size="avatarSize" :speaking="!state.done" :mood="mood" :gloat="gloat" :look="look" />
-    <div class="bubble">
+    <div class="bubble" :class="{ empty: !seq.length }">
       <div class="who">
         <span class="name" :title="S.botBackronym">Fer<b>MEAN</b>ie</span>
         <span v-if="release" class="ver mono">{{ versionTag(release) }}</span>
@@ -256,6 +256,10 @@ const avatarSize = computed(() => ({ s: 28, m: 44, l: 64 })[props.size])
   color: var(--muted);
   text-transform: none;
   letter-spacing: 0;
+}
+/* nothing to say yet (a quip due later in the round): the bubble keeps its place, so nothing moves when it fills */
+.bubble.empty {
+  visibility: hidden;
 }
 .line {
   margin: 2px 0 0;

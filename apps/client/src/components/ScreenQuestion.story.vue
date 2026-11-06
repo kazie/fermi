@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { asScreen, finalQuestionRoom, questionRoom, T0 } from '@/fixtures/rooms'
+import { asScreen, finalQuestionRoom, questionRoom, QUIP_DUE, quipRoom, T0 } from '@/fixtures/rooms'
 import ScreenQuestion from './ScreenQuestion.vue'
 
 const first = asScreen(questionRoom({ n: 6 }))
+const due = quipRoom({ n: 6, due: true })
 const later = asScreen({
-  ...questionRoom({ n: 6 }),
-  round: { ...questionRoom().round!, index: 4, line: 'Someone in this room is secretly good at this. I won’t say who. It’s Ada.' },
+  ...due,
+  round: { ...due.round!, index: 4, line: 'Someone in this room is secretly good at this. I won’t say who. It’s Ada.' },
 })
 const final = asScreen(finalQuestionRoom())
+const quip = asScreen(quipRoom({ n: 6 }))
 </script>
 
 <template>
@@ -20,6 +22,9 @@ const final = asScreen(finalQuestionRoom())
     ></Variant>
     <Variant title="Final question (double points)"
       ><div class="page"><ScreenQuestion :room="final" :now="T0 + 12_000" /></div
+    ></Variant>
+    <Variant title="Later question, quip still to come"
+      ><div class="page"><ScreenQuestion :room="quip" :now="QUIP_DUE - 9000" /></div
     ></Variant>
   </Story>
 </template>

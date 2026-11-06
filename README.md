@@ -77,7 +77,7 @@ If the host disconnects, the earliest-joined connected player takes over after 1
 | Setting              | Options                               | Default |
 | -------------------- | ------------------------------------- | ------- |
 | Rounds               | 5, 10, 15                             | 10      |
-| Seconds per question | 30, 60, 90                            | 60      |
+| Seconds per question | 30, 60, 90, 120                       | 90      |
 | Pacing               | Timed breaks, Host taps Next          | Timed   |
 | Break between rounds | Off, 15, 30, 60 s (timed pacing only) | 30 s    |
 | Intro                | Full, Short, Off                      | Full    |
@@ -98,7 +98,9 @@ since the group has just heard the rules.
 ### A round
 
 1. **Question.** Players see who has locked in, never what they answered. The round ends early once every connected
-   player has locked in.
+   player has locked in (after her quip, if she's in the middle of one). FerMEANie reads the question out; news (the
+   first question, a lead change, the final question's double points) she says with it, and from the second question
+   an ordinary quip waits until 40% into the answer time, unless everyone has locked in by then.
 2. **Reveal.**
    1. **The call.** Everyone's answers appear as anonymous dots on a log-scale number line, and each phone asks: is
       the truth higher or lower than your answer? One tap, no points; it closes before the truth lands, and the right

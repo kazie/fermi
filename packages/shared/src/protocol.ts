@@ -8,7 +8,15 @@ import { plainText } from './markup.ts'
 import type { Award } from './awards.ts'
 
 export const ROUND_OPTIONS = [5, 10, 15] as const
-export const TIMER_OPTIONS = [30, 60, 90] as const
+export const TIMER_OPTIONS = [30, 60, 90, 120] as const
+export const DEFAULT_TIMER_SEC = 90
+/**
+ * How far into the answer time (a fraction) her plain quip comes: after the question is read, while everyone is thinking.
+ * Her other question lines are news (the first question, the final one, a lead change) and come with the question.
+ */
+export const QUIP_AT = 0.4
+/** How long after a question appears her quip is due (ms). */
+export const quipDelayMs = (timerSec: number) => Math.round(timerSec * 1000 * QUIP_AT)
 /** Discussion break between rounds (seconds); 0 = off. */
 export const BREAK_OPTIONS = [0, 15, 30, 60] as const
 export const DEFAULT_BREAK_SEC = 30
@@ -194,7 +202,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('settings'),
     rounds: z.union(ROUND_OPTIONS.map((n) => z.literal(n)) as [z.ZodLiteral<5>, z.ZodLiteral<10>, z.ZodLiteral<15>]),
-    timerSec: z.union(TIMER_OPTIONS.map((n) => z.literal(n)) as [z.ZodLiteral<30>, z.ZodLiteral<60>, z.ZodLiteral<90>]),
+    timerSec: z.union(TIMER_OPTIONS.map((n) => z.literal(n)) as [z.ZodLiteral<30>, z.ZodLiteral<60>, z.ZodLiteral<90>, z.ZodLiteral<120>]),
     breakSec: z
       .union(BREAK_OPTIONS.map((n) => z.literal(n)) as [z.ZodLiteral<0>, z.ZodLiteral<15>, z.ZodLiteral<30>, z.ZodLiteral<60>])
       .optional(),
@@ -251,8 +259,13 @@ export interface QuestionView {
   question: PublicQuestion
   startedAt: number
   endsAt: number
-  /** What FerMEANie says while the question is up: the intro in the first round, a quip after that. */
+  /**
+   * What FerMEANie says while the question is up: news (the intro or "for real" line in the first round, a lead change,
+   * the final round's double points) or a quip. A quip is empty until it's due, and skipped if everyone locks in first.
+   */
   line: string
+  /** When she starts saying `line` (server ms): `startedAt` for news, part-way into the answer time (QUIP_AT) for a quip. */
+  lineAt: number
   /** The intro's example question: no points, and the real game starts after its reveal. */
   practice?: true
   /** The final question: every point counts this many times (left out on ordinary rounds). */

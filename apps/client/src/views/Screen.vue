@@ -39,81 +39,108 @@ useWakeLock(() => !!room.value) // a TV page should never fall asleep
 providePlayerOrder(computed(() => room.value?.players.map((p) => p.id) ?? []))
 const joinUrl = `${location.origin}/r/${code}`
 
-// Scale the whole UI with the screen: most sizes are in rem, so a bigger root font makes it TV-readable.
-function scale() {
-  document.documentElement.style.fontSize = `${Math.max(16, Math.min(28, (innerWidth / 1280) * 18))}px`
+// Scale the whole UI with the screen, px and rem alike (CSS zoom), so a TV shows the layout a 1280×720 window
+// would, only bigger. Never smaller: a smaller window gets the plain page at 1×, responsive layout and all.
+const DESIGN_W = 1280
+const DESIGN_H = 720
+const zoom = ref(1)
+const isFullscreen = ref(false)
+/** The lobby and a question are short: centred on the screen rather than stuck to the top. */
+const middle = computed(() => !fatal.value && (room.value?.phase === 'lobby' || room.value?.phase === 'question'))
+function fit() {
+  // a browser without CSS zoom keeps 1×: the page would not grow, only its min-height would shrink
+  zoom.value = CSS.supports('zoom', '2') ? Math.max(1, Math.min(innerWidth / DESIGN_W, innerHeight / DESIGN_H)) : 1
+  isFullscreen.value = !!document.fullscreenElement // also when it was left with Esc
 }
 onMounted(() => {
-  scale()
-  addEventListener('resize', scale)
+  fit()
+  addEventListener('resize', fit)
+  document.addEventListener('fullscreenchange', fit)
 })
 onUnmounted(() => {
-  removeEventListener('resize', scale)
-  document.documentElement.style.fontSize = ''
+  removeEventListener('resize', fit)
+  document.removeEventListener('fullscreenchange', fit)
 })
 
-const isFullscreen = ref(false)
 async function toggleFullscreen() {
   if (document.fullscreenElement) await document.exitFullscreen()
   else await document.documentElement.requestFullscreen?.()
-  isFullscreen.value = !!document.fullscreenElement
 }
 </script>
 
 <template>
-  <AppHeader :code="code" :status="status" :version="room?.fermeanie.version" :sound="voice.sound.value" @sound="voice.toggle()" />
-  <main class="page tv">
-    <button class="btn btn-ghost fs" type="button" @click="toggleFullscreen">
-      {{ isFullscreen ? 'Exit full screen' : '⛶ Full screen' }}
-    </button>
-    <div v-if="fatal" class="card fatal">
-      <h1>Hmm.</h1>
-      <p>{{ fatal }}</p>
-      <a class="btn btn-primary" href="/">Back to start</a>
-    </div>
-    <p v-else-if="!room" class="muted">Connecting to room {{ code }}…</p>
-    <template v-else>
-      <SoundNudge v-if="nudge" :state="nudge" tv @on="voice.enable()" />
-      <ScreenLobby v-if="room.phase === 'lobby'" :room="room" :join-url="joinUrl" :clock="clock" />
-      <IntroSequence
-        v-else-if="room.phase === 'intro' && room.intro"
-        :intro="room.intro"
-        :players="room.players"
-        you=""
-        :now="now"
-        :is-host="false"
-        :release="room.fermeanie"
-        variant="tv"
-      />
-      <ScreenQuestion
-        v-else-if="room.phase === 'question' && room.round"
-        :key="room.round.practice ? 'practice' : room.round.index"
-        :room="room"
-        :now="now"
-      />
-      <CallStage v-else-if="room.phase === 'reveal' && room.call" :call="room.call" you="" :now="now" variant="tv" />
-      <RevealSequence
-        v-else-if="room.phase === 'reveal' && room.reveal"
-        :key="`r${room.reveal.practice ? 'p' : room.reveal.index}`"
-        :reveal="room.reveal"
-        :players="room.players"
-        you=""
-        :now="now"
-        :fermeanie-before="room.fermeanie.score"
-        :release="room.fermeanie"
-      />
-      <BreakScreen v-else-if="room.phase === 'break' && room.break" :room="room" :now="now" variant="tv" />
-      <FinalScreen v-else-if="room.phase === 'final' && room.final" :final="room.final" you="" :is-host="false" :now="now" screen />
-      <ReactionLayer :reactions="socket.reactions.value" :players="room.players" :now="now" big />
-      <SkipIntro v-if="room.intro && room.phase !== 'intro'" class="practice-skip" :skip="room.intro.skip" :is-host="false" tv />
-    </template>
-  </main>
+  <div class="tv-root" :style="{ zoom, '--zoom': zoom }">
+    <AppHeader :code="code" :status="status" :version="room?.fermeanie.version" :sound="voice.sound.value" @sound="voice.toggle()" />
+    <main class="page tv">
+      <button class="btn btn-ghost fs" type="button" @click="toggleFullscreen">
+        {{ isFullscreen ? 'Exit full screen' : '⛶ Full screen' }}
+      </button>
+      <SoundNudge v-if="room && !fatal && nudge" :state="nudge" tv @on="voice.enable()" />
+      <!-- one full-width block, so each phase lays out as on any page; only the block is centred -->
+      <div class="phase" :class="{ middle }">
+        <div v-if="fatal" class="card fatal">
+          <h1>Hmm.</h1>
+          <p>{{ fatal }}</p>
+          <a class="btn btn-primary" href="/">Back to start</a>
+        </div>
+        <p v-else-if="!room" class="muted">Connecting to room {{ code }}…</p>
+        <ScreenLobby v-else-if="room.phase === 'lobby'" :room="room" :join-url="joinUrl" :clock="clock" />
+        <IntroSequence
+          v-else-if="room.phase === 'intro' && room.intro"
+          :intro="room.intro"
+          :players="room.players"
+          you=""
+          :now="now"
+          :is-host="false"
+          :release="room.fermeanie"
+          variant="tv"
+        />
+        <ScreenQuestion
+          v-else-if="room.phase === 'question' && room.round"
+          :key="room.round.practice ? 'practice' : room.round.index"
+          :room="room"
+          :now="now"
+        />
+        <CallStage v-else-if="room.phase === 'reveal' && room.call" :call="room.call" you="" :now="now" variant="tv" />
+        <RevealSequence
+          v-else-if="room.phase === 'reveal' && room.reveal"
+          :key="`r${room.reveal.practice ? 'p' : room.reveal.index}`"
+          :reveal="room.reveal"
+          :players="room.players"
+          you=""
+          :now="now"
+          :fermeanie-before="room.fermeanie.score"
+          :release="room.fermeanie"
+        />
+        <BreakScreen v-else-if="room.phase === 'break' && room.break" :room="room" :now="now" variant="tv" />
+        <FinalScreen v-else-if="room.phase === 'final' && room.final" :final="room.final" you="" :is-host="false" :now="now" screen />
+      </div>
+      <template v-if="room && !fatal">
+        <ReactionLayer :reactions="socket.reactions.value" :players="room.players" :now="now" big />
+        <SkipIntro v-if="room.intro && room.phase !== 'intro'" class="practice-skip" :skip="room.intro.skip" :is-host="false" tv />
+      </template>
+    </main>
+  </div>
 </template>
 
 <style scoped>
-.tv {
+/* zoomed (see fit): 100dvh inside it would be zoomed too, so it's divided back out */
+.tv-root {
   --max-w: 1600px;
+  min-height: calc(100vh / var(--zoom)); /* TV browsers without dvh */
+  min-height: calc(100dvh / var(--zoom));
+  display: flex;
+  flex-direction: column;
+}
+.tv {
   position: relative;
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.phase.middle {
+  margin-block: auto;
 }
 .practice-skip {
   margin-top: var(--space-5);

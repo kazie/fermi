@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { logEvent } from 'histoire/client'
-import { finalQuestionRoom, practiceRoom, questionRoom, SHEETS, T0 } from '@/fixtures/rooms'
+import { finalQuestionRoom, practiceRoom, questionRoom, QUIP_DUE, quipRoom, SHEETS, T0 } from '@/fixtures/rooms'
 import QuestionScreen from './QuestionScreen.vue'
 
+const quip = quipRoom({ text: SHEETS.good })
+const quipDue = quipRoom({ text: SHEETS.good, due: true })
 const spectating = { ...questionRoom(), yourSheet: undefined }
 const playingState = () => ({ left: 47, room: questionRoom({ text: SHEETS.good }) })
 const lockedRoom = questionRoom({ text: SHEETS.close, locked: true })
@@ -14,7 +16,7 @@ const final = finalQuestionRoom()
 type State = ReturnType<typeof playingState>
 
 // players lock in one by one, and FerMEANie glances at each (a later round, with a quip)
-const base = questionRoom({ n: 6, text: SHEETS.good })
+const base = quipRoom({ n: 6, text: SHEETS.good, due: true })
 const step = ref(0)
 const tick = setInterval(() => (step.value = (step.value + 1) % 8), 1600)
 onUnmounted(() => clearInterval(tick))
@@ -69,6 +71,12 @@ const onUnlock = (state: State) => (state.room = { ...state.room, yourSheet: { t
     ></Variant>
     <Variant title="Final question (double points)"
       ><div class="page"><QuestionScreen :room="final" :now="T0 + 12_000" /></div
+    ></Variant>
+    <Variant title="Later question, quip still to come"
+      ><div class="page"><QuestionScreen :room="quip" :now="QUIP_DUE - 9000" /></div
+    ></Variant>
+    <Variant title="Later question, quip typing"
+      ><div class="page"><QuestionScreen :room="quipDue" :now="QUIP_DUE + 1500" /></div
     ></Variant>
   </Story>
 </template>

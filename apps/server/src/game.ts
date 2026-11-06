@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto'
 import {
   chatDelay,
   DEFAULT_BREAK_SEC,
+  DEFAULT_TIMER_SEC,
+  quipDelayMs,
   evaluateSheet,
   fermeanieRelease,
   fermeanieStageMs,
@@ -128,8 +130,12 @@ interface RoundState {
   endsAt: number
   participants: Set<string>
   sheets: Map<string, Sheet>
-  /** What FerMEANie says while the question is up. */
+  /** What FerMEANie says while the question is up: empty until a quip is due (see sayQuipLater). */
   line: string
+  /** When she starts saying it (server ms): see QUIP_AT. */
+  lineAt: number
+  /** When she'll have typed and said a quip (server ms; 0 until one is said): the reveal never starts over it. */
+  lineUntil: number
   /** The intro's example question: nothing is scored, saved or marked as seen. */
   practice?: true
   /** How much its points count: 2 for the final question. */
@@ -211,7 +217,7 @@ export class Room {
   private keyToId = new Map<string, string>()
   private hostId: string | null = null
   private phase: RoomView['phase'] = 'lobby'
-  private settings: RoomSettings = { rounds: 10, timerSec: 60, breakSec: DEFAULT_BREAK_SEC, pacing: 'timer', intro: 'full' }
+  private settings: RoomSettings = { rounds: 10, timerSec: DEFAULT_TIMER_SEC, breakSec: DEFAULT_BREAK_SEC, pacing: 'timer', intro: 'full' }
   /** Big screens (TVs) watching: they get snapshots but never play. */
   private screens = new Set<Conn>()
   private breakState: BreakState | null = null
@@ -251,6 +257,8 @@ export class Room {
   /** The calls in this reveal, by player id, and the timer that closes the call. */
   private calls = new Map<string, Call>()
   private callTimer: ReturnType<typeof setTimeout> | undefined
+  /** Her question-time line: says a quip when it's due (sayQuipLater), and holds an early end until she's done. */
+  private quipTimer: ReturnType<typeof setTimeout> | undefined
   lastActivity: number
 
   constructor(code: string, deps: RoomDeps) {
@@ -725,6 +733,8 @@ export class Room {
       participants: new Set(participants.map((p) => p.id)),
       sheets: new Map(),
       line: this.game!.lines.pick('practice.question', {}),
+      lineAt: startedAt,
+      lineUntil: 0,
       practice: true,
       multiplier: 1,
     }
@@ -770,19 +780,27 @@ export class Room {
     if (question.template) game.usedTemplateIds.push(question.template.id)
     markSeen(db, seenKeys, question.id)
     const startedAt = this.now()
-    this.round = {
+    const timerMs = this.settings.timerSec * 1000
+    const { call, leader } = this.questionLineCall(index, { count: participants.length })
+    if (leader) game.leader = leader // a tie keeps the last leader, so Ada → tie → Bob is still a lead change
+    const late = call.key === 'quip'
+    const r: RoundState = {
       index,
       question,
       startedAt,
-      endsAt: startedAt + this.settings.timerSec * 1000,
+      endsAt: startedAt + timerMs,
       participants: new Set(ids),
       sheets: new Map(),
-      line: this.questionLine(index, participants.length),
+      line: late ? '' : this.take(questionSlot(index), call),
+      lineAt: late ? startedAt + quipDelayMs(this.settings.timerSec) : startedAt,
+      lineUntil: 0,
       multiplier: roundMultiplier(index, this.settings.rounds),
     }
+    this.round = r
     this.reveal = null
     this.phase = 'question'
-    this.schedule(this.settings.timerSec * 1000 + DEADLINE_GRACE_MS, () => this.endRound())
+    this.schedule(timerMs + DEADLINE_GRACE_MS, () => this.endRound())
+    if (late) this.sayQuipLater(r)
     this.broadcast()
   }
 
@@ -838,10 +856,21 @@ export class Room {
     return { call, leader: names.leader }
   }
 
-  private questionLine(index: number, count: number): string {
-    const { call, leader } = this.questionLineCall(index, { count })
-    if (leader) this.game!.leader = leader // a tie keeps the last leader, so Ada → tie → Bob is still a lead change
-    return this.take(questionSlot(index), call)
+  /**
+   * A quip is picked when it's due, with who leads and trails then: someone who left in the meantime is never named.
+   * A round that ends first (everyone locked in) skips it, and the line stays in the pool.
+   */
+  private sayQuipLater(r: RoundState) {
+    this.quipTimer = setTimeout(
+      () =>
+        this.guard('quip', () => {
+          if (this.round !== r || this.phase !== 'question') return
+          r.line = this.take(questionSlot(r.index), { key: 'quip', vars: this.standings() })
+          r.lineUntil = this.saidBy(r.line, r.lineAt)
+          this.broadcast()
+        }),
+      r.lineAt - r.startedAt,
+    )
   }
 
   /** Picks a line now, to be said later (`take`), and lets her voice render it in the meantime. */
@@ -859,12 +888,21 @@ export class Room {
   private take(slot: string, call: LineCall): string {
     const game = this.game!
     const prepared = game.prepared.get(slot)
-    game.prepared.delete(slot)
     const given: Record<string, unknown> = call.vars
-    if (prepared?.key === call.key && prepared.chosen.msg.variables.every((v) => given[v] !== undefined))
+    if (prepared?.key === call.key && prepared.chosen.msg.variables.every((v) => given[v] !== undefined)) {
+      game.prepared.delete(slot)
       return game.lines.say(prepared.chosen, call.vars)
-    if (prepared) game.lines.unuse(prepared.key, prepared.chosen) // never said: it may come up later in the game
+    }
+    this.unprepare(slot)
     return game.lines.pick(call.key, call.vars)
+  }
+
+  /** Drops a line picked ahead that won't be said after all, so it may come up later in the game. */
+  private unprepare(slot: string) {
+    const game = this.game!
+    const prepared = game.prepared.get(slot)
+    game.prepared.delete(slot)
+    if (prepared) game.lines.unuse(prepared.key, prepared.chosen)
   }
 
   /** Whether her voice may say this name: it renders a room's names ahead, up to a cap. */
@@ -910,7 +948,15 @@ export class Room {
     const r = this.round
     if (this.phase !== 'question' || !r) return
     const active = [...r.participants].filter((id) => (this.players.get(id)?.conns.size ?? 0) > 0)
-    if (active.length > 0 && active.every((id) => r.sheets.get(id)?.locked)) this.endRound()
+    if (active.length === 0 || !active.every((id) => r.sheets.get(id)?.locked)) return
+    // not over a quip she's still saying (the deadline doesn't wait); then everyone must still be locked in
+    const wait = r.lineUntil - this.now()
+    if (wait > 0) {
+      clearTimeout(this.quipTimer)
+      this.quipTimer = setTimeout(() => this.guard('line', () => this.maybeEndEarly()), wait)
+      return
+    }
+    this.endRound()
   }
 
   private endRound() {
@@ -918,6 +964,8 @@ export class Room {
     const game = this.game
     if (this.phase !== 'question' || !r || !game) return
     clearTimeout(this.timer)
+    clearTimeout(this.quipTimer) // a quip not yet due, or a hold for one
+    if (!r.line) this.unprepare(questionSlot(r.index)) // her quip wasn't due yet: it may come up later
     // offline from the question's start to its end (anyone back in time joined it): gone, until they reconnect
     // (one back in the grace period after the deadline is here again, just too late for this question: not gone)
     for (const p of this.joinedPlayers()) if (!p.spectating && !r.participants.has(p.id) && !p.conns.size) p.gone = true
@@ -1075,9 +1123,12 @@ export class Room {
       // What she says next, picked now so her voice can render it while this reveal plays.
       const upcoming: Scores = { players: scoresAfter, fermeanie: this.reveal.fermeanieScoreAfter }
       if (r.practice) this.prepare(questionSlot(0), { key: 'for_real.played', vars: {} }, endsAt)
-      else if (r.index + 1 < this.settings.rounds)
-        this.prepare(questionSlot(r.index + 1), this.questionLineCall(r.index + 1, { scores: upcoming }).call, endsAt)
-      else {
+      else if (r.index + 1 < this.settings.rounds) {
+        const { call } = this.questionLineCall(r.index + 1, { scores: upcoming })
+        // a quip is said part-way into the next question (any break comes on top: this is the earliest it can be due)
+        const at = call.key === 'quip' ? endsAt + quipDelayMs(this.settings.timerSec) : endsAt
+        this.prepare(questionSlot(r.index + 1), call, at)
+      } else {
         this.prepareFinal(upcoming, endsAt)
         this.prepareAwards(endsAt)
       }
@@ -1321,6 +1372,7 @@ export class Room {
     this.startTimer = undefined
     clearTimeout(this.timer)
     clearTimeout(this.callTimer)
+    clearTimeout(this.quipTimer)
     const lastGame = this.final // gone after a game that didn't finish (a crash sends the room back too)
     this.phase = 'lobby'
     this.round = null
@@ -1360,7 +1412,12 @@ export class Room {
 
   /** Her lobby line, said from `at` until she has typed (and said) it. */
   private lobbyLineAt(text: string, at: number): NonNullable<RoomView['lobbyLine']> {
-    return { text, at, until: at + lineDuration(plainText(text), this.paced) }
+    return { text, at, until: this.saidBy(text, at) }
+  }
+
+  /** When she'll have typed (and, with a voice, said) a line she starts at `at`. */
+  private saidBy(text: string, at: number): number {
+    return at + lineDuration(plainText(text), this.paced)
   }
 
   /** Someone left the lobby (kicked, or gone for good): she remarks on it, or on the empty room, once she's done. */
@@ -1452,6 +1509,7 @@ export class Room {
     clearTimeout(this.startTimer)
     clearTimeout(this.timer)
     clearTimeout(this.callTimer)
+    clearTimeout(this.quipTimer)
     clearTimeout(this.voiceTimer)
     this.stopListening?.()
     this.stopHostTimer()
@@ -1512,7 +1570,7 @@ export class Room {
     const r = this.round
     if (this.phase === 'question' && r) {
       say(r.question.question, r.startedAt)
-      say(r.line, r.startedAt)
+      say(r.line, r.lineAt)
     }
     const rv = this.reveal
     if ((this.phase === 'reveal' || this.phase === 'break') && rv) {
@@ -1623,6 +1681,7 @@ export class Room {
               startedAt: r.startedAt,
               endsAt: r.endsAt,
               line: r.line,
+              lineAt: r.lineAt,
               ...(r.practice ? { practice: true as const } : {}),
               ...(r.multiplier > 1 ? { multiplier: r.multiplier } : {}),
             },

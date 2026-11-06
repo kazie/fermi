@@ -350,6 +350,7 @@ describe('Room with a voice', () => {
     const ahead = asked.filter((x) => x.tier === 'ahead').map((x) => x.text)
     vi.advanceTimersByTime(rv.timeline.endsAt - Date.now() + DEADLINE_GRACE_MS)
     expect(a.conn.last.phase).toBe('question')
+    vi.advanceTimersByTime(a.conn.last.round!.lineAt - Date.now()) // a quip: said part-way through
     expect(ahead).toContain(a.conn.last.round!.line)
   })
 

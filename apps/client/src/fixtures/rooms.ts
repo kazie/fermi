@@ -11,6 +11,7 @@ import {
   fermeanieStageMs,
   INTRO_TIMING,
   lineDuration,
+  quipDelayMs,
   REVEAL_TIMING,
   RULES,
   scoreRound,
@@ -144,9 +145,20 @@ export function questionRoom(opts: { n?: number; text?: string; locked?: boolean
       startedAt: T0,
       endsAt: T0 + 60_000,
       line: 'Welcome, test subjects. Please estimate responsibly. Or don’t. I benefit either way.',
+      lineAt: T0,
     },
     yourSheet: { text: opts.text ?? '', locked: !!opts.locked },
   })
+}
+
+/** When a later question's quip is due in these fixtures (their answer time is 60 s). */
+export const QUIP_DUE = T0 + quipDelayMs(60)
+
+/** A later question: her quip comes part-way into the answer time. Like the server, `due` gives the line; before that it's empty. */
+export function quipRoom(opts: { n?: number; text?: string; due?: boolean } = {}): RoomView {
+  const room = questionRoom(opts)
+  const line = opts.due ? 'I’ve stopped rooting for anyone. It’s more efficient.' : ''
+  return { ...room, round: { ...room.round!, index: 3, line, lineAt: QUIP_DUE } }
 }
 
 export const SHEETS = {

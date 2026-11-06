@@ -29,9 +29,12 @@ function measure(id: string) {
   const r = root.getBoundingClientRect()
   const a = from.getBoundingClientRect()
   const b = to.getBoundingClientRect()
-  const x = a.left + a.width / 2 - r.left
-  const y = a.top + a.height / 2 - r.top
-  flights[id] = { x, y, dx: b.left + b.width / 2 - r.left - x, dy: b.top + b.height / 2 - r.top - y, delay: -(props.t - props.starts[id]) }
+  // rects are in screen px, `left`/`top` in the root's own px: they differ under CSS zoom (the big screen)
+  const k = r.width / root.offsetWidth || 1
+  const centre = (e: DOMRect) => [(e.left + e.width / 2 - r.left) / k, (e.top + e.height / 2 - r.top) / k]
+  const [x, y] = centre(a)
+  const [bx, by] = centre(b)
+  flights[id] = { x, y, dx: bx - x, dy: by - y, delay: -(props.t - props.starts[id]) }
 }
 
 watch(
