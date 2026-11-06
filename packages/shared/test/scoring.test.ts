@@ -154,6 +154,8 @@ describe('protocol', () => {
   it('validates settings', () => {
     expect(() => ClientMessageSchema.parse({ type: 'settings', rounds: 7, timerSec: 60 })).toThrow()
     expect(ClientMessageSchema.parse({ type: 'settings', rounds: 10, timerSec: 30 })).toBeTruthy()
+    expect(ClientMessageSchema.parse({ type: 'settings', rounds: 10, timerSec: 120 })).toBeTruthy()
+    expect(() => ClientMessageSchema.parse({ type: 'settings', rounds: 10, timerSec: 45 })).toThrow()
   })
   it('estimates game length, counting timed breaks only', () => {
     const settings = { rounds: 10, timerSec: 60, breakSec: 0, pacing: 'timer' as const, intro: 'off' as const }

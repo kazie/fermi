@@ -5,7 +5,10 @@ import {
   evaluateSheet,
   fermeanieStageMs,
   holdDuration,
+  lineDuration,
   MIN_PLAYERS,
+  plainText,
+  quipDelayMs,
   REACTION_BURST,
   REACTION_GAP_MS,
   stolenCards,
@@ -89,6 +92,13 @@ describe('Room', () => {
     expect(players[1].conn.last.settings).toEqual({ rounds: 5, timerSec: 30, breakSec: 0, pacing: 'timer', intro: 'off' })
   })
 
+  it('defaults to 90 seconds per question', () => {
+    const db = testDb()
+    const room = new Room('ABCD', { db, lines: testLines, rand: () => 0 })
+    const [a] = joinPlayers(room, 1)
+    expect(a.conn.last.settings.timerSec).toBe(90)
+  })
+
   it('de-duplicates names and reserves FerMEANie', () => {
     const { room, players } = setup(1)
     const c = new FakeConn()
@@ -124,6 +134,7 @@ describe('Room', () => {
     room.handle(a.id, { type: 'start' }, a.conn)
     expect(a.conn.last.phase).toBe('question')
     expect(a.conn.last.round!.line).toBe('Welcome, 4 specimens.')
+    expect(a.conn.last.round!.lineAt).toBe(a.conn.last.round!.startedAt) // news: said with the question
     expect(JSON.stringify(a.conn.last)).not.toContain(String(answerOf())) // the truth never leaks early
 
     // Round 1
@@ -160,14 +171,19 @@ describe('Room', () => {
 
     // Round 2: the crowd beats everyone → FerMEANie steals
     expect(a.conn.last.phase).toBe('question')
-    expect(a.conn.last.round!.line).toBe('Ada leads, Dee trails.') // a quip from the second round on
+    // a quip from the second round on, once everyone has had time to think
+    expect(a.conn.last.round!.lineAt).toBe(a.conn.last.round!.startedAt + quipDelayMs(60))
+    vi.advanceTimersByTime(a.conn.last.round!.lineAt - Date.now())
+    expect(a.conn.last.round!.line).toBe('Ada leads, Dee trails.')
     expect(a.conn.last.players.find((p) => p.id === a.id)!.score).toBe(rv.scoresAfter[a.id])
     expect(rv.scoresAfter[a.id]).toBe(300 + 100) // rank 1 of 3 answered + bullseye
     const t2 = answerOf()
     room.handle(a.id, { type: 'lock', text: `${t2} * 10` }, a.conn)
     room.handle(b.id, { type: 'lock', text: `${t2} / 10` }, b.conn)
     room.handle(c.id, { type: 'lock', text: `${t2} * 3` }, c.conn)
-    room.handle(d.id, { type: 'lock', text: `${t2} * 3.5` }, d.conn) // all locked → ends early
+    room.handle(d.id, { type: 'lock', text: `${t2} * 3.5` }, d.conn) // all locked → ends early…
+    expect(a.conn.last.phase).toBe('question') // …once she has finished her quip
+    vi.advanceTimersByTime(lineDuration(plainText(a.conn.last.round!.line)))
     const rv2 = a.conn.reveal
     expect(rv2.fermeanie!.beatsAll).toBe(true)
     expect(rv2.cards.every((x) => x.points === 0 && x.stolen > 0)).toBe(true)
@@ -180,6 +196,8 @@ describe('Room', () => {
     // Rounds 3–5: nobody answers
     for (let i = 0; i < 3; i++) {
       expect(a.conn.last.phase).toBe('question')
+      // the final question's double-points warning is news, said at once
+      if (i === 2) expect(a.conn.last.round!.lineAt).toBe(a.conn.last.round!.startedAt)
       vi.advanceTimersByTime(60_000 + DEADLINE_GRACE_MS)
       expect(a.conn.reveal.lines.verdict).toBe('Only 0 answers. I abstain.')
       vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
@@ -495,6 +513,11 @@ describe('Room', () => {
     expect(rv.lines.everyone).toBe('Everyone locked in early.')
     expect(rv.lines.twins).toBe('Bob and Cyd said the same.')
     vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
+    // a quip waits until everyone has had time to think
+    const { startedAt, lineAt, endsAt } = a.conn.last.round!
+    expect(lineAt).toBe(startedAt + quipDelayMs(30))
+    expect(a.conn.last.round!.line).toBe('')
+    vi.advanceTimersByTime(lineAt - Date.now())
     expect(a.conn.last.round!.line).toBe('Carry on.') // Ada leads, but Bob and Cyd tie for last
 
     // Round 2: Bob is exact and overtakes Ada; answers at the deadline, all different
@@ -502,18 +525,56 @@ describe('Room', () => {
     room.handle(a.id, { type: 'draft', text: `${t} * 100` }, a.conn)
     room.handle(b.id, { type: 'draft', text: String(t) }, b.conn)
     room.handle(c.id, { type: 'draft', text: `${t} * 1.5` }, c.conn)
-    vi.advanceTimersByTime(30_000 + DEADLINE_GRACE_MS)
+    vi.advanceTimersByTime(endsAt + DEADLINE_GRACE_MS - Date.now())
     rv = a.conn.reveal
     expect(rv.lines.everyone).toBeUndefined()
     expect(rv.lines.twins).toBeUndefined()
     vi.advanceTimersByTime(rv.timeline.endsAt - Date.now())
     expect(a.conn.last.round!.line).toBe('Bob took the lead from Ada.')
+    expect(a.conn.last.round!.lineAt).toBe(a.conn.last.round!.startedAt) // news: said with the question
 
     for (let i = 2; i < 4; i++) {
       vi.advanceTimersByTime(30_000 + DEADLINE_GRACE_MS)
       vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
     }
     expect(a.conn.last.round!.line).toMatch(/^Last one, double points\. Bob leads, \w+ trails\.$/)
+  })
+
+  it('picks a quip when it is due, so it never names someone who left in the meantime', () => {
+    const { room, players, answerOf } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30 }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    // Round 1: Ada leads, Cyd trails
+    const t = answerOf()
+    room.handle(a.id, { type: 'lock', text: String(t) }, a.conn)
+    room.handle(b.id, { type: 'lock', text: `${t} * 3` }, b.conn)
+    room.handle(c.id, { type: 'lock', text: `${t} * 30` }, c.conn)
+    vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
+    // Round 2: Cyd leaves before her quip is due
+    room.disconnect(c.id, c.conn)
+    vi.advanceTimersByTime(a.conn.last.round!.lineAt - Date.now())
+    expect(a.conn.last.round!.line).not.toBe('')
+    expect(a.conn.last.round!.line).not.toContain('Cyd')
+  })
+
+  it('all locked in during her quip: the reveal waits until she has said it, if nobody unlocked meanwhile', () => {
+    const { room, players } = setup(3)
+    const [a, b, c] = players
+    room.handle(a.id, { type: 'settings', rounds: 5, timerSec: 30 }, a.conn)
+    room.handle(a.id, { type: 'start' }, a.conn)
+    for (const p of players) room.handle(p.id, { type: 'lock', text: '5' }, p.conn)
+    vi.advanceTimersByTime(a.conn.reveal.timeline.endsAt - Date.now())
+    // Round 2: everyone locks in as her quip starts, then Bob unlocks to edit before she's done
+    vi.advanceTimersByTime(a.conn.last.round!.lineAt - Date.now())
+    const said = a.conn.last.round!.lineAt + lineDuration(plainText(a.conn.last.round!.line))
+    for (const p of players) room.handle(p.id, { type: 'lock', text: '7' }, p.conn)
+    room.handle(b.id, { type: 'unlock' }, b.conn)
+    vi.advanceTimersByTime(said - Date.now())
+    expect(a.conn.last.phase).toBe('question') // Bob is still editing
+    room.handle(b.id, { type: 'lock', text: '8' }, b.conn)
+    expect(a.conn.last.phase).toBe('reveal') // she's done: no more waiting
+    expect(c.conn.last.phase).toBe('reveal')
   })
 
   it('does not say everyone locked in when a disconnected player never answered', () => {
@@ -714,6 +775,7 @@ describe('the intro', () => {
     const practice = a.conn.last
     expect(practice.phase).toBe('question')
     expect(practice.round).toMatchObject({ practice: true, line: 'PRACTICE QUESTION.' })
+    expect(practice.round!.lineAt).toBe(practice.round!.startedAt)
     expect(practice.round!.question.id).toMatch(/^practice-/)
     expect(practice.intro).toBeDefined() // the vote to skip runs on
 
