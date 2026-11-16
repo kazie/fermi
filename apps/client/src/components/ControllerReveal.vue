@@ -68,8 +68,7 @@ const nextIn = computed(() => Math.max(0, Math.ceil((props.reveal.timeline.endsA
 
     <p v-if="reveal.practice && atLeast('scoreboard')" class="muted center">{{ S.firstRealIn(nextIn) }}</p>
     <p v-else-if="atLeast('scoreboard') && mine" class="score card center">
-      <span class="eyebrow">{{ S.afterRound(reveal.index, reveal.multiplier) }}</span
-      ><br />
+      <span class="eyebrow">{{ S.afterRound(reveal.index, reveal.multiplier) }}</span><br />
       <strong class="mono big">{{ scoreAfter }}</strong> points · <strong>#{{ rank }}</strong>
     </p>
   </div>
