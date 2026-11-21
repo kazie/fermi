@@ -5,10 +5,10 @@ name: Nix
 # path filter skips would block the PR forever.
 on:
   push:
-    branches: [ master ]
-    paths: [ "flake.nix", "flake.lock", ".github/workflows/nix.yml" ]
+    branches: [master]
+    paths: ['flake.nix', 'flake.lock', '.github/workflows/nix.yml']
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 permissions:
   contents: read
