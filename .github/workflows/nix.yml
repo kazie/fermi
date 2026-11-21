@@ -1,0 +1,23 @@
+name: Nix
+
+# Builds the dev shell, so a flake.lock bump that breaks it fails here.
+# It runs on every PR because devshell is a required check in branch protection, and a required check that a
+# path filter skips would block the PR forever.
+on:
+  push:
+    branches: [master]
+    paths: ['flake.nix', 'flake.lock', '.github/workflows/nix.yml']
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  devshell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - name: Build dev shell
+        run: nix develop --command pnpm --version
