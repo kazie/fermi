@@ -7,6 +7,7 @@ import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { mtime } from './batch.ts'
+import { onExit } from './exit.ts'
 
 export interface Snapshot {
   archiveUrl: string
@@ -64,11 +65,14 @@ export async function withSlot<T>(
       }
       // Captures can take minutes; keep the slot fresh so others don't take it for a crashed one.
       const beat = setInterval(() => utimesSync(path, new Date(), new Date()), 60_000)
+      const free = () => rmSync(path, { force: true })
+      const cancel = onExit(free)
       try {
         return await fn()
       } finally {
         clearInterval(beat)
-        rmSync(path, { force: true })
+        free()
+        cancel()
       }
     }
     await sleepImpl(1000 + Math.random() * 1000)

@@ -5,7 +5,8 @@
 // questions that no other worker is on, skipping categories that have recently run dry (.fermi-work/topic-yield.json).
 // At a usage limit a worker sleeps until it lifts, unless that's more than 6 hours away (a weekly limit): then it stops,
 // so the account can be switched. Any other failed run is retried after a pause. Prints only each run's report line,
-// never question texts.
+// never question texts. Ctrl+C lets the runs in progress finish and starts no new ones (exit code 130); a second
+// Ctrl+C stops them at once.
 // Runs bill the Claude account in FERMI_CLAUDE_CONFIG_DIR (from .env), never whatever the shell defaults to.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -15,13 +16,46 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
 import { CATEGORIES } from '../packages/shared/src/question.ts'
 import { pipelineAgents } from './agents.ts'
-import { claudeConfigDir, ROOT, runCli } from './claude.ts'
-import { limitWait, resting } from './grow-report.ts'
+import { claudeConfigDir, ROOT, runCli, shieldChildren, stopChildren } from './claude.ts'
+import { signalExitCode } from './exit.ts'
+import { nextLook, resting } from './grow-report.ts'
 
 const configDir = claudeConfigDir()
 const agents = pipelineAgents(configDir)
 const RETRY_MS = 20 * 60 * 1000
 const MAX_FAILURES = 9
+
+/**
+ * The first Ctrl+C stops new runs: sleeping workers quit, and running ones quit once their run is done. Their sessions
+ * run in their own process groups (shieldChildren), so the terminal's Ctrl+C doesn't kill them mid-run. A second
+ * Ctrl+C, Ctrl+\, a SIGTERM or a hang-up stops them and exits; their batches are taken over by a later run. A third
+ * Ctrl+C doesn't wait for them to stop (exiting kills them).
+ */
+const stop = new AbortController()
+/** Sleeps, or wakes early once stopping. */
+const nap = (ms: number) => sleep(ms, undefined, { signal: stop.signal }).catch(() => {})
+const time = (at: number = Date.now()) => new Date(at).toTimeString().slice(0, 5)
+let quitting = false
+async function quitNow(code: number) {
+  if (quitting) process.exit(code)
+  quitting = true
+  await stopChildren()
+  process.exit(code)
+}
+shieldChildren()
+// Output piped into something that quits first (`| tee log` takes Ctrl+C too): carry on without it rather than crash.
+process.stdout.on('error', () => {})
+process.stderr.on('error', () => {})
+process.on('SIGINT', () => {
+  if (stop.signal.aborted) {
+    console.log(`${time()} stopping now; a later run takes over the unfinished batches`)
+    void quitNow(signalExitCode('SIGINT'))
+    return
+  }
+  console.log(`${time()} finishing the runs in progress, then stopping (Ctrl+C again to stop now)`)
+  stop.abort()
+})
+for (const signal of ['SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) process.on(signal, () => void quitNow(signalExitCode(signal)))
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -95,20 +129,26 @@ async function run(topic: string) {
   return r
 }
 
-const log = (w: number, msg: string) => console.log(`${new Date().toTimeString().slice(0, 5)} [w${w}] ${msg}`)
+const log = (w: number, msg: string) => console.log(`${time()} [w${w}] ${msg}`)
 
 async function worker(w: number) {
   let failures = 0
+  /** Whether the last limit got a quick look (nextLook), so another limit right after it gets the usual wait. */
+  let lookedSoon = false
   const fail = async (msg: string) => {
+    if (stop.signal.aborted) {
+      log(w, `${msg}; stopping`)
+      return false
+    }
     if (++failures >= MAX_FAILURES) {
       log(w, `${msg}; giving up after ${failures} failures in a row`)
       return false
     }
     log(w, `${msg}; retrying in ${RETRY_MS / 60000} min`)
-    await sleep(RETRY_MS)
+    await nap(RETRY_MS)
     return true
   }
-  for (let round = 0; auto ? round < rounds : queue.length;) {
+  for (let round = 0; !stop.signal.aborted && (auto ? round < rounds : queue.length);) {
     let topic: string | undefined
     try {
       topic = await nextTopic()
@@ -118,6 +158,7 @@ async function worker(w: number) {
     }
     if (!topic) return
     try {
+      if (stop.signal.aborted) return
       log(w, `${topic}: running`)
       const { added, report, limit } = await run(topic)
       log(w, `${topic}: ${report}`)
@@ -125,14 +166,16 @@ async function worker(w: number) {
         // A usage limit isn't a failure: put the topic back and sleep until it lifts, or stop if that's too far off.
         if (!auto) queue.unshift(topic)
         inUse.delete(topic)
-        const limitUntil = limitWait(limit, Temporal.Now.instant())
+        if (stop.signal.aborted) return // not "sleeping until …": there's no waking up
+        const { until: limitUntil, soon } = nextLook(limit, Temporal.Now.instant(), lookedSoon)
+        lookedSoon = soon
         if (!limitUntil) {
           log(w, "usage limit won't lift within 6 h; stopping (switch FERMI_CLAUDE_CONFIG_DIR in .env and restart)")
           return
         }
         const mins = Math.round((limitUntil - Date.now()) / 60_000)
-        log(w, `usage limit; sleeping until ${new Date(limitUntil).toTimeString().slice(0, 5)} (${Math.floor(mins / 60)}h ${mins % 60}m)`)
-        await sleep(limitUntil - Date.now())
+        log(w, `usage limit; sleeping until ${time(limitUntil)} (${Math.floor(mins / 60)}h ${mins % 60}m)`)
+        await nap(limitUntil - Date.now())
         continue
       }
       if (added === null) {
@@ -144,6 +187,7 @@ async function worker(w: number) {
         return
       }
       failures = 0
+      lookedSoon = false
       round++
       recordYield(topic, added)
     } finally {
@@ -154,6 +198,8 @@ async function worker(w: number) {
 
 await categoryCounts() // fail fast if the server is down
 console.log(`account: ${configDir.replace(homedir(), '~')} · ${workers} workers · topics: ${auto ? 'auto' : positionals.join(', ')}`)
-await Promise.all(Array.from({ length: workers }, (_, i) => sleep(i * 30_000).then(() => worker(i + 1))))
+await Promise.all(Array.from({ length: workers }, (_, i) => nap(i * 30_000).then(() => worker(i + 1))))
 const counts = await categoryCounts().catch(() => null)
 if (counts) console.log(`pool: ${[...counts.values()].reduce((a, b) => a + b, 0)} active · spent $${spent.toFixed(2)}`)
+// Stopped by Ctrl+C: not a finished run, so `pnpm grow && …` doesn't carry on.
+if (stop.signal.aborted) process.exitCode = signalExitCode('SIGINT')

@@ -7,14 +7,39 @@
 // abandoned once no file in them has changed for 45 minutes.
 
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { onExit } from './exit.ts'
 
 const STALE_MS = 7 * 24 * 60 * 60 * 1000
 /** A batch without a heartbeat and with no file changes for this long belongs to a run that died. */
 export const IDLE_MS = 45 * 60 * 1000
 /** `pnpm grow` touches heartbeats every minute; one older than this belongs to a dead run. */
 export const HEARTBEAT_MS = 3 * 60 * 1000
+
+/**
+ * A heartbeat file for one run, in `<workDir>/.alive`: touched every minute until stop(), and removed then or when the
+ * process exits mid-run. First it sweeps heartbeats untouched for 20 × HEARTBEAT_MS, left by runs killed outright.
+ */
+export function startHeartbeat(workDir: string) {
+  const dir = join(workDir, '.alive')
+  mkdirSync(dir, { recursive: true })
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name)
+    if (Date.now() - (mtime(path) ?? Date.now()) > 20 * HEARTBEAT_MS) rmSync(path, { force: true })
+  }
+  const path = join(dir, `${process.pid}-${randomBytes(3).toString('hex')}`)
+  writeFileSync(path, '')
+  const beat = setInterval(() => utimesSync(path, new Date(), new Date()), 60_000)
+  const remove = () => rmSync(path, { force: true })
+  const cancel = onExit(remove)
+  const stop = () => {
+    clearInterval(beat)
+    remove()
+    cancel()
+  }
+  return { path, stop }
+}
 
 /** `b-YYYYMMDD-HHMM-xxxx` in local time; the random suffix keeps same-minute runs apart. */
 export function batchName(now: Date, suffix = randomBytes(2).toString('hex')) {

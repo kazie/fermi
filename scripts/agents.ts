@@ -1,9 +1,9 @@
 // The headless sessions behind `pnpm grow` and `pnpm harvest` (scripts/pipeline.ts's dependencies), and one pipeline
 // run with a heartbeat. Session output is only parsed, never printed: it could hold question texts.
 
-import { randomBytes } from 'node:crypto'
-import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { startHeartbeat } from './batch.ts'
 import { askModel, ROOT, runClaude, runCli } from './claude.ts'
 import { parseAgentOutput } from './grow-report.ts'
 import {
@@ -99,11 +99,7 @@ export function pipelineAgents(configDir: string) {
    * records the path, so other runs know it's alive (scripts/batch.ts). `extra` replaces steps (e.g. harvest's drafting).
    */
   async function run(topic: string, count: number, extra: Partial<PipelineDeps> = {}): Promise<RunOutcome> {
-    const aliveDir = join(ROOT, '.fermi-work', '.alive')
-    mkdirSync(aliveDir, { recursive: true })
-    const heartbeat = join(aliveDir, `${process.pid}-${randomBytes(3).toString('hex')}`)
-    writeFileSync(heartbeat, '')
-    const beat = setInterval(() => utimesSync(heartbeat, new Date(), new Date()), 60_000)
+    const { path: heartbeat, stop } = startHeartbeat(join(ROOT, '.fermi-work'))
     try {
       const r = await runPipeline(topic, count, {
         runAgent: (agent, brief) => runAgent(agent, brief, heartbeat),
@@ -120,8 +116,7 @@ export function pipelineAgents(configDir: string) {
     } catch (e) {
       return { added: null, report: (e as Error).message, spent: 0 }
     } finally {
-      clearInterval(beat)
-      rmSync(heartbeat, { force: true })
+      stop()
     }
   }
 

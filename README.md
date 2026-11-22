@@ -210,9 +210,14 @@ pnpm grow                          # 3 workers × 4 runs, each taking the emptie
 pnpm grow --workers 2 history art  # work through these topics, 2 at a time
 ```
 
-At a usage limit, a worker sleeps until the reset time the limit message names, then carries on. A limit that lifts more
+At a usage limit, a worker sleeps until the reset time the limit message names, then carries on (a reset time that went
+by in the last 15 minutes has most likely just lifted, so it looks once more 2 minutes later before waiting as usual). A limit that lifts more
 than 6 hours away (a weekly one, which names a date) stops the worker instead, so you can switch accounts and restart. Any other failed run is
 retried after 20 minutes, and a worker gives up after 9 failures in a row. Only report and limit lines are printed.
+Ctrl+C lets the runs in progress finish and starts no new ones (sleeping workers quit at once, and it exits with 130);
+a second Ctrl+C stops everything right away, and a later run takes over the unfinished batches. The sessions run in
+their own process groups, so grow passes signals on to them itself: Ctrl+Z pauses them too, and they're killed
+whenever grow exits.
 Runs bill the Claude account whose config dir is in `FERMI_CLAUDE_CONFIG_DIR` (in `.env`, e.g. `~/.claude-personal`);
 `pnpm grow` won't start without it, so it can never fall back to whichever account the shell defaults to.
 The server must be running, and `.claude/settings.local.json` must allow the pipeline's tools (`pnpm q`, the two

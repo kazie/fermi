@@ -11,6 +11,7 @@ import { fetchPageText } from '../apps/server/src/questions/html.ts'
 import { archive as archiveWith, archiveOptionsFromEnv } from './archive.ts'
 import { archiveRetryable, createBatch, isDecided, isDraftFile, mtime, sweepLeftovers } from './batch.ts'
 import { parseCli } from './cli-args.ts'
+import { onExit } from './exit.ts'
 import { rewordProblem, screenFilePath, type ScreenFile } from './review.ts'
 
 const ROOT = new URL('../', import.meta.url)
@@ -244,7 +245,7 @@ async function main() {
           else await new Promise((r) => setTimeout(r, 2000))
         }
       }
-      process.on('exit', () => rmSync(lock, { force: true }))
+      onExit(() => rmSync(lock, { force: true }))
       // Waiting for archive slots can take a while: keep the lock fresh so it isn't mistaken for a crashed prepare.
       const lockBeat = setInterval(() => existsSync(lock) && utimesSync(lock, new Date(), new Date()), 60_000)
       const dryRun = async (d: unknown) => (await call('POST', '/questions', { questions: [d], dryRun: true })).json.results[0]

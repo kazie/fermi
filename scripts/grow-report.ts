@@ -3,6 +3,10 @@
 
 const SESSION_WINDOW = Temporal.Duration.from({ hours: 5 })
 const GRACE_MS = 2 * 60 * 1000
+/** A reset time this recently gone by is one the limit has just passed (the session hit it right before). */
+const JUST_LIFTED = Temporal.Duration.from({ minutes: 15 })
+/** How soon the quick look after a just-lifted limit comes. */
+const QUICK_LOOK_MS = 2 * 60 * 1000
 
 /**
  * When a usage limit lifts (epoch ms), from a message like `… session limit · resets 4:20am (Europe/Stockholm)`: the
@@ -11,32 +15,58 @@ const GRACE_MS = 2 * 60 * 1000
  * look again. Null if there's no time in it (e.g. a date for a weekly limit).
  */
 export function limitReset(msg: string, now: Temporal.Instant): number | null {
-  // older CLIs: `Claude AI usage limit reached|<unix seconds>`
-  const epoch = /usage limit reached\|(\d{9,11})/i.exec(msg)
-  if (epoch) return Number(epoch[1]) * 1000 + GRACE_MS
+  const epoch = epochReset(msg)
+  if (epoch !== null) return epoch + GRACE_MS
+  const times = resetTimes(msg, now)
+  if (!times) return null
+  const from = nextMinute(now)
+  const latest = now.add(SESSION_WINDOW)
+  const next = times.find((t) => Temporal.Instant.compare(t, from) >= 0 && Temporal.Instant.compare(t, latest) <= 0)
+  return (next ?? latest).epochMilliseconds + GRACE_MS
+}
+
+/**
+ * Did the limit's reset time go by in the last 15 minutes? A session that hit the limit just before it lifted reports
+ * it like that (seen at 23:50 and 23:52 for `resets 11:50pm`), and limitReset() would read it as tomorrow's.
+ */
+export function justLifted(msg: string, now: Temporal.Instant): boolean {
+  const epoch = epochReset(msg)
+  const times = epoch !== null ? [Temporal.Instant.fromEpochMilliseconds(epoch)] : (resetTimes(msg, now) ?? [])
+  const since = now.subtract(JUST_LIFTED)
+  const from = nextMinute(now)
+  return times.some((t) => Temporal.Instant.compare(t, since) >= 0 && Temporal.Instant.compare(t, from) < 0)
+}
+
+/** older CLIs: `Claude AI usage limit reached|<unix seconds>` */
+function epochReset(msg: string): number | null {
+  const m = /usage limit reached\|(\d{9,11})/i.exec(msg)
+  return m ? Number(m[1]) * 1000 : null
+}
+
+/** From the next whole minute on, like a clock watched minute by minute. */
+const nextMinute = (now: Temporal.Instant) => now.round({ smallestUnit: 'minute', roundingMode: 'floor' }).add({ minutes: 1 })
+
+/**
+ * The moments, yesterday to tomorrow and in order, that the clock in the message's zone shows its reset time; empty
+ * if the time can't be right, null if it names none. When clocks go back, a time like 2:10 comes twice (earlier,
+ * later). When they go forward it doesn't come at all, and Temporal would move it to 3:10: skip it then.
+ */
+function resetTimes(msg: string, now: Temporal.Instant): Temporal.Instant[] | null {
   const m = /resets (?:at )?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i.exec(msg)
   if (!m) return null
   let hour = Number(m[1]) % 12
   if (m[3]?.toLowerCase() === 'pm' || (!m[3] && Number(m[1]) >= 12)) hour += 12
-  const latest = now.add(SESSION_WINDOW)
   const minute = Number(m[2] ?? 0)
-  if (minute > 59) return latest.epochMilliseconds + GRACE_MS
+  if (minute > 59) return []
   const want = new Temporal.PlainTime(hour, minute)
   const zone = zoneOrLocal(/\(([\w+-]+(?:\/[\w+-]+)*)\)/.exec(msg)?.[1])
-  // From the next whole minute on, like a clock watched minute by minute.
-  const from = now.round({ smallestUnit: 'minute', roundingMode: 'floor' }).add({ minutes: 1 })
   const today = now.toZonedDateTimeISO(zone).toPlainDate()
-  for (const day of [today, today.add({ days: 1 })]) {
-    // When clocks go back, a time like 2:10 comes twice (earlier, later), and the next one is wanted. When they go
-    // forward it doesn't come at all, and Temporal would move it to 3:10: skip it then.
-    for (const disambiguation of ['earlier', 'later'] as const) {
-      const at = day.toPlainDateTime(want).toZonedDateTime(zone, { disambiguation })
-      if (!at.toPlainTime().equals(want)) continue
-      const t = at.toInstant()
-      if (Temporal.Instant.compare(t, from) >= 0 && Temporal.Instant.compare(t, latest) <= 0) return t.epochMilliseconds + GRACE_MS
-    }
-  }
-  return latest.epochMilliseconds + GRACE_MS
+  return [today.subtract({ days: 1 }), today, today.add({ days: 1 })].flatMap((day) =>
+    (['earlier', 'later'] as const)
+      .map((disambiguation) => day.toPlainDateTime(want).toZonedDateTime(zone, { disambiguation }))
+      .filter((at) => at.toPlainTime().equals(want))
+      .map((at) => at.toInstant()),
+  )
 }
 
 /** The IANA zone the message names, or the machine's zone if it's missing or unknown. */
@@ -64,6 +94,16 @@ export const MAX_LIMIT_WAIT_MS = 6 * 60 * 60 * 1000
 export function limitWait(msg: string, now: Temporal.Instant): number | null {
   const until = limitReset(msg, now)
   return until !== null && until - now.epochMilliseconds <= MAX_LIMIT_WAIT_MS ? until : null
+}
+
+/**
+ * When a worker looks again after a limit (epoch ms, or null to stop), and whether that's a quick look. A reset time
+ * that has just gone by gets one quick look 2 minutes on (`soon`); if the limit is still on then (`lookedSoon`), the
+ * time was a misreading after all, so the usual limitWait() applies.
+ */
+export function nextLook(msg: string, now: Temporal.Instant, lookedSoon: boolean): { until: number | null; soon: boolean } {
+  if (!lookedSoon && justLifted(msg, now)) return { until: now.epochMilliseconds + QUICK_LOOK_MS, soon: true }
+  return { until: limitWait(msg, now), soon: false }
 }
 
 /**
