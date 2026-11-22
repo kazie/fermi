@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { limitMessage, limitReset, limitWait } from '../grow-report.ts'
+import { justLifted, limitMessage, limitReset, limitWait, nextLook } from '../grow-report.ts'
 
 /** An instant from a wall-clock time in October 2026, in the machine's zone. */
 const local = (day: number, hour: number, minute: number) =>
   Temporal.PlainDateTime.from({ year: 2026, month: 10, day, hour, minute }).toZonedDateTime(Temporal.Now.timeZoneId()).toInstant()
 const at = (h: number, m: number) => local(20, h, m)
+/** Puts TZ back as it was: assigning undefined would set the string "undefined", which ICU reads as UTC. */
+const restoreTZ = (tz: string | undefined) => {
+  if (tz === undefined) delete process.env.TZ
+  else process.env.TZ = tz
+}
 
 describe('usage limits', () => {
   const out = `{"type":"result","is_error":true,"result":"You've hit your session limit · resets 4:20am (Europe/Stockholm)"}`
@@ -27,7 +32,7 @@ describe('usage limits', () => {
       expect(limitReset('resets 2:10am', Temporal.Instant.from('2026-10-25T00:12:00Z'))).toBe(Date.parse('2026-10-25T01:12:00Z'))
       expect(limitReset('resets 2:10am', Temporal.Instant.from('2026-10-24T23:28:00Z'))).toBe(Date.parse('2026-10-25T00:12:00Z'))
     } finally {
-      process.env.TZ = tz
+      restoreTZ(tz)
     }
   })
   it('treats a time the clocks jump over as a misreading', () => {
@@ -37,7 +42,7 @@ describe('usage limits', () => {
       // 01:00 CET, 29 Mar 2026: clocks jump from 2:00 to 3:00, so 2:30 never comes; wake after the window
       expect(limitReset('resets 2:30am', Temporal.Instant.from('2026-03-29T00:00:00Z'))).toBe(Date.parse('2026-03-29T05:02:00Z'))
     } finally {
-      process.env.TZ = tz
+      restoreTZ(tz)
     }
   })
   it('reads the time in the zone the message names', () => {
@@ -48,7 +53,7 @@ describe('usage limits', () => {
       expect(limitReset('resets 4:20am (Europe/Stockholm)', now)).toBe(Date.parse('2026-10-20T02:22:00Z'))
       expect(limitReset('resets 4:20am (Mars/Olympus)', now)).toBe(Date.parse('2026-10-20T04:22:00Z'))
     } finally {
-      process.env.TZ = tz
+      restoreTZ(tz)
     }
   })
   it('wakes after the 5-hour window when the time is further off than that', () => {
@@ -70,5 +75,25 @@ describe('usage limits', () => {
     expect(
       limitWait('Claude AI usage limit reached|1792461600', Temporal.Instant.fromEpochMilliseconds(1792461600 * 1000 - 3 * 86_400_000)),
     ).toBeNull()
+  })
+  it('notices a reset time that has just gone by', () => {
+    // seen live: sessions that hit the limit right before 11:50pm reported it at 23:50 and 23:52
+    expect(justLifted('resets 11:50pm', at(23, 50))).toBe(true)
+    expect(justLifted('resets 11:50pm', at(23, 52))).toBe(true)
+    expect(justLifted('resets 11:50pm', local(21, 0, 3))).toBe(true)
+    expect(justLifted('resets 4:20am', at(4, 34))).toBe(true)
+    expect(justLifted('resets 4:20am', at(4, 36))).toBe(false)
+    expect(justLifted('resets 4:20am', at(4, 15))).toBe(false)
+    expect(justLifted('resets 12pm', at(16, 11))).toBe(false)
+    expect(justLifted('weekly limit · resets Oct 23, 4pm', at(16, 11))).toBe(false)
+    const epoch = 1792461600
+    expect(justLifted(`Claude AI usage limit reached|${epoch}`, Temporal.Instant.fromEpochMilliseconds(epoch * 1000 + 60_000))).toBe(true)
+  })
+  it('looks again once, soon, when the reset time has just gone by', () => {
+    expect(nextLook('session limit · resets 11:50pm', at(23, 50), false)).toEqual({ until: at(23, 52).epochMilliseconds, soon: true })
+    // still limited at the quick look: the time was a misreading, so wait as usual
+    expect(nextLook('session limit · resets 11:50pm', at(23, 52), true)).toEqual({ until: local(21, 4, 54).epochMilliseconds, soon: false })
+    expect(nextLook('session limit · resets 4:20am', at(1, 35), false)).toEqual({ until: at(4, 22).epochMilliseconds, soon: false })
+    expect(nextLook('weekly limit · resets Oct 23, 4pm', at(11, 45), false)).toEqual({ until: null, soon: false })
   })
 })
