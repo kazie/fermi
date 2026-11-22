@@ -364,10 +364,13 @@ there, or add your own.
 
 - **CI** (`workflows/ci.yml`) runs on every PR and push to `master`: format, lint, type check and unit tests;
   Playwright e2e (report uploaded on failure); client, stories and Docker image builds (not pushed). A final `ci-ok`
-  job sums it up; that is the one check to require.
-- **Dependabot** (`dependabot.yml`) opens weekly, grouped PRs for npm packages, GitHub Actions and the Docker base
-  image. Patch and minor updates merge automatically once `ci-ok` passes (`workflows/dependabot-auto-merge.yml`);
-  majors wait for review.
+  job sums it up; that is the one CI check to require.
+- **Nix** (`workflows/nix.yml`) builds the dev shell on every PR, so a `flake.lock` bump that breaks it fails.
+  `devshell` is the second required check.
+- **Dependabot** (`dependabot.yml`) opens weekly, grouped PRs for npm packages, GitHub Actions, the Docker base
+  image and `flake.lock`. Patch, minor and `flake.lock` updates merge automatically once `ci-ok` and `devshell` pass
+  (`workflows/dependabot-auto-merge.yml`); majors and the voice-engine group are assigned to the owner for review,
+  and so is any Dependabot PR whose CI or Nix check fails (`workflows/dependabot-attention.yml`).
 - **Stories** (`workflows/stories.yml`) publishes the Histoire stories to GitHub Pages on pushes to `master`. They use
   only fake fixtures, never real questions.
 
