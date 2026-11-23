@@ -1,6 +1,8 @@
 version: 2
 updates:
-  # The whole pnpm workspace (root lockfile covers apps/* and packages/*)
+  # The whole pnpm workspace (root lockfile covers apps/* and packages/*). All minor and patch bumps come in one PR:
+  # master doesn't require PRs to be up to date before merging (so the weekly PRs merge without anyone updating
+  # them), and one npm PR means no two Dependabot PRs edit pnpm-lock.yaml. Majors still come one PR each.
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -9,11 +11,8 @@ updates:
     open-pull-requests-limit: 10
     versioning-strategy: increase
     groups:
-      dev-dependencies:
-        dependency-type: development
-        update-types: [minor, patch]
-      production-dependencies:
-        dependency-type: production
+      npm:
+        patterns: ['*']
         update-types: [minor, patch]
 
   # FerMEANie's voice worker (apps/server/voice/uv.lock). Monthly; the packages that shape how she sounds come in one
@@ -30,7 +29,7 @@ updates:
         patterns: ['*']
 
   # The Nix dev shell's nixpkgs (flake.lock). Weekly, with the npm bumps, so Nix's Playwright browsers keep up with
-  # @playwright/test. Merged by hand: CI doesn't build the dev shell, so a green run says nothing about it.
+  # @playwright/test. Merges by itself once Nix's devshell check (nix.yml) has built the dev shell.
   - package-ecosystem: nix
     directory: /
     schedule:
