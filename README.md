@@ -367,10 +367,15 @@ there, or add your own.
   job sums it up; that is the one CI check to require.
 - **Nix** (`workflows/nix.yml`) builds the dev shell on every PR, so a `flake.lock` bump that breaks it fails.
   `devshell` is the second required check.
-- **Dependabot** (`dependabot.yml`) opens weekly, grouped PRs for npm packages, GitHub Actions, the Docker base
-  image and `flake.lock`. Patch, minor and `flake.lock` updates merge automatically once `ci-ok` and `devshell` pass
-  (`workflows/dependabot-auto-merge.yml`); majors and the voice-engine group are assigned to the owner for review,
-  and so is any Dependabot PR whose CI or Nix check fails (`workflows/dependabot-attention.yml`).
+- **Branch protection** on `master` requires `ci-ok` and `devshell`, but not that a PR is up to date with `master`.
+  Auto-merge never updates a branch and Dependabot rebases only on a conflict, so with that rule each Monday's
+  Dependabot PRs waited for someone to update them one at a time.
+- **Dependabot** (`dependabot.yml`) opens weekly, grouped PRs for npm packages (all minor and patch bumps in one PR),
+  GitHub Actions, the Docker base image and `flake.lock`. Patch, minor and `flake.lock` updates merge automatically
+  once `ci-ok` and `devshell` pass (`workflows/dependabot-auto-merge.yml`); majors and the voice-engine group are
+  assigned to the owner for review, and so is any Dependabot PR whose CI or Nix check fails
+  (`workflows/dependabot-attention.yml`). Those merges are made by github-actions[bot], which starts no workflows, so
+  CI and Stories don't run on `master` after them; the next push by a person runs them.
 - **Stories** (`workflows/stories.yml`) publishes the Histoire stories to GitHub Pages on pushes to `master`. They use
   only fake fixtures, never real questions.
 

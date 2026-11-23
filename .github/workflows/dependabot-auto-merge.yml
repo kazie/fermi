@@ -5,6 +5,8 @@ name: Dependabot auto-merge
 # README). Majors are assigned to the repo owner, and so is FerMEANie's voice-engine group whatever its version: it
 # changes how she sounds, so someone listens first (content/VOICE.md, Dependencies). The assignment is the
 # notification that a person is needed; dependabot-attention.yml does the same when a check fails.
+# Branch protection requires the checks but not an up-to-date branch: auto-merge never updates a branch, and
+# Dependabot rebases only on a conflict, so with that rule every PR after the first waited for someone to update it.
 
 on: pull_request
 
