@@ -15,7 +15,7 @@
   "dependencies": {
     "@fermi/shared": "workspace:*",
     "qrcode": "^1.5.4",
-    "vue": "^3.5.45",
+    "vue": "^3.5.46",
     "vue-router": "^5.5.0"
   },
   "devDependencies": {
